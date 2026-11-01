@@ -211,6 +211,7 @@ pub fn set(cx: &mut App) {
                 Some(("Stop", "workspace::StopRun")),
                 None,
                 Some(("Edit Configurations…", "workspace::EditRunConfigurations")),
+                Some(("PHP Interpreter…", "workspace::PhpInterpreter")),
                 None,
                 Some(("Debug", "workspace::DebugContext")),
                 Some(("Start / Stop Listening for PHP Debug Connections", "workspace::ToggleDebugListen")),
@@ -248,6 +249,7 @@ pub fn set(cx: &mut App) {
                 Some(MenuItem::separator()),
                 item(cx, "Deployment: Upload to Server", "workspace::UploadToServer"),
                 item(cx, "Deployment: Download from Server", "workspace::DownloadFromServer"),
+                item(cx, "Deployment: Automatic Upload (on / off)", "workspace::ToggleAutoUpload"),
             ]
             .into_iter()
             .flatten()

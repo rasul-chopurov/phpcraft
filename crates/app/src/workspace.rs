@@ -1038,6 +1038,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::composer_dump_autoload))
             .on_action(cx.listener(Self::composer_validate))
             .on_action(cx.listener(Self::composer_outdated))
+            .on_action(cx.listener(Self::php_interpreter))
+            .on_action(cx.listener(Self::toggle_auto_upload))
             .on_action(cx.listener(Self::toggle_debug_listen))
             .on_action(cx.listener(Self::debug_resume))
             .on_action(cx.listener(Self::debug_step_over))

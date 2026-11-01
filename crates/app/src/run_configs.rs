@@ -66,9 +66,77 @@ fn read(root: &Path) -> File {
     std::fs::read_to_string(file_path(root)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 
-/// The PHP interpreter (`"php"` unless `.phpcraft/run.json` names another).
+/// The PHP interpreter setting (`"php"` unless `.phpcraft/run.json` names another).
 pub fn php(root: &Path) -> String {
     read(root).php.unwrap_or_else(|| "php".into())
+}
+
+/// Saves the PHP interpreter setting.
+pub fn set_php(root: &Path, php: &str) -> std::io::Result<()> {
+    let mut file = read(root);
+    file.php = (!php.trim().is_empty() && php.trim() != "php").then(|| php.trim().to_string());
+    write(root, &file)
+}
+
+/// Where PHP runs: on this machine, in a Docker container, through Sail, or over SSH.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Interpreter {
+    Local(String),
+    /// `docker:<container>[:<workdir>]` (workdir defaults to /var/www/html).
+    Docker { container: String, workdir: String },
+    Sail,
+    /// `ssh:<host>[:<workdir>]`.
+    Ssh { host: String, workdir: String },
+}
+
+impl Interpreter {
+    pub fn parse(setting: &str) -> Self {
+        let setting = setting.trim();
+        let split = |rest: &str, default: &str| -> (String, String) {
+            match rest.split_once(':') {
+                Some((a, b)) if !b.is_empty() => (a.to_string(), b.to_string()),
+                _ => (rest.trim_end_matches(':').to_string(), default.to_string()),
+            }
+        };
+        if let Some(rest) = setting.strip_prefix("docker:") {
+            let (container, workdir) = split(rest, "/var/www/html");
+            Interpreter::Docker { container, workdir }
+        } else if let Some(rest) = setting.strip_prefix("ssh:") {
+            let (host, workdir) = split(rest, ".");
+            Interpreter::Ssh { host, workdir }
+        } else if setting == "sail" {
+            Interpreter::Sail
+        } else {
+            Interpreter::Local(if setting.is_empty() { "php".into() } else { setting.to_string() })
+        }
+    }
+
+    /// `php <args>` through this interpreter. `env` reaches PHP inside containers too.
+    pub fn command(&self, root: &Path, args: Vec<String>, env: &BTreeMap<String, String>) -> terminal::Command {
+        let quote = |a: &String| if a.chars().all(|c| c.is_alphanumeric() || "-_./=:@".contains(c)) { a.clone() } else { format!("'{}'", a.replace('\'', "'\\''")) };
+        match self {
+            Interpreter::Local(php) => terminal::Command { program: php.clone(), args },
+            Interpreter::Docker { container, workdir } => {
+                let mut full = vec!["exec".to_string(), "-it".to_string(), "-w".to_string(), workdir.clone()];
+                for (key, value) in env {
+                    // Xdebug in a container reaches the IDE through the Docker host.
+                    let value = value.replace("client_host=127.0.0.1", "client_host=host.docker.internal");
+                    full.push("-e".into());
+                    full.push(format!("{key}={value}"));
+                }
+                full.push(container.clone());
+                full.push("php".into());
+                full.extend(args);
+                terminal::Command { program: "docker".into(), args: full }
+            }
+            Interpreter::Sail => terminal::Command { program: root.join("vendor/bin/sail").to_string_lossy().into_owned(), args: [vec!["php".to_string()], args].concat() },
+            Interpreter::Ssh { host, workdir } => {
+                let exports: String = env.iter().map(|(k, v)| format!("{k}={} ", quote(v))).collect();
+                let line = format!("cd {} && {exports}php {}", quote(workdir), args.iter().map(quote).collect::<Vec<_>>().join(" "));
+                terminal::Command { program: "ssh".into(), args: vec!["-t".into(), host.clone(), line] }
+            }
+        }
+    }
 }
 
 /// Adds or replaces (by name) a saved configuration.
@@ -143,12 +211,13 @@ pub fn detect(root: &Path) -> Vec<RunConfig> {
 pub const JUNIT_REPORT: &str = ".phpcraft/junit.xml";
 
 pub fn command(config: &RunConfig, root: &Path) -> terminal::Command {
-    let php = php(root);
+    let interpreter = Interpreter::parse(&php(root));
+    let php_cmd = |_: &str, args: Vec<String>| interpreter.command(root, args, &config.env);
     let cmd = |program: &str, args: Vec<String>| terminal::Command { program: program.into(), args };
     let split = |s: &str| s.split_whitespace().map(str::to_string).collect::<Vec<_>>();
     match &config.kind {
-        Kind::Php { script, args } => cmd(&php, [vec![script.clone()], split(args)].concat()),
-        Kind::Artisan { command } => cmd(&php, [vec!["artisan".into()], split(command)].concat()),
+        Kind::Php { script, args } => php_cmd("", [vec![script.clone()], split(args)].concat()),
+        Kind::Artisan { command } => php_cmd("", [vec!["artisan".into()], split(command)].concat()),
         Kind::Test { runner, path, filter } => {
             let mut args = match runner {
                 Runner::Phpunit => vec!["vendor/bin/phpunit".to_string()],
@@ -164,7 +233,7 @@ pub fn command(config: &RunConfig, root: &Path) -> terminal::Command {
             // A JUnit report for the results list (see `test_results`).
             args.push("--log-junit".into());
             args.push(JUNIT_REPORT.into());
-            cmd(&php, args)
+            php_cmd("", args)
         }
         Kind::Composer { script } => cmd("composer", vec!["run-script".into(), script.clone()]),
         Kind::Npm { script } => cmd(if cfg!(windows) { "npm.cmd" } else { "npm" }, vec!["run".into(), script.clone()]),
@@ -298,6 +367,22 @@ mod tests {
         assert_eq!(saved.len(), 1);
         assert_eq!(command(&saved[0], &root).args, ["artisan", "serve", "--port=8080"]);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn interpreters() {
+        let env = BTreeMap::from([("XDEBUG_CONFIG".to_string(), "client_host=127.0.0.1 client_port=9003".to_string())]);
+        let root = Path::new("/p");
+        let args = vec!["artisan".to_string(), "migrate".to_string()];
+        let local = Interpreter::parse("php").command(root, args.clone(), &env);
+        assert_eq!((local.program.as_str(), local.args.clone()), ("php", args.clone()));
+        let docker = Interpreter::parse("docker:app").command(root, args.clone(), &env);
+        assert_eq!(docker.program, "docker");
+        assert_eq!(docker.args, ["exec", "-it", "-w", "/var/www/html", "-e", "XDEBUG_CONFIG=client_host=host.docker.internal client_port=9003", "app", "php", "artisan", "migrate"]);
+        assert_eq!(Interpreter::parse("docker:app:/srv"), Interpreter::Docker { container: "app".into(), workdir: "/srv".into() });
+        let ssh = Interpreter::parse("ssh:deploy@web:/var/www/shop").command(root, args.clone(), &BTreeMap::new());
+        assert_eq!(ssh.args, ["-t", "deploy@web", "cd /var/www/shop && php artisan migrate"]);
+        assert_eq!(Interpreter::parse("sail"), Interpreter::Sail);
     }
 
     #[test]

@@ -490,6 +490,12 @@ impl EditorView {
             let text = self.buffer.text();
             crate::local_history::record(path, &text, "Save");
             self.intel.update_file(path, &text);
+            // Automatic upload; deferred because saves can happen inside a workspace update.
+            let path = path.to_path_buf();
+            let workspace = self.workspace.clone();
+            cx.defer(move |cx| {
+                workspace.update(cx, |ws, cx| ws.file_saved(&path, cx)).ok();
+            });
         }
         cx.notify();
     }

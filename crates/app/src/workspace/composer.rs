@@ -9,7 +9,7 @@ use crate::run_configs::{Kind, RunConfig};
 
 actions!(
     workspace,
-    [ComposerInstall, ComposerUpdate, ComposerRequire, ComposerRemove, ComposerDumpAutoload, ComposerValidate, ComposerOutdated]
+    [ComposerInstall, ComposerUpdate, ComposerRequire, ComposerRemove, ComposerDumpAutoload, ComposerValidate, ComposerOutdated, PhpInterpreter]
 );
 
 impl Workspace {
@@ -49,6 +49,13 @@ impl Workspace {
 
     pub(super) fn composer_remove(&mut self, _: &ComposerRemove, window: &mut Window, cx: &mut Context<Self>) {
         let dialog = cx.new(|cx| InputDialog::new(FileOp::ComposerRemove, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// Run ▸ PHP Interpreter…: local PHP, a Docker container, Sail or SSH.
+    pub(super) fn php_interpreter(&mut self, _: &PhpInterpreter, window: &mut Window, cx: &mut Context<Self>) {
+        let current = crate::run_configs::php(self.project.root());
+        let dialog = cx.new(|cx| InputDialog::new(FileOp::PhpInterpreter(current), window, cx));
         self.show_modal(dialog, window, cx);
     }
 }

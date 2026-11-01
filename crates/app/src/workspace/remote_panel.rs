@@ -13,7 +13,7 @@ use crate::run_configs::{Kind, RunConfig};
 use crate::text_field::TextField;
 use crate::theme;
 
-actions!(workspace, [UploadToServer, DownloadFromServer]);
+actions!(workspace, [UploadToServer, DownloadFromServer, ToggleAutoUpload]);
 
 /// How the server is logged into.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -203,6 +203,41 @@ impl Workspace {
             });
         })
         .detach();
+    }
+
+    /// After a save: uploads the file when Automatic Upload is on for this project.
+    pub(crate) fn file_saved(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let config = deployment::load(&root);
+        if !config.auto_upload || !path.starts_with(&root) {
+            return;
+        }
+        let Some(server) = config.default_server().cloned() else { return };
+        let password = deployment::password(&root, &server.id);
+        let local = path.to_path_buf();
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move { deployment::upload(&server, &password, &root, &local) }).await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(remote) => this.set_status(format!("Uploaded to {remote}"), true, cx),
+                Err(err) => this.set_status(format!("Automatic upload failed: {err}"), false, cx),
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn toggle_auto_upload(&mut self, _: &ToggleAutoUpload, _: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let mut config = deployment::load(&root);
+        config.auto_upload = !config.auto_upload;
+        let message = match (config.auto_upload, config.default_server()) {
+            (true, Some(server)) => format!("Automatic upload to {} is on", server.name),
+            (true, None) => "Automatic upload is on — add a server in Remote Hosts".into(),
+            (false, _) => "Automatic upload is off".into(),
+        };
+        match deployment::save(&root, &config) {
+            Ok(()) => self.set_status(message, true, cx),
+            Err(e) => self.set_status(e.to_string(), false, cx),
+        }
     }
 
     fn upload_path(&mut self, local: PathBuf, cx: &mut Context<Self>) {

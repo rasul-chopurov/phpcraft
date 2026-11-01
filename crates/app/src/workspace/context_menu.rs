@@ -290,6 +290,7 @@ impl Workspace {
                 trash::delete(path).map(|_| None).map_err(|e| e.to_string())
             }
             FileOp::RenameSymbol(symbol) => self.rename_symbol(symbol, name, cx),
+            FileOp::PhpInterpreter(_) => crate::run_configs::set_php(self.project.root(), name).map(|_| None).map_err(|e| e.to_string()),
             FileOp::ComposerRequire | FileOp::ComposerRemove => {
                 let verb = if matches!(op, FileOp::ComposerRequire) { "require" } else { "remove" };
                 // Package names and constraints only: no shell syntax.

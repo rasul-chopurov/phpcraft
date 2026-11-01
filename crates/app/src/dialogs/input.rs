@@ -23,6 +23,8 @@ pub enum FileOp {
     /// Tools ▸ Composer ▸ Require… / Remove… (the name is `vendor/package [constraint]`).
     ComposerRequire,
     ComposerRemove,
+    /// Run ▸ PHP Interpreter… (the current setting).
+    PhpInterpreter(String),
 }
 
 pub struct InputDialog {
@@ -41,6 +43,7 @@ impl InputDialog {
             FileOp::Delete(_) => None,
             FileOp::RenameSymbol(symbol) => Some(symbol.name.clone()),
             FileOp::ComposerRequire | FileOp::ComposerRemove => Some(String::new()),
+            FileOp::PhpInterpreter(current) => Some(current.clone()),
         };
         let focus_handle = cx.focus_handle();
         let field = initial.map(|text| {
@@ -88,6 +91,7 @@ impl Render for InputDialog {
             FileOp::RenameSymbol(symbol) => (format!("Rename '{}' and its usages to", symbol.name), "Refactor"),
             FileOp::ComposerRequire => ("Require package (vendor/package, optionally a version)".to_string(), "Require"),
             FileOp::ComposerRemove => ("Remove package (vendor/package)".to_string(), "Remove"),
+            FileOp::PhpInterpreter(_) => ("PHP interpreter for runs, tests and Artisan".to_string(), "Save"),
         };
         card(420.)
             .key_context("Dialog")
@@ -96,6 +100,9 @@ impl Render for InputDialog {
             .on_action(cx.listener(Self::cancel))
             .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(title))
             .children(self.field.clone().map(|f| div().p_3().child(f)))
+            .when(matches!(self.op, FileOp::PhpInterpreter(_)), |d| {
+                d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child("php or a path · docker:<container>[:<workdir>] · sail · ssh:<host>[:<workdir>]"))
+            })
             .when(matches!(self.op, FileOp::NewFile(_)), |d| {
                 d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child("Use / to create folders too, e.g. Http/Controllers/HomeController.php"))
             })
