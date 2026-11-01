@@ -116,6 +116,8 @@ actions!(
         IntroduceConstant,
         IntroduceField,
         SafeDelete,
+        ExtractBladeComponent,
+        ExtractBladeView,
         NextProblem,
         PrevProblem,
         SurroundWith,
@@ -1150,6 +1152,8 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::introduce_constant))
             .on_action(cx.listener(Self::introduce_field))
             .on_action(cx.listener(Self::safe_delete))
+            .on_action(cx.listener(Self::extract_blade_component))
+            .on_action(cx.listener(Self::extract_blade_view))
             .on_action(cx.listener(Self::next_problem))
             .on_action(cx.listener(Self::prev_problem))
             .on_action(cx.listener(Self::surround_with))

@@ -25,6 +25,8 @@ pub enum FileOp {
     ComposerRemove,
     /// Run ▸ PHP Interpreter… (the current setting).
     PhpInterpreter(String),
+    /// Refactor ▸ Extract Blade Component / Extract View of a selection (byte range).
+    ExtractBlade { component: bool, path: PathBuf, range: std::ops::Range<usize>, text: String },
 }
 
 pub struct InputDialog {
@@ -44,6 +46,7 @@ impl InputDialog {
             FileOp::RenameSymbol(symbol) => Some(symbol.name.clone()),
             FileOp::ComposerRequire | FileOp::ComposerRemove => Some(String::new()),
             FileOp::PhpInterpreter(current) => Some(current.clone()),
+            FileOp::ExtractBlade { .. } => Some(String::new()),
         };
         let focus_handle = cx.focus_handle();
         let field = initial.map(|text| {
@@ -92,6 +95,8 @@ impl Render for InputDialog {
             FileOp::ComposerRequire => ("Require package (vendor/package, optionally a version)".to_string(), "Require"),
             FileOp::ComposerRemove => ("Remove package (vendor/package)".to_string(), "Remove"),
             FileOp::PhpInterpreter(_) => ("PHP interpreter for runs, tests and Artisan".to_string(), "Save"),
+            FileOp::ExtractBlade { component: true, .. } => ("Extract Blade Component — name (e.g. user-card or cards.user)".to_string(), "Extract"),
+            FileOp::ExtractBlade { component: false, .. } => ("Extract View — name (e.g. partials.header)".to_string(), "Extract"),
         };
         card(420.)
             .key_context("Dialog")

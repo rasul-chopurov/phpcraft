@@ -185,6 +185,9 @@ pub fn set(cx: &mut App) {
                 Some(("Introduce Field", "editor::IntroduceField")),
                 Some(("Inline Variable", "editor::InlineVariable")),
                 Some(("Safe Delete", "editor::SafeDelete")),
+                None,
+                Some(("Extract Blade Component…", "editor::ExtractBladeComponent")),
+                Some(("Extract View…", "editor::ExtractBladeView")),
             ],
         ),
         menu(

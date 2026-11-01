@@ -299,6 +299,61 @@ pub fn prop_variable_completions(path: &Path, source: &str, offset: usize) -> Op
     )
 }
 
+/// Variables a Blade fragment uses (`$user`, not `$loop`, `$errors`, `$slot`…), in order.
+fn fragment_variables(text: &str) -> Vec<String> {
+    const IMPLICIT: &[&str] = &["this", "loop", "errors", "slot", "attributes", "component", "app", "message", "__env", "__data"];
+    let mut found: Vec<String> = Vec::new();
+    let bytes = text.as_bytes();
+    for (i, _) in text.match_indices('$') {
+        let len = text[i + 1..].find(|c: char| !(c.is_alphanumeric() || c == '_')).unwrap_or(text.len() - i - 1);
+        let name = &text[i + 1..i + 1 + len];
+        // `@foreach($users as $user)` defines `$user` inside the fragment.
+        let defined = text[..i].trim_end().ends_with(" as") || (i > 0 && bytes[i - 1] == b'>' && text[..i].trim_end().ends_with("=>"));
+        if !name.is_empty() && !name.starts_with(|c: char| c.is_ascii_digit()) && !IMPLICIT.contains(&name) && !defined && !found.iter().any(|f| f == name) {
+            found.push(name.to_string());
+        }
+    }
+    // Loop variables are defined by the fragment itself.
+    let defined: Vec<String> = text.match_indices(" as $").filter_map(|(i, _)| {
+        let rest = &text[i + 5..];
+        Some(rest[..rest.find(|c: char| !(c.is_alphanumeric() || c == '_'))?].to_string())
+    }).collect();
+    found.retain(|v| !defined.contains(v));
+    found
+}
+
+/// Removes the common indentation of `text`'s lines.
+fn dedent(text: &str) -> String {
+    let indent = text.lines().filter(|l| !l.trim().is_empty()).map(|l| l.len() - l.trim_start().len()).min().unwrap_or(0);
+    text.lines().map(|l| l.get(indent..).unwrap_or(l.trim_start())).collect::<Vec<_>>().join("\n").trim_end().to_string() + "\n"
+}
+
+/// Refactor ▸ Extract Blade Component / Extract View: the new file's content and what replaces
+/// the selection. `name` is dotted (`cards.user`).
+pub fn extract(selection: &str, name: &str, component: bool) -> (String, String) {
+    let body = dedent(selection);
+    if !component {
+        return (body, format!("@include('{name}')"));
+    }
+    let vars = fragment_variables(selection);
+    let tag: String = name.to_string();
+    if vars.is_empty() {
+        return (body, format!("<x-{tag} />"));
+    }
+    let props = vars.iter().map(|v| format!("'{v}'")).collect::<Vec<_>>().join(", ");
+    let attrs = vars.iter().map(|v| {
+        let kebab: String = v.chars().flat_map(|c| if c.is_uppercase() { vec!['-', c.to_ascii_lowercase()] } else { vec![c] }).collect();
+        format!(":{kebab}=\"${v}\"")
+    }).collect::<Vec<_>>().join(" ");
+    (format!("@props([{props}])\n\n{body}"), format!("<x-{tag} {attrs} />"))
+}
+
+/// Where Extract View / Extract Blade Component writes `name`.
+pub fn extracted_path(views: &Path, name: &str, component: bool) -> PathBuf {
+    let rel = name.replace('.', "/");
+    if component { views.join("components").join(format!("{rel}.blade.php")) } else { views.join(format!("{rel}.blade.php")) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,5 +400,17 @@ mod tests {
         let vars = prop_variable_completions(&view, source, source.len()).unwrap();
         assert_eq!(vars.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["$type"]);
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn extracts_components_and_views() {
+        let selection = "    <div class=\"card\">\n        <h2>{{ $user->name }}</h2>\n        @foreach($posts as $post) {{ $post->title }} @endforeach\n        @error('x') {{ $message }} @enderror\n    </div>";
+        let (file, replacement) = extract(selection, "user-card", true);
+        assert_eq!(replacement, "<x-user-card :user=\"$user\" :posts=\"$posts\" />");
+        assert!(file.starts_with("@props(['user', 'posts'])\n\n<div class=\"card\">\n    <h2>"), "{file}");
+        let (file, replacement) = extract(selection, "partials.card", false);
+        assert_eq!(replacement, "@include('partials.card')");
+        assert!(file.starts_with("<div class=\"card\">"));
+        assert!(extracted_path(Path::new("/v"), "cards.user", true).ends_with("components/cards/user.blade.php"));
     }
 }

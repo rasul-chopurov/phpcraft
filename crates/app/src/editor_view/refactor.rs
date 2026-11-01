@@ -6,7 +6,7 @@
 
 use gpui::{Context, Window};
 
-use super::{EditorView, ExtractMethod, InlineVariable, IntroduceConstant, IntroduceField, IntroduceVariable, SafeDelete, ToggleMarkdownPreview};
+use super::{EditorView, ExtractBladeComponent, ExtractBladeView, ExtractMethod, InlineVariable, IntroduceConstant, IntroduceField, IntroduceVariable, SafeDelete, ToggleMarkdownPreview};
 use super::info::Info;
 
 impl EditorView {
@@ -129,5 +129,24 @@ impl EditorView {
             .ok();
         })
         .detach();
+    }
+
+    fn extract_blade(&mut self, component: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.path().filter(|p| p.to_string_lossy().ends_with(".blade.php")) else { return };
+        if self.buffer.selection.is_empty() {
+            self.info = Some(Info::Message("Select the markup to extract".into()));
+            return cx.notify();
+        }
+        let range = self.selection_bytes();
+        let text = self.buffer.selected_text();
+        self.workspace.update(cx, |ws, cx| ws.start_extract_blade(component, path, range, text, window, cx)).ok();
+    }
+
+    pub(super) fn extract_blade_component(&mut self, _: &ExtractBladeComponent, window: &mut Window, cx: &mut Context<Self>) {
+        self.extract_blade(true, window, cx);
+    }
+
+    pub(super) fn extract_blade_view(&mut self, _: &ExtractBladeView, window: &mut Window, cx: &mut Context<Self>) {
+        self.extract_blade(false, window, cx);
     }
 }

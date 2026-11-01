@@ -97,4 +97,38 @@ impl Workspace {
         }
         Ok(None)
     }
+
+    /// Refactor ▸ Extract Blade Component / Extract View: asks for the name.
+    pub(crate) fn start_extract_blade(&mut self, component: bool, path: PathBuf, range: std::ops::Range<usize>, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let dialog = cx.new(|cx| InputDialog::new(FileOp::ExtractBlade { component, path, range, text }, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// Writes the extracted view and puts its `<x-…>` / `@include` in place of the selection.
+    pub(super) fn extract_blade(&mut self, component: bool, path: &std::path::Path, range: std::ops::Range<usize>, text: &str, name: &str, cx: &mut Context<Self>) -> Result<Option<PathBuf>, String> {
+        let name = name.trim().trim_end_matches(".blade.php");
+        if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.')) {
+            return Err(format!("'{name}' is not a view name"));
+        }
+        let root = self.intel.laravel_root().unwrap_or_else(|| self.project.root().to_path_buf());
+        let target = laravel::blade::extracted_path(&root.join("resources/views"), name, component);
+        if target.exists() {
+            return Err(format!("{} already exists", target.display()));
+        }
+        let (content, replacement) = laravel::blade::extract(text, name, component);
+        std::fs::create_dir_all(target.parent().unwrap_or(&root)).map_err(|e| e.to_string())?;
+        std::fs::write(&target, content).map_err(|e| e.to_string())?;
+        // Keep the selection's own indentation in front of the replacement.
+        let indent: String = text.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+        let replacement = format!("{indent}{replacement}");
+        let Some(editor) = self.open_editors().into_iter().find(|e| e.read(cx).buffer.path() == Some(path)) else {
+            return Err("the file is no longer open".into());
+        };
+        editor.update(cx, |editor, cx| {
+            let caret = range.start;
+            editor.buffer.apply_edits(vec![(range, replacement)], caret);
+            cx.notify();
+        });
+        Ok(None)
+    }
 }
