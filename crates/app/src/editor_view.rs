@@ -210,6 +210,8 @@ pub struct EditorView {
     problems: Option<(u64, Vec<php_analysis::Problem>)>,
     /// PHPStan / Psalm / PHPCS findings for the version that was saved.
     external_problems: Option<(u64, Vec<php_analysis::Problem>)>,
+    /// Merge conflict blocks for a buffer version.
+    conflict_cache: Option<(u64, Vec<git::Conflict>)>,
     /// Lines with a ▶ run mark (test files), for a buffer version.
     test_marks: Option<(u64, Vec<usize>)>,
     /// Methods with ↑ / ↓ inheritance marks, for a buffer version.
@@ -253,6 +255,7 @@ impl EditorView {
             problems: None,
             external_problems: None,
             test_marks: None,
+            conflict_cache: None,
             inheritance: None,
             routes: None,
             breakpoints: Vec::new(),
@@ -1307,6 +1310,17 @@ impl Element for EditorElement {
             let breakpoint_lines = view.breakpoint_lines();
             let execution_line = view.execution_line;
             let coverage = view.buffer.path().map(crate::test_results::coverage_for).unwrap_or_default();
+            // Conflict sides as line ranges: (first line, last line, ours).
+            let conflict_lines: Vec<(usize, usize, bool)> = view
+                .conflicts()
+                .iter()
+                .flat_map(|c| {
+                    let line = |b: usize| view.buffer.char_to_line_col(view.buffer.byte_to_char(b)).0;
+                    let side = |r: &Range<usize>, ours: bool| (!r.is_empty()).then(|| (line(r.start), line(r.end.saturating_sub(1)), ours));
+                    [side(&c.ours, true), side(&c.theirs, false)]
+                })
+                .flatten()
+                .collect();
             let indent_cols = match view.buffer.indent_unit() {
                 "\t" => 4,
                 unit => unit.len().max(1),
@@ -1560,6 +1574,11 @@ impl Element for EditorElement {
                     if let Some((_, hit)) = coverage.iter().find(|(l, _)| *l == line) {
                         let x = bounds.left() + gutter_width - fold_width - px(9.);
                         gutter_quads.push(fill(Bounds::new(point(x, y), size(px(3.), line_height)), if *hit { theme::success() } else { theme::error() }));
+                    }
+                    // Merge conflict sides: yours green, theirs blue.
+                    if let Some((_, _, ours)) = conflict_lines.iter().find(|(a, b, _)| *a <= line && line <= *b) {
+                        let color = if *ours { theme::success() } else { theme::accent() };
+                        gutter_quads.push(fill(Bounds::from_corners(point(bounds.left() + gutter_width, y), point(bounds.right(), y + line_height)), color.opacity(0.12)));
                     }
                     // The debugger stopped here: the whole line is tinted.
                     if execution_line == Some(line) {

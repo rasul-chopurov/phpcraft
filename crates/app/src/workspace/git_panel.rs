@@ -420,7 +420,7 @@ impl Workspace {
         self.open_diff_tab("Commit", files, index, window, cx);
     }
 
-    fn open_diff_tab(&mut self, kind: &str, files: Vec<crate::diff_view::DiffSource>, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn open_diff_tab(&mut self, kind: &str, files: Vec<crate::diff_view::DiffSource>, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if files.is_empty() {
             return;
         }

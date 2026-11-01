@@ -305,9 +305,12 @@ impl EditorView {
     ) {
         let offset = self.caret_byte();
         let mut items = Vec::new();
+        for (label, edits) in self.conflict_resolutions() {
+            items.push(MenuItem::new(label, "", "⇆", MenuAction::Edits(edits)));
+        }
         let path = self.path();
         let text = self.buffer.text();
-        for problem in self.problems_at_caret() {
+        for problem in self.problems_at_caret().into_iter().filter(|p| p.id != "conflict") {
             items.push(MenuItem::new(problem.message.clone(), "", "⚠", MenuAction::Nothing));
             if problem.id == "unused-variable"
                 && let Some(path) = &path

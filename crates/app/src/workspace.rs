@@ -21,6 +21,7 @@ mod tests_view;
 mod composer;
 mod debug_panel;
 mod services_panel;
+mod git_compare;
 pub use git_panel::ShowCommit;
 pub(crate) use db_panel::RunSql;
 
@@ -1030,6 +1031,10 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::show_problems))
             .on_action(cx.listener(Self::inspect_code))
             .on_action(cx.listener(Self::show_todo))
+            .on_action(cx.listener(Self::compare_with_revision))
+            .on_action(cx.listener(Self::compare_with_clipboard))
+            .on_action(cx.listener(Self::resolve_conflicts))
+            .on_action(cx.listener(Self::mark_resolved))
             .on_action(cx.listener(Self::show_test_results))
             .on_action(cx.listener(Self::rerun_failed_tests))
             .on_action(cx.listener(Self::run_with_coverage))

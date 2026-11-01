@@ -19,6 +19,23 @@ impl EditorView {
             self.problems = Some((version, found));
         }
         let mut problems = self.problems.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
+        // Merge conflicts, in any file: the `<<<<<<<` line is the problem. Until they are
+        // resolved the code doesn't parse as intended, so other problems are noise.
+        let text = self.buffer.text();
+        let conflicts = self.conflicts();
+        if !conflicts.is_empty() {
+            problems.clear();
+        }
+        for conflict in conflicts {
+            let start = conflict.whole.start;
+            let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
+            problems.push(php_analysis::Problem {
+                range: start..end,
+                severity: php_analysis::Severity::Error,
+                message: format!("Merge conflict: {} ↔ {} (⌥↵ to resolve)", conflict.ours_label, conflict.theirs_label),
+                id: "conflict",
+            });
+        }
         if let Some((v, external)) = &self.external_problems
             && *v == self.buffer.version()
         {
@@ -31,6 +48,34 @@ impl EditorView {
     /// Every problem of the file (inspections and external analysers), for the Problems list.
     pub fn all_problems(&mut self) -> Vec<php_analysis::Problem> {
         self.current_problems()
+    }
+
+    /// Merge conflict blocks in the text, cached per buffer version.
+    pub(super) fn conflicts(&mut self) -> Vec<git::Conflict> {
+        let version = self.buffer.version();
+        if self.conflict_cache.as_ref().is_none_or(|(v, _)| *v != version) {
+            let text = self.buffer.text();
+            let found = if text.contains("<<<<<<<") { git::conflicts(&text) } else { Vec::new() };
+            self.conflict_cache = Some((version, found));
+        }
+        self.conflict_cache.as_ref().map(|(_, c)| c.clone()).unwrap_or_default()
+    }
+
+    /// Accept Yours / Theirs / Both for the conflict at the caret.
+    pub(super) fn conflict_resolutions(&mut self) -> Vec<(String, Vec<(std::ops::Range<usize>, String)>)> {
+        let at = self.caret_byte();
+        let text = self.buffer.text();
+        let Some(conflict) = self.conflicts().into_iter().find(|c| c.whole.start <= at && at <= c.whole.end) else { return Vec::new() };
+        let (ours, theirs) = (conflict.ours_label.clone(), conflict.theirs_label.clone());
+        [
+            (format!("Accept Yours ({ours})"), true, false, false),
+            (format!("Accept Theirs ({theirs})"), false, true, false),
+            ("Accept Both (yours first)".to_string(), true, true, false),
+            ("Accept Both (theirs first)".to_string(), true, true, true),
+        ]
+        .into_iter()
+        .map(|(label, o, t, tf)| (label, vec![(conflict.whole.clone(), git::resolve(&text, &conflict, o, t, tf))]))
+        .collect()
     }
 
     /// Problems at the caret, for the intentions menu.

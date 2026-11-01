@@ -681,6 +681,69 @@ pub fn inline_changes(old: &str, new: &str) -> (Vec<Range<usize>>, Vec<Range<usi
     (left, right)
 }
 
+/// A merge conflict block in a file: byte ranges of the whole block and of each side's text
+/// (without the marker lines).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conflict {
+    pub whole: Range<usize>,
+    pub ours: Range<usize>,
+    /// `|||||||` common ancestor (diff3 style), if present.
+    pub base: Option<Range<usize>>,
+    pub theirs: Range<usize>,
+    /// Labels after the markers (`HEAD`, the branch name).
+    pub ours_label: String,
+    pub theirs_label: String,
+}
+
+/// The `<<<<<<<` … `=======` … `>>>>>>>` blocks of `text`.
+pub fn conflicts(text: &str) -> Vec<Conflict> {
+    let mut out = Vec::new();
+    let mut offset = 0;
+    let mut open: Option<(usize, usize, String)> = None;
+    let mut base: Option<(usize, usize)> = None;
+    let mut middle: Option<(usize, usize)> = None;
+    for line in text.split_inclusive('\n') {
+        let start = offset;
+        offset += line.len();
+        let marker = |m: &str| line.starts_with(m) && line[m.len()..].chars().next().is_none_or(|c| c == ' ' || c == '\n' || c == '\r');
+        if marker("<<<<<<<") {
+            open = Some((start, offset, line[7..].trim().to_string()));
+            base = None;
+            middle = None;
+        } else if open.is_some() && middle.is_none() && marker("|||||||") {
+            base = Some((start, offset));
+        } else if open.is_some() && middle.is_none() && marker("=======") {
+            middle = Some((start, offset));
+        } else if marker(">>>>>>>")
+            && let (Some((o_start, o_end, ours_label)), Some((m_start, m_end))) = (open.take(), middle.take())
+        {
+            let ours_end = base.map_or(m_start, |(b, _)| b);
+            out.push(Conflict {
+                whole: o_start..offset,
+                ours: o_end..ours_end,
+                base: base.map(|(_, b_end)| b_end..m_start),
+                theirs: m_end..start,
+                ours_label,
+                theirs_label: line[7..].trim().to_string(),
+            });
+            base = None;
+        }
+    }
+    out
+}
+
+/// The text of a conflict resolved one way: `ours`, `theirs`, or both in either order.
+pub fn resolve(text: &str, conflict: &Conflict, ours: bool, theirs: bool, theirs_first: bool) -> String {
+    let (o, t) = (&text[conflict.ours.clone()], &text[conflict.theirs.clone()]);
+    match (ours, theirs) {
+        (true, true) if theirs_first => format!("{t}{o}"),
+        (true, true) => format!("{o}{t}"),
+        (true, false) => o.to_string(),
+        (false, true) => t.to_string(),
+        _ => String::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -800,5 +863,19 @@ mod tests {
         repo.discard(&b).unwrap();
         assert!(repo.status().unwrap().is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn parses_conflicts() {
+        let text = "a\n<<<<<<< HEAD\nmine\n||||||| base\nold\n=======\ntheirs\n>>>>>>> feature\nz\n";
+        let found = conflicts(text);
+        assert_eq!(found.len(), 1);
+        let c = &found[0];
+        assert_eq!((&text[c.ours.clone()], &text[c.theirs.clone()]), ("mine\n", "theirs\n"));
+        assert_eq!(&text[c.base.clone().unwrap()], "old\n");
+        assert_eq!((c.ours_label.as_str(), c.theirs_label.as_str()), ("HEAD", "feature"));
+        assert_eq!(&text[c.whole.clone()], "<<<<<<< HEAD\nmine\n||||||| base\nold\n=======\ntheirs\n>>>>>>> feature\n");
+        assert_eq!(resolve(text, c, true, true, false), "mine\ntheirs\n");
+        assert_eq!(resolve(text, c, false, true, false), "theirs\n");
     }
 }

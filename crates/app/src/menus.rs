@@ -275,6 +275,8 @@ pub fn set(cx: &mut App) {
                 item(cx, "Fetch", "workspace::GitFetch"),
                 Some(MenuItem::separator()),
                 item(cx, "Merge…", "workspace::GitMerge"),
+                item(cx, "Resolve Conflicts…", "workspace::ResolveConflicts"),
+                item(cx, "Mark File as Resolved", "workspace::MarkResolved"),
                 item(cx, "Rebase…", "workspace::GitRebase"),
                 Some(MenuItem::separator()),
                 item(cx, "Branches…", "workspace::OpenBranches"),
@@ -286,6 +288,8 @@ pub fn set(cx: &mut App) {
                 item(cx, "Worktrees…", "workspace::GitWorktrees"),
                 Some(MenuItem::separator()),
                 item(cx, "Show Git Log", "workspace::ToggleGitLog"),
+                item(cx, "Compare with Branch / Revision…", "workspace::CompareWithRevision"),
+                item(cx, "Compare with Clipboard", "workspace::CompareWithClipboard"),
                 Some(MenuItem::submenu(menu(
                     cx,
                     "Patch",

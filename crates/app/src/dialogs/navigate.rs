@@ -36,12 +36,13 @@ pub enum NavMode {
     Tests,
     Callers,
     Todo,
+    Conflicts,
 }
 
 impl NavMode {
     /// Modes showing one list of `sources.recent` without tabs.
     fn is_single(self) -> bool {
-        matches!(self, Self::Recent | Self::UnusedViews | Self::Tables | Self::Bookmarks | Self::Usages | Self::Problems | Self::Tests | Self::Callers | Self::Todo)
+        matches!(self, Self::Recent | Self::UnusedViews | Self::Tables | Self::Bookmarks | Self::Usages | Self::Problems | Self::Tests | Self::Callers | Self::Todo | Self::Conflicts)
     }
 
     const TABS: [NavMode; 6] = [
@@ -70,6 +71,7 @@ impl NavMode {
             Self::Tests => "Test Results",
             Self::Callers => "Call Hierarchy",
             Self::Todo => "TODO",
+            Self::Conflicts => "Merge Conflicts",
         }
     }
 }
@@ -319,7 +321,7 @@ impl NavigateDialog {
             NavMode::Symbols => section(&self.sources.symbols, LIMIT).collect(),
             NavMode::Actions => section(&self.sources.actions, LIMIT).collect(),
             NavMode::Text => self.text_results.1.iter().map(|i| Row::Item(i.clone(), Vec::new())).collect(),
-            NavMode::Recent | NavMode::UnusedViews | NavMode::Tables | NavMode::Bookmarks | NavMode::Usages | NavMode::Problems | NavMode::Tests | NavMode::Callers | NavMode::Todo => {
+            NavMode::Recent | NavMode::UnusedViews | NavMode::Tables | NavMode::Bookmarks | NavMode::Usages | NavMode::Problems | NavMode::Tests | NavMode::Callers | NavMode::Todo | NavMode::Conflicts => {
                 section(&self.sources.recent, 500).collect()
             }
             NavMode::All => {
