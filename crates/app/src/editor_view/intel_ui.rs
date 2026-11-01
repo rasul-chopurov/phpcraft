@@ -70,11 +70,11 @@ fn completion_icon(kind: CompletionKind) -> &'static str {
 }
 
 impl EditorView {
-    fn path(&self) -> Option<std::path::PathBuf> {
+    pub(super) fn path(&self) -> Option<std::path::PathBuf> {
         self.buffer.path().map(|p| p.to_path_buf())
     }
 
-    fn caret_byte(&self) -> usize {
+    pub(super) fn caret_byte(&self) -> usize {
         self.buffer.char_to_byte(self.buffer.selection.head)
     }
 
@@ -89,7 +89,8 @@ impl EditorView {
         let Some(path) = self.path() else { return };
         let targets = self.intel.goto(&path, &self.buffer.text(), offset);
         match targets.len() {
-            0 => {}
+            // ⌘B on a declaration shows its usages.
+            0 => self.find_usages_at(offset, window, cx),
             1 => self.navigate(targets.into_iter().next().unwrap(), window, cx),
             _ => {
                 let root = self.intel_root();

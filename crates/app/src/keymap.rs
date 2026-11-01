@@ -118,6 +118,10 @@ const DEFAULTS: &[Default] = &[
     both("secondary-.", "editor::FoldSelection", ED),
     per("alt-up", "ctrl-w", "editor::ExtendSelection", ED),
     per("alt-down", "ctrl-shift-w", "editor::ShrinkSelection", ED),
+    // Usages.
+    both("alt-f7", "editor::FindUsages", ED),
+    both("secondary-shift-f7", "editor::HighlightUsages", ED),
+    both("escape", "editor::ClearUsageHighlights", Some("Editor && usages")),
     // Bookmarks.
     per("f3", "f11", "editor::ToggleBookmark", ED),
     per("alt-f3", "ctrl-f11", "editor::ToggleBookmarkWithMnemonic", ED),

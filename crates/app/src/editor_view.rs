@@ -8,6 +8,7 @@ mod ghost;
 mod intel_ui;
 mod multicaret;
 mod text_ops;
+mod usages;
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -87,6 +88,9 @@ actions!(
         NextBookmark,
         PrevBookmark,
         ToggleWhitespace,
+        FindUsages,
+        HighlightUsages,
+        ClearUsageHighlights,
         ExtendSelection,
         ShrinkSelection,
         JoinLines,
@@ -163,6 +167,8 @@ pub struct EditorView {
     bookmarks: Vec<(usize, Option<char>)>,
     /// View ▸ Show Whitespaces.
     show_whitespace: bool,
+    /// Highlight Usages in File: byte ranges for a buffer version.
+    usage_highlights: Option<(u64, Vec<Range<usize>>)>,
 }
 
 impl EditorView {
@@ -191,6 +197,7 @@ impl EditorView {
             row_count: 0,
             bookmarks: Vec::new(),
             show_whitespace: false,
+            usage_highlights: None,
             buffer,
             focus_handle: cx.focus_handle(),
             scroll_y: px(0.),
@@ -906,6 +913,9 @@ impl Render for EditorView {
         if self.buffer.has_extra_carets() {
             key_context.add("multicaret");
         }
+        if !self.current_usage_highlights().is_empty() {
+            key_context.add("usages");
+        }
         if self.menu_open() {
             key_context.add("menu");
         } else if self.ghost().is_some() {
@@ -1001,6 +1011,9 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::next_bookmark))
             .on_action(cx.listener(Self::prev_bookmark))
             .on_action(cx.listener(Self::toggle_whitespace))
+            .on_action(cx.listener(Self::find_usages))
+            .on_action(cx.listener(Self::highlight_usages))
+            .on_action(cx.listener(Self::clear_usage_highlights))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -1196,10 +1209,13 @@ impl Element for EditorElement {
                 .collect();
             let link = view.hover_link.clone();
             let mut underlines = Vec::new();
-            let (find_matches, find_current) = match &view.find {
+            let (mut find_matches, find_current) = match &view.find {
                 Some(find) => (find.matches.clone(), find.current),
                 None => (Vec::new(), None),
             };
+            if find_matches.is_empty() {
+                find_matches = view.current_usage_highlights();
+            }
 
             let mut lines = Vec::new();
             let mut selection_quads = Vec::new();

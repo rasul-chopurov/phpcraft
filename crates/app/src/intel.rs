@@ -199,6 +199,49 @@ impl Intel {
         }
     }
 
+    /// The symbol under `offset`, for Find Usages.
+    pub fn symbol_at(&self, path: &Path, source: &str, offset: usize) -> Option<php_analysis::Symbol> {
+        let index = self.index.read().unwrap();
+        let doc = Document::parse(path, source)?;
+        php_analysis::symbol_at(&doc, &index, offset)
+    }
+
+    /// Every usage of `symbol` in the project's PHP files (vendor/ excluded). `open` gives the
+    /// text of files with unsaved changes. Runs on a background thread.
+    pub fn find_usages(&self, symbol: &php_analysis::Symbol, open: &[(PathBuf, String)]) -> Vec<Location> {
+        let files: Vec<PathBuf> = if symbol.local {
+            vec![symbol.declaration.path.clone()]
+        } else {
+            search::list_files(&self.root, false)
+                .into_iter()
+                .filter(|p| p.extension().is_some_and(|e| e == "php") && !p.to_string_lossy().ends_with(".blade.php"))
+                .collect()
+        };
+        let index = self.index.read().unwrap();
+        let mut found = Vec::new();
+        for path in files {
+            let text = match open.iter().find(|(p, _)| *p == path) {
+                Some((_, text)) => text.clone(),
+                None => match std::fs::read_to_string(&path) {
+                    Ok(text) => text,
+                    Err(_) => continue,
+                },
+            };
+            if !text.contains(symbol.name.as_str()) {
+                continue;
+            }
+            let Some(doc) = Document::parse(&path, &text) else { continue };
+            found.extend(php_analysis::usages_in(&doc, &index, symbol).into_iter().map(|range| Location { path: path.clone(), range }));
+        }
+        found
+    }
+
+    /// Usages of `symbol` in one file's text.
+    pub fn find_usages_in(&self, symbol: &php_analysis::Symbol, path: &Path, text: &str) -> Vec<std::ops::Range<usize>> {
+        let index = self.index.read().unwrap();
+        Document::parse(path, text).map(|doc| php_analysis::usages_in(&doc, &index, symbol)).unwrap_or_default()
+    }
+
     pub fn goto(&self, path: &Path, source: &str, offset: usize) -> Vec<Location> {
         let index = self.index.read().unwrap();
         let doc = Document::parse(path, source);

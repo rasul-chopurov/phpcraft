@@ -8,6 +8,7 @@ pub mod matcher;
 mod goto;
 mod imports;
 mod types;
+mod usages;
 
 use std::ops::Range;
 use std::path::Path;
@@ -17,6 +18,7 @@ use tree_sitter::{Node, Tree};
 
 pub use complete::{CompletionItem, CompletionKind, complete};
 pub use goto::{goto_definition, reference_range};
+pub use usages::{Symbol, symbol_at, usages_in};
 pub use imports::{
     TextEdit, Unresolved, class_insertion, import_edit, optimize_imports, unresolved_classes,
 };
