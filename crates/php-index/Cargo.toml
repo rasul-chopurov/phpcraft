@@ -7,3 +7,4 @@ license.workspace = true
 [dependencies]
 php-syntax.workspace = true
 tree-sitter.workspace = true
+rayon.workspace = true

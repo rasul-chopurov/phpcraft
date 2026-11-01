@@ -131,7 +131,19 @@ pub fn language() -> Language {
 }
 
 pub fn parse(source: &str) -> Option<Tree> {
-    parse_with(&language(), source)
+    // One parser per thread: creating a parser per file shows up when indexing vendor/.
+    thread_local! {
+        static PARSER: std::cell::RefCell<Option<Parser>> = const { std::cell::RefCell::new(None) };
+    }
+    PARSER.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if slot.is_none() {
+            let mut parser = Parser::new();
+            parser.set_language(&language()).ok()?;
+            *slot = Some(parser);
+        }
+        slot.as_mut()?.parse(source, None)
+    })
 }
 
 fn parse_with(language: &Language, source: &str) -> Option<Tree> {

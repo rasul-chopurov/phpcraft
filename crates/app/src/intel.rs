@@ -21,6 +21,14 @@ pub struct Intel {
     repo: Option<git::Repo>,
 }
 
+/// Where the on-disk index cache for `root` lives (one file per project).
+fn index_cache_file(root: &std::path::Path) -> std::path::PathBuf {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    root.hash(&mut hasher);
+    crate::config::dir().join("index").join(format!("{:016x}.bin", hasher.finish()))
+}
+
 impl Intel {
     pub fn new(root: &Path) -> Arc<Self> {
         Arc::new(Self {
@@ -40,7 +48,7 @@ impl Intel {
     /// Builds the index; runs on a background thread.
     pub fn scan(&self) {
         let started = Instant::now();
-        let mut index = Index::scan(&self.root);
+        let mut index = Index::scan_cached(&self.root, Some(&index_cache_file(&self.root)));
         if self.is_laravel() {
             laravel::register_mixins(&mut index);
         }

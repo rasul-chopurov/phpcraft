@@ -1,5 +1,6 @@
 //! Project-wide index of PHP declarations (the PhpCraft analogue of PhpStorm's stub index).
 
+mod cache;
 pub mod extract;
 pub mod names;
 
@@ -54,33 +55,34 @@ impl Index {
         Self::default()
     }
 
-    /// Parses every PHP file under `root` (including `vendor/`) using all CPU cores.
+    /// Parses every PHP file under `root` (including `vendor/`) using all CPU cores: folders
+    /// are walked in parallel and each file is parsed as soon as it is found.
     pub fn scan(root: &Path) -> Self {
-        let mut files = Vec::new();
-        collect_php_files(root, &mut files);
-        let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-        let chunk = files.len().div_ceil(threads).max(1);
-        let results: Vec<FileSymbols> = std::thread::scope(|scope| {
-            let handles: Vec<_> = files
-                .chunks(chunk)
-                .map(|paths| {
-                    scope.spawn(move || {
-                        paths
-                            .iter()
-                            .filter_map(|path| {
-                                let source = fs::read_to_string(path).ok()?;
-                                let tree = php_syntax::parse(&source)?;
-                                Some(extract(path, &source, &tree))
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                })
-                .collect();
-            handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
-        });
+        Self::scan_cached(root, None)
+    }
+
+    /// Like `scan`, reusing `cache_file` for files whose modification time and size haven't
+    /// changed, and rewriting it when anything did.
+    pub fn scan_cached(root: &Path, cache_file: Option<&Path>) -> Self {
+        let cached = cache_file.map(cache::load).unwrap_or_default();
+        let reused = std::sync::atomic::AtomicUsize::new(0);
+        let found = std::sync::Mutex::new(Vec::new());
+        let walk = Walk { cached: &cached, reused: &reused, found: &found };
+        rayon::scope(|scope| scan_dir(root.to_path_buf(), walk, scope));
+        let mut results: Vec<(PathBuf, cache::Entry)> = found.into_inner().unwrap_or_default();
+        // A stable order, so duplicate class names always resolve the same way.
+        results.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        let reused = reused.into_inner();
+        if let Some(file) = cache_file
+            && (reused != results.len() || cached.len() != results.len())
+        {
+            let bytes = cache::encode(&results);
+            let file = file.to_path_buf();
+            std::thread::spawn(move || cache::write(&file, &bytes));
+        }
         let mut index = Self::new();
-        for symbols in results {
-            index.insert(symbols);
+        for (_, entry) in results {
+            index.insert(FileSymbols { classes: entry.classes, functions: entry.functions, ..Default::default() });
         }
         index
     }
@@ -283,21 +285,48 @@ impl Index {
     }
 }
 
-fn collect_php_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+fn is_php_source(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e == "php") && !path.to_string_lossy().ends_with(".blade.php")
+}
+
+/// Shared state of a parallel scan.
+#[derive(Clone, Copy)]
+struct Walk<'s> {
+    cached: &'s HashMap<PathBuf, cache::Entry>,
+    reused: &'s std::sync::atomic::AtomicUsize,
+    found: &'s std::sync::Mutex<Vec<(PathBuf, cache::Entry)>>,
+}
+
+/// Walks `dir`, indexing its PHP files (from the cache when unchanged) and spawning a task
+/// per subfolder.
+fn scan_dir<'s>(dir: PathBuf, walk: Walk<'s>, scope: &rayon::Scope<'s>) {
+    let Ok(entries) = fs::read_dir(&dir) else { return };
+    let mut local = Vec::new();
     for entry in entries.flatten() {
-        let path = entry.path();
         let Ok(file_type) = entry.file_type() else { continue };
+        let path = entry.path();
         if file_type.is_dir() {
-            let name = entry.file_name();
-            if !SKIP_DIRS.contains(&name.to_string_lossy().as_ref()) {
-                collect_php_files(&path, out);
+            if !SKIP_DIRS.contains(&entry.file_name().to_string_lossy().as_ref()) {
+                scope.spawn(move |scope| scan_dir(path, walk, scope));
             }
-        } else if path.extension().is_some_and(|e| e == "php")
-            && !path.to_string_lossy().ends_with(".blade.php")
-        {
-            out.push(path);
+            continue;
         }
+        if !is_php_source(&path) {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else { continue };
+        let stamp = cache::stamp(&metadata);
+        if let Some(hit) = walk.cached.get(&path).filter(|e| e.stamp == stamp) {
+            walk.reused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            local.push((path, cache::Entry { stamp, classes: hit.classes.clone(), functions: hit.functions.clone() }));
+            continue;
+        }
+        let Ok(source) = fs::read_to_string(&path) else { continue };
+        let symbols = php_syntax::parse(&source).map(|tree| extract(&path, &source, &tree)).unwrap_or_default();
+        local.push((path, cache::Entry { stamp, classes: symbols.classes, functions: symbols.functions }));
+    }
+    if !local.is_empty() {
+        walk.found.lock().unwrap().extend(local);
     }
 }
 
