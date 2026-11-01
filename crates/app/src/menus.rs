@@ -95,6 +95,8 @@ pub fn set(cx: &mut App) {
                 Some(("Add Carets to Ends of Selected Lines", "editor::CaretsAtLineEnds")),
                 Some(("Clone Caret Above", "editor::CloneCaretAbove")),
                 Some(("Clone Caret Below", "editor::CloneCaretBelow")),
+                Some(("Extend Selection", "editor::ExtendSelection")),
+                Some(("Shrink Selection", "editor::ShrinkSelection")),
             ],
         ),
         menu(
@@ -110,6 +112,7 @@ pub fn set(cx: &mut App) {
                 None,
                 Some(("Markdown Preview", "editor::ToggleMarkdownPreview")),
                 Some(("Git Blame", "editor::ToggleBlame")),
+                Some(("Soft-Wrap", "editor::ToggleSoftWrap")),
             ],
         ),
         menu(
@@ -139,6 +142,12 @@ pub fn set(cx: &mut App) {
                 Some(("Show Intention Actions", "editor::ShowIntentions")),
                 Some(("Optimize Imports", "editor::OptimizeImports")),
                 Some(("Comment with Line Comment", "editor::ToggleComment")),
+                None,
+                Some(("Expand", "editor::ExpandRegion")),
+                Some(("Collapse", "editor::CollapseRegion")),
+                Some(("Expand All", "editor::ExpandAll")),
+                Some(("Collapse All", "editor::CollapseAll")),
+                Some(("Fold Selection", "editor::FoldSelection")),
             ],
         ),
         menu(

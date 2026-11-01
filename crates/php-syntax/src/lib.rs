@@ -3,6 +3,9 @@
 
 mod blade;
 mod simple;
+mod ranges;
+
+pub use ranges::{Fold, fold_ranges, node_ranges};
 
 use std::ops::Range;
 use std::path::Path;

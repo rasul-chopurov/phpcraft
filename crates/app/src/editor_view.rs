@@ -1,6 +1,8 @@
 //! Code editor view: renders a [`Buffer`] with gutter, highlighting, caret and selection.
 
 mod find_bar;
+mod folding;
+mod rows;
 mod ghost;
 mod intel_ui;
 mod multicaret;
@@ -17,6 +19,8 @@ use gpui::{
     ScrollWheelEvent, ShapedLine, SharedString, Style, TextRun, UTF16Selection, Window, actions,
     fill, font, point, prelude::*, px, relative, size,
 };
+
+use rows::{Row, RowText};
 
 use crate::intel::Intel;
 use crate::theme;
@@ -71,6 +75,14 @@ actions!(
         CloneCaretAbove,
         CloneCaretBelow,
         ClearCarets,
+        CollapseRegion,
+        ExpandRegion,
+        CollapseAll,
+        ExpandAll,
+        FoldSelection,
+        ToggleSoftWrap,
+        ExtendSelection,
+        ShrinkSelection,
         JoinLines,
         SortLines,
         ReverseLines,
@@ -90,8 +102,10 @@ const BLAME_CHARS: usize = 25;
 struct LayoutInfo {
     bounds: Bounds<Pixels>,
     text_x: Pixels,
-    first_line: usize,
-    lines: Vec<(String, ShapedLine)>,
+    /// Left edge of the fold-arrow column in the gutter.
+    fold_x: Pixels,
+    first_row: usize,
+    rows: Vec<(Row, RowText, ShapedLine)>,
 }
 
 pub struct EditorView {
@@ -132,6 +146,13 @@ pub struct EditorView {
     diagnostics: Option<(u64, Vec<php_analysis::Unresolved>)>,
     /// Window position just below the caret, for anchoring popups.
     caret_point: Option<Point<Pixels>>,
+    folding: folding::Folding,
+    /// Soft wrap: `None` follows the file type (on for Markdown and text files).
+    soft_wrap: Option<bool>,
+    /// Visual rows for (version, collapsed regions, wrap width).
+    rows_cache: Option<(u64, Vec<(usize, usize)>, Option<usize>, std::rc::Rc<Vec<Row>>)>,
+    /// Number of visual rows at the last paint (scroll limit).
+    row_count: usize,
 }
 
 impl EditorView {
@@ -154,6 +175,10 @@ impl EditorView {
             hover_link: None,
             diagnostics: None,
             caret_point: None,
+            folding: Default::default(),
+            soft_wrap: None,
+            rows_cache: None,
+            row_count: 0,
             buffer,
             focus_handle: cx.focus_handle(),
             scroll_y: px(0.),
@@ -251,10 +276,12 @@ impl EditorView {
     }
     fn move_up(&mut self, _: &MoveUp, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_vertical(-1, false);
+        self.skip_folds(false);
         self.moved(cx);
     }
     fn move_down(&mut self, _: &MoveDown, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_vertical(1, false);
+        self.skip_folds(true);
         self.moved(cx);
     }
     fn select_left(&mut self, _: &SelectLeft, _: &mut Window, cx: &mut Context<Self>) {
@@ -267,10 +294,12 @@ impl EditorView {
     }
     fn select_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_vertical(-1, true);
+        self.skip_folds(false);
         self.moved(cx);
     }
     fn select_down(&mut self, _: &SelectDown, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_vertical(1, true);
+        self.skip_folds(true);
         self.moved(cx);
     }
     fn move_home(&mut self, _: &MoveHome, _: &mut Window, cx: &mut Context<Self>) {
@@ -399,21 +428,84 @@ impl EditorView {
 
     // --- mouse ---------------------------------------------------------
 
-    fn char_for_position(&self, position: Point<Pixels>) -> Option<usize> {
+    /// The visual row at a window position, with its layout when it is on screen.
+    fn row_at(&self, position: Point<Pixels>) -> Option<(usize, Option<&(Row, RowText, ShapedLine)>)> {
         let layout = self.layout.as_ref()?;
         let y = position.y - layout.bounds.top() + self.scroll_y;
-        let line = (y / Self::line_height()).floor().max(0.) as usize;
-        if line >= self.buffer.len_lines() {
+        let row = (y / Self::line_height()).floor().max(0.) as usize;
+        Some((row, layout.rows.get(row.wrapping_sub(layout.first_row))))
+    }
+
+    fn char_for_position(&self, position: Point<Pixels>) -> Option<usize> {
+        let layout = self.layout.as_ref()?;
+        let (row, shown) = self.row_at(position)?;
+        if row >= self.row_count {
             return Some(self.buffer.len_chars());
         }
-        let col = match layout.lines.get(line.wrapping_sub(layout.first_line)) {
-            Some((text, shaped)) => {
-                let byte = shaped.closest_index_for_x(position.x - layout.text_x);
-                text[..byte.min(text.len())].chars().count()
-            }
-            None => 0,
+        let Some((row, text, shaped)) = shown else {
+            return self.rows_cache.as_ref().and_then(|(.., rows)| rows.get(row)).map(Row::start);
         };
-        Some(self.buffer.line_col_to_char(line, col))
+        let display = shaped.closest_index_for_x(position.x - layout.text_x);
+        Some(match text.char_at(&self.buffer, row, display) {
+            Ok(ix) => ix,
+            Err(seg) => row.segments[seg].start,
+        })
+    }
+
+    /// The collapsed region whose placeholder is under the mouse (its open position).
+    fn placeholder_at(&self, position: Point<Pixels>) -> Option<usize> {
+        let layout = self.layout.as_ref()?;
+        let (_, Some((row, text, shaped))) = self.row_at(position)? else { return None };
+        let display = shaped.index_for_x(position.x - layout.text_x)?;
+        let seg = text.placeholder_at(display)?;
+        Some(row.segments[seg - 1].end - 1)
+    }
+
+    /// A click in the fold-arrow column: the buffer line of that row.
+    fn fold_arrow_at(&self, position: Point<Pixels>) -> Option<usize> {
+        let layout = self.layout.as_ref()?;
+        if self.plain || position.x < layout.fold_x || position.x >= layout.text_x - px(TEXT_PADDING) {
+            return None;
+        }
+        let (_, Some((row, ..))) = self.row_at(position)? else { return None };
+        row.first.then_some(row.line)
+    }
+
+    /// Rows for the current text, collapsed regions and wrap width (cached).
+    fn rows(&mut self, collapsed: &[(usize, usize)], wrap: Option<usize>) -> std::rc::Rc<Vec<Row>> {
+        let version = self.buffer.version();
+        match &self.rows_cache {
+            Some((v, c, w, rows)) if *v == version && c == collapsed && *w == wrap => rows.clone(),
+            _ => {
+                let rows = std::rc::Rc::new(rows::build(&self.buffer, collapsed, wrap));
+                self.rows_cache = Some((version, collapsed.to_vec(), wrap, rows.clone()));
+                rows
+            }
+        }
+    }
+
+    fn soft_wrap_enabled(&self) -> bool {
+        self.soft_wrap.unwrap_or_else(|| {
+            self.buffer.path().and_then(|p| p.extension()).is_some_and(|e| {
+                let e = e.to_string_lossy().to_lowercase();
+                matches!(e.as_str(), "md" | "markdown" | "txt" | "log")
+            })
+        })
+    }
+
+    fn toggle_soft_wrap(&mut self, _: &ToggleSoftWrap, _: &mut Window, cx: &mut Context<Self>) {
+        self.soft_wrap = Some(!self.soft_wrap_enabled());
+        cx.notify();
+    }
+
+    fn extend_selection(&mut self, _: &ExtendSelection, _: &mut Window, cx: &mut Context<Self>) {
+        self.buffer.extend_selection();
+        self.moved(cx);
+    }
+
+    fn shrink_selection(&mut self, _: &ShrinkSelection, _: &mut Window, cx: &mut Context<Self>) {
+        self.buffer.shrink_selection();
+        self.moved(cx);
     }
 
     fn on_mouse_down(
@@ -425,6 +517,16 @@ impl EditorView {
         window.focus(&self.focus_handle);
         self.close_menu();
         if self.cmd_click(event, window, cx) {
+            return;
+        }
+        if let Some(line) = self.fold_arrow_at(event.position) {
+            self.toggle_fold_on_line(line, cx);
+            cx.stop_propagation();
+            return;
+        }
+        if let Some(open) = self.placeholder_at(event.position) {
+            self.expand_fold(open, cx);
+            cx.stop_propagation();
             return;
         }
         if let Some(ix) = self.char_for_position(event.position) {
@@ -555,7 +657,7 @@ impl EditorView {
 
     fn on_scroll(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
         let delta = event.delta.pixel_delta(Self::line_height()).y;
-        let max = Self::line_height() * self.buffer.len_lines().saturating_sub(1) as f32;
+        let max = Self::line_height() * self.row_count.max(1).saturating_sub(1) as f32;
         self.scroll_y = (self.scroll_y - delta).clamp(px(0.), max);
         cx.notify();
     }
@@ -670,12 +772,11 @@ impl EntityInputHandler for EditorView {
     ) -> Option<Bounds<Pixels>> {
         let layout = self.layout.as_ref()?;
         let start = self.buffer.utf16_to_char(range_utf16.start);
-        let (line, col) = self.buffer.char_to_line_col(start);
-        let (text, shaped) = layout.lines.get(line.checked_sub(layout.first_line)?)?;
-        let byte = byte_of_col(text, col);
-        let top = layout.bounds.top() + Self::line_height() * line as f32 - self.scroll_y;
+        let (ix, (row, text, shaped)) = layout.rows.iter().enumerate().find(|(_, (row, ..))| row.contains(start))?;
+        let display = text.display_char(&self.buffer, row, start)?;
+        let top = layout.bounds.top() + Self::line_height() * (layout.first_row + ix) as f32 - self.scroll_y;
         Some(Bounds::new(
-            point(layout.text_x + shaped.x_for_index(byte), top),
+            point(layout.text_x + shaped.x_for_index(display), top),
             size(px(2.), Self::line_height()),
         ))
     }
@@ -689,13 +790,6 @@ impl EntityInputHandler for EditorView {
         let ix = self.char_for_position(point)?;
         Some(self.buffer.char_to_utf16(ix))
     }
-}
-
-fn byte_of_col(text: &str, col: usize) -> usize {
-    text.char_indices()
-        .nth(col)
-        .map(|(b, _)| b)
-        .unwrap_or(text.len())
 }
 
 impl Focusable for EditorView {
@@ -870,6 +964,14 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::unindent))
             .on_action(cx.listener(Self::go_to_matching_brace))
             .on_action(cx.listener(Self::paste_from_history))
+            .on_action(cx.listener(Self::collapse_region))
+            .on_action(cx.listener(Self::expand_region))
+            .on_action(cx.listener(Self::collapse_all))
+            .on_action(cx.listener(Self::expand_all))
+            .on_action(cx.listener(Self::fold_selection))
+            .on_action(cx.listener(Self::toggle_soft_wrap))
+            .on_action(cx.listener(Self::extend_selection))
+            .on_action(cx.listener(Self::shrink_selection))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -918,16 +1020,19 @@ struct EditorElement {
 }
 
 struct PaintLine {
-    number: ShapedLine,
-    text: String,
+    /// Line number (first row of a line only).
+    number: Option<ShapedLine>,
+    row: Row,
+    row_text: RowText,
     shaped: ShapedLine,
     y: Pixels,
 }
 
 pub struct EditorPrepaint {
     gutter_width: Pixels,
+    fold_width: Pixels,
     lines: Vec<PaintLine>,
-    first_line: usize,
+    first_row: usize,
     current_line_y: Option<Pixels>,
     selection: Vec<PaintQuad>,
     underlines: Vec<PaintQuad>,
@@ -935,6 +1040,7 @@ pub struct EditorPrepaint {
     extra_carets: Vec<PaintQuad>,
     gutter_quads: Vec<PaintQuad>,
     blame_lines: Vec<(ShapedLine, Pixels)>,
+    fold_marks: Vec<(ShapedLine, Point<Pixels>)>,
     plain: bool,
     /// AI suggestion: first line shaped, painted at this origin.
     ghost: Option<(ShapedLine, Point<Pixels>)>,
@@ -999,21 +1105,35 @@ impl Element for EditorElement {
                 .shape_line("0".into(), font_size, &[run(1, theme::line_number())], None)
                 .width;
             let blame_width = if view.blame.is_some() { digit_width * BLAME_CHARS as f32 } else { px(0.) };
-            let gutter_width = if view.plain { px(0.) } else { blame_width + digit_width * digits as f32 + px(GUTTER_PADDING * 2.) };
+            let fold_width = if view.plain { px(0.) } else { digit_width * 1.8 };
+            let gutter_width = if view.plain { px(0.) } else { blame_width + digit_width * digits as f32 + fold_width + px(GUTTER_PADDING * 2.) };
             let markers = view.git_markers();
             let mut gutter_quads = Vec::new();
             let mut blame_lines = Vec::new();
+            let mut fold_marks = Vec::new();
             let text_x = bounds.left() + gutter_width + px(TEXT_PADDING);
 
+            // Visual rows: collapsed regions take one row, long lines may wrap.
+            let candidates = if view.plain { Vec::new() } else { view.fold_candidates() };
+            let collapsed = view.collapsed_folds();
+            let wrap = view.soft_wrap_enabled().then(|| {
+                let width = bounds.size.width - gutter_width - px(TEXT_PADDING * 2.);
+                ((width / digit_width).floor() as usize).max(20)
+            });
+            let rows = view.rows(&collapsed, wrap);
+            view.row_count = rows.len();
+
             // Keep the caret visible after keyboard edits and movement.
-            let (caret_line, caret_col) = view.buffer.char_to_line_col(view.buffer.selection.head);
+            let head = view.buffer.selection.head;
+            let caret_line = view.buffer.char_to_line_col(head).0;
+            let caret_row = rows::row_of(&rows, head);
             if std::mem::take(&mut view.center_on_caret) {
                 view.autoscroll = false;
-                let caret_top = line_height * caret_line as f32;
+                let caret_top = line_height * caret_row as f32;
                 view.scroll_y = (caret_top - bounds.size.height / 3.).max(px(0.));
             }
             if std::mem::take(&mut view.autoscroll) {
-                let caret_top = line_height * caret_line as f32;
+                let caret_top = line_height * caret_row as f32;
                 let viewport = bounds.size.height - line_height;
                 if caret_top < view.scroll_y {
                     view.scroll_y = caret_top;
@@ -1022,14 +1142,15 @@ impl Element for EditorElement {
                 }
             }
 
-            let first_line = (view.scroll_y / line_height).floor() as usize;
-            let line_count = (bounds.size.height / line_height).ceil() as usize + 1;
-            let last_line = (first_line + line_count).min(view.buffer.len_lines());
-            let offset_y = bounds.top() - (view.scroll_y - line_height * first_line as f32);
+            let first_row = ((view.scroll_y / line_height).floor() as usize).min(rows.len().saturating_sub(1));
+            let row_count = (bounds.size.height / line_height).ceil() as usize + 1;
+            let last_row = (first_row + row_count).min(rows.len());
+            let offset_y = bounds.top() - (view.scroll_y - line_height * first_row as f32);
+            let byte_range = |b: &Buffer, r: &Range<usize>| b.char_to_byte(r.start)..b.char_to_byte(r.end);
             let selections: Vec<Range<usize>> = view.buffer.selections().iter().map(|s| s.range()).filter(|r| !r.is_empty()).collect();
-            let extra_carets: Vec<(usize, usize)> = view.buffer.extra.iter().map(|s| view.buffer.char_to_line_col(s.head)).collect();
+            let extra_carets: Vec<usize> = view.buffer.extra.iter().map(|s| s.head).collect();
             let mut extra_caret_quads = Vec::new();
-            let brackets: Vec<usize> = view.buffer.matching_bracket(view.buffer.selection.head)
+            let brackets: Vec<usize> = view.buffer.matching_bracket(head)
                 .filter(|_| view.buffer.selection.is_empty())
                 .map(|(a, b)| vec![a, b]).unwrap_or_default();
             let spans = view.buffer.highlights().to_vec();
@@ -1049,83 +1170,82 @@ impl Element for EditorElement {
             let mut selection_quads = Vec::new();
             let mut caret = None;
             let mut ghost = None;
-            for line in first_line..last_line {
-                let text = view.buffer.line(line);
-                let line_start = view.buffer.line_to_byte(line);
-                let line_end = line_start + text.len();
+            for row_ix in first_row..last_row {
+                let row = &rows[row_ix];
+                let row_text = RowText::new(&view.buffer, row);
+                let text = row_text.text.clone();
 
                 let mut runs = Vec::new();
-                let mut cursor = line_start;
-                let first_span = spans.partition_point(|s| s.range.end <= line_start);
-                for span in &spans[first_span..] {
-                    if span.range.start >= line_end {
-                        break;
+                for (seg_ix, seg) in row.segments.iter().enumerate() {
+                    if seg_ix > 0 {
+                        runs.push(TextRun { background_color: Some(theme::border()), ..run(rows::PLACEHOLDER.len(), theme::muted()) });
                     }
-                    let start = span.range.start.max(line_start);
-                    let end = span.range.end.min(line_end);
-                    if start > cursor {
-                        runs.push(run(start - cursor, theme::text()));
+                    let seg_start = view.buffer.char_to_byte(seg.start);
+                    let seg_end = view.buffer.char_to_byte(seg.end);
+                    let mut cursor = seg_start;
+                    let first_span = spans.partition_point(|s| s.range.end <= seg_start);
+                    for span in &spans[first_span..] {
+                        if span.range.start >= seg_end {
+                            break;
+                        }
+                        let start = span.range.start.max(cursor);
+                        let end = span.range.end.min(seg_end);
+                        if start > cursor {
+                            runs.push(run(start - cursor, theme::text()));
+                        }
+                        if end > start {
+                            runs.push(run(end - start, theme::syntax(span.highlight)));
+                            cursor = end;
+                        }
                     }
-                    runs.push(run(end - start, theme::syntax(span.highlight)));
-                    cursor = end;
-                }
-                if line_end > cursor {
-                    runs.push(run(line_end - cursor, theme::text()));
+                    if seg_end > cursor {
+                        runs.push(run(seg_end - cursor, theme::text()));
+                    }
                 }
 
-                let shaped =
-                    window
-                        .text_system()
-                        .shape_line(text.clone().into(), font_size, &runs, None);
-                let number: SharedString = (line + 1).to_string().into();
-                let number_len = number.len();
-                let number_color = if line == caret_line {
-                    theme::ui_text()
-                } else {
-                    theme::line_number()
+                let shaped = window.text_system().shape_line(text.clone().into(), font_size, &runs, None);
+                let line = row.line;
+                let number = row.first.then(|| {
+                    let number: SharedString = (line + 1).to_string().into();
+                    let len = number.len();
+                    let color = if line == caret_line { theme::ui_text() } else { theme::line_number() };
+                    window.text_system().shape_line(number, font_size, &[run(len, color)], None)
+                });
+                let y = offset_y + line_height * (row_ix - first_row) as f32;
+                let quad = |range: Range<usize>, color: Hsla| {
+                    fill(Bounds::from_corners(point(text_x + shaped.x_for_index(range.start), y), point(text_x + shaped.x_for_index(range.end), y + line_height)), color)
                 };
-                let number = window.text_system().shape_line(
-                    number,
-                    font_size,
-                    &[run(number_len, number_color)],
-                    None,
-                );
-                let y = offset_y + line_height * (line - first_line) as f32;
 
-                let line_char_start = view.buffer.line_to_char(line);
-                let line_char_end = line_char_start + text.chars().count();
-                for selection in selections.iter().filter(|r| r.start <= line_char_end && r.end > line_char_start) {
-                    let start_col = selection.start.saturating_sub(line_char_start);
-                    let end_col = selection.end.min(line_char_end) - line_char_start;
-                    let x0 = shaped.x_for_index(byte_of_col(&text, start_col));
-                    let mut x1 = shaped.x_for_index(byte_of_col(&text, end_col));
-                    if selection.end > line_char_end {
-                        x1 += digit_width; // show the selected line break
+                for selection in &selections {
+                    for r in row_text.display_ranges(&view.buffer, row, &byte_range(&view.buffer, selection)) {
+                        selection_quads.push(quad(r, theme::selection()));
                     }
-                    selection_quads.push(fill(
-                        Bounds::from_corners(
-                            point(text_x + x0, y),
-                            point(text_x + x1, y + line_height),
-                        ),
-                        theme::selection(),
-                    ));
+                    // Show the selected line break.
+                    if selection.start <= row.end() && selection.end > row.end() {
+                        let x = shaped.x_for_index(text.len());
+                        selection_quads.push(fill(Bounds::from_corners(point(text_x + x, y), point(text_x + x + digit_width, y + line_height)), theme::selection()));
+                    }
                 }
-                for &bracket in brackets.iter().filter(|&&b| b >= line_char_start && b < line_char_end) {
-                    let col = bracket - line_char_start;
-                    let x0 = shaped.x_for_index(byte_of_col(&text, col));
-                    let x1 = shaped.x_for_index(byte_of_col(&text, col + 1));
-                    selection_quads.push(fill(Bounds::from_corners(point(text_x + x0, y), point(text_x + x1, y + line_height)), theme::find_match()));
+                for &bracket in &brackets {
+                    let b = view.buffer.char_to_byte(bracket);
+                    for r in row_text.display_ranges(&view.buffer, row, &(b..b + 1)) {
+                        selection_quads.push(quad(r, theme::find_match()));
+                    }
                 }
-                for (_, col) in extra_carets.iter().filter(|(l, _)| *l == line) {
-                    let x = shaped.x_for_index(byte_of_col(&text, *col));
-                    extra_caret_quads.push(fill(Bounds::new(point(text_x + x, y), size(px(2.), line_height)), theme::caret()));
+                for &c in &extra_carets {
+                    if rows::row_of(&rows, c) == row_ix
+                        && let Some(d) = row_text.display_char(&view.buffer, row, c)
+                    {
+                        let x = shaped.x_for_index(d);
+                        extra_caret_quads.push(fill(Bounds::new(point(text_x + x, y), size(px(2.), line_height)), theme::caret()));
+                    }
                 }
-                if line == caret_line {
-                    let x = shaped.x_for_index(byte_of_col(&text, caret_col));
-                    caret = Some(fill(
-                        Bounds::new(point(text_x + x, y), size(px(2.), line_height)),
-                        theme::caret(),
-                    ));
+                if row_ix == caret_row
+                    && let Some(d) = row_text.display_char(&view.buffer, row, head)
+                {
+                    let x = shaped.x_for_index(d);
+                    caret = Some(fill(Bounds::new(point(text_x + x, y), size(px(2.), line_height)), theme::caret()));
+                    view.caret_point = Some(point(text_x + x, y + line_height));
                     if let Some(suggestion) = view.ghost() {
                         let mut lines = suggestion.text.lines();
                         let first = lines.next().unwrap_or("").replace('\t', "    ");
@@ -1144,84 +1264,71 @@ impl Element for EditorElement {
                     }
                 }
                 let underline = |range: &Range<usize>, color: Hsla, out: &mut Vec<PaintQuad>| {
-                    if range.end <= line_start || range.start > line_end || range.is_empty() {
-                        return;
+                    for r in row_text.display_ranges(&view.buffer, row, range) {
+                        out.push(fill(
+                            Bounds::from_corners(
+                                point(text_x + shaped.x_for_index(r.start), y + line_height - px(3.)),
+                                point(text_x + shaped.x_for_index(r.end), y + line_height - px(1.5)),
+                            ),
+                            color,
+                        ));
                     }
-                    let x0 = shaped.x_for_index(range.start.max(line_start) - line_start);
-                    let x1 = shaped.x_for_index(range.end.min(line_end) - line_start);
-                    out.push(fill(
-                        Bounds::from_corners(
-                            point(text_x + x0, y + line_height - px(3.)),
-                            point(text_x + x1, y + line_height - px(1.5)),
-                        ),
-                        color,
-                    ));
                 };
                 for problem in &problems {
                     underline(problem, theme::error(), &mut underlines);
                 }
-                let first_match = find_matches.partition_point(|m| m.end <= line_start);
+                let row_start = view.buffer.char_to_byte(row.start());
+                let row_end = view.buffer.char_to_byte(row.end());
+                let first_match = find_matches.partition_point(|m| m.end <= row_start);
                 for (ix, found) in find_matches.iter().enumerate().skip(first_match) {
-                    if found.start > line_end {
+                    if found.start > row_end {
                         break;
                     }
-                    let x0 = shaped.x_for_index(found.start.max(line_start) - line_start);
-                    let x1 = shaped.x_for_index(found.end.min(line_end) - line_start);
-                    let color = if Some(ix) == find_current {
-                        theme::find_current()
-                    } else {
-                        theme::find_match()
-                    };
-                    selection_quads.insert(
-                        0,
-                        fill(
-                            Bounds::from_corners(
-                                point(text_x + x0, y),
-                                point(text_x + x1, y + line_height),
-                            ),
-                            color,
-                        ),
-                    );
+                    let color = if Some(ix) == find_current { theme::find_current() } else { theme::find_match() };
+                    for r in row_text.display_ranges(&view.buffer, row, found) {
+                        selection_quads.insert(0, quad(r, color));
+                    }
                 }
                 if let Some(link) = &link {
                     underline(link, theme::link(), &mut underlines);
                 }
-                if line == caret_line {
-                    let x = shaped.x_for_index(byte_of_col(&text, caret_col));
-                    view.caret_point = Some(point(text_x + x, y + line_height));
+                if row.first {
+                    let marker_x = bounds.left() + gutter_width - fold_width - px(4.);
+                    let first_marker = markers.partition_point(|(l, _)| *l < line);
+                    for (_, change) in markers[first_marker..].iter().take_while(|(l, _)| *l == line) {
+                        gutter_quads.push(match change {
+                            git::LineChange::Added => fill(Bounds::new(point(marker_x, y), size(px(3.), line_height)), theme::success()),
+                            git::LineChange::Modified => fill(Bounds::new(point(marker_x, y), size(px(3.), line_height)), theme::accent()),
+                            git::LineChange::DeletedAbove => fill(Bounds::new(point(marker_x - px(2.), y - px(2.)), size(px(7.), px(4.))), theme::muted()),
+                        });
+                    }
+                    if let Some(entry) = view.blame.as_ref().and_then(|b| b.get(line)) {
+                        let author: String = entry.author.chars().take(12).collect();
+                        let label = format!("{:<12} {}", author, entry.date);
+                        let len = label.len();
+                        blame_lines.push((
+                            window.text_system().shape_line(label.into(), px(theme::editor_font_size() - 1.5), &[run(len, theme::muted())], None),
+                            y,
+                        ));
+                    }
+                    // Fold arrow: ▸ collapsed, ▾ expanded.
+                    if let Some(&(open, _)) = candidates.iter().find(|(o, _)| view.buffer.char_to_line_col(*o).0 == line) {
+                        let folded = collapsed.iter().any(|(o, _)| *o == open);
+                        let arrow: SharedString = if folded { "▸".into() } else { "▾".into() };
+                        let shaped_arrow = window.text_system().shape_line(arrow, font_size, &[run("▸".len(), theme::muted())], None);
+                        fold_marks.push((shaped_arrow, point(bounds.left() + gutter_width - fold_width + px(2.), y)));
+                    }
                 }
-                let marker_x = bounds.left() + gutter_width - px(4.);
-                let first_marker = markers.partition_point(|(l, _)| *l < line);
-                for (_, change) in markers[first_marker..].iter().take_while(|(l, _)| *l == line) {
-                    gutter_quads.push(match change {
-                        git::LineChange::Added => fill(Bounds::new(point(marker_x, y), size(px(3.), line_height)), theme::success()),
-                        git::LineChange::Modified => fill(Bounds::new(point(marker_x, y), size(px(3.), line_height)), theme::accent()),
-                        git::LineChange::DeletedAbove => fill(Bounds::new(point(marker_x - px(2.), y - px(2.)), size(px(7.), px(4.))), theme::muted()),
-                    });
-                }
-                if let Some(entry) = view.blame.as_ref().and_then(|b| b.get(line)) {
-                    let author: String = entry.author.chars().take(12).collect();
-                    let label = format!("{:<12} {}", author, entry.date);
-                    let len = label.len();
-                    blame_lines.push((
-                        window.text_system().shape_line(label.into(), px(theme::editor_font_size() - 1.5), &[run(len, theme::muted())], None),
-                        y,
-                    ));
-                }
-                lines.push(PaintLine {
-                    number,
-                    text,
-                    shaped,
-                    y,
-                });
+                lines.push(PaintLine { number, row: row.clone(), row_text, shaped, y });
             }
 
-            let current_line_y = (caret_line >= first_line && caret_line < last_line)
-                .then(|| offset_y + line_height * (caret_line - first_line) as f32);
+            let current_line_y = (caret_row >= first_row && caret_row < last_row)
+                .then(|| offset_y + line_height * (caret_row - first_row) as f32);
             EditorPrepaint {
                 gutter_width,
+                fold_width,
                 lines,
-                first_line,
+                first_row,
                 current_line_y,
                 selection: selection_quads,
                 underlines,
@@ -1229,11 +1336,13 @@ impl Element for EditorElement {
                 extra_carets: extra_caret_quads,
                 gutter_quads,
                 blame_lines,
+                fold_marks,
                 plain: view.plain,
                 ghost,
             }
         })
     }
+
 
     fn paint(
         &mut self,
@@ -1281,10 +1390,15 @@ impl Element for EditorElement {
         for (label, y) in &prepaint.blame_lines {
             label.paint(point(bounds.left() + px(6.), *y), line_height, window, cx).ok();
         }
+        for (arrow, origin) in &prepaint.fold_marks {
+            arrow.paint(*origin, line_height, window, cx).ok();
+        }
         for line in &prepaint.lines {
-            if !prepaint.plain {
-                let number_x = bounds.left() + gutter - px(GUTTER_PADDING) - line.number.width;
-                line.number.paint(point(number_x, line.y), line_height, window, cx).ok();
+            if !prepaint.plain
+                && let Some(number) = &line.number
+            {
+                let number_x = bounds.left() + gutter - prepaint.fold_width - px(GUTTER_PADDING) - number.width;
+                number.paint(point(number_x, line.y), line_height, window, cx).ok();
             }
             line.shaped
                 .paint(point(text_x, line.y), line_height, window, cx)
@@ -1299,17 +1413,19 @@ impl Element for EditorElement {
             }
         }
 
-        let lines = std::mem::take(&mut prepaint.lines)
+        let rows = std::mem::take(&mut prepaint.lines)
             .into_iter()
-            .map(|l| (l.text, l.shaped))
+            .map(|l| (l.row, l.row_text, l.shaped))
             .collect();
-        let first_line = prepaint.first_line;
+        let first_row = prepaint.first_row;
+        let fold_x = bounds.left() + gutter - prepaint.fold_width;
         self.view.update(cx, |view, _| {
             view.layout = Some(LayoutInfo {
                 bounds,
                 text_x,
-                first_line,
-                lines,
+                fold_x,
+                first_row,
+                rows,
             });
         });
     }

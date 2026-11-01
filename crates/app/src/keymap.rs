@@ -110,6 +110,14 @@ const DEFAULTS: &[Default] = &[
     both("shift-tab", "editor::Unindent", ED),
     per("cmd-shift-m", "ctrl-shift-m", "editor::GoToMatchingBrace", ED),
     both("secondary-shift-v", "editor::PasteFromHistory", ED),
+    // Folding and selection.
+    both("secondary--", "editor::CollapseRegion", ED),
+    both("secondary-=", "editor::ExpandRegion", ED),
+    both("secondary-shift--", "editor::CollapseAll", ED),
+    both("secondary-shift-=", "editor::ExpandAll", ED),
+    both("secondary-.", "editor::FoldSelection", ED),
+    per("alt-up", "ctrl-w", "editor::ExtendSelection", ED),
+    per("alt-down", "ctrl-shift-w", "editor::ShrinkSelection", ED),
     per("cmd-alt-m", "ctrl-alt-m", "editor::ToggleMarkdownPreview", Some("EditorPane")),
     both("secondary-s", "editor::Save", ED),
     // Code intelligence.

@@ -55,6 +55,10 @@ pub struct Buffer {
     goal_column: Option<usize>,
     /// One level of indentation (from .editorconfig: spaces or a tab).
     indent: String,
+    /// Positions that follow edits (folds, bookmarks); `None` once removed.
+    anchors: Vec<Option<usize>>,
+    /// Extend Selection history for Shrink Selection: (before, after).
+    expansions: Vec<(Selection, Selection)>,
     undo: Vec<Edit>,
     redo: Vec<Edit>,
     saved_version: u64,
@@ -72,6 +76,8 @@ impl Buffer {
             extra: Vec::new(),
             goal_column: None,
             indent: "    ".into(),
+            anchors: Vec::new(),
+            expansions: Vec::new(),
             undo: Vec::new(),
             redo: Vec::new(),
             saved_version: 0,
@@ -598,9 +604,18 @@ impl Buffer {
         } else {
             (&edit.old, &edit.new, edit.after, &edit.extra_after)
         };
-        let end = edit.start + remove.chars().count();
+        let removed = remove.chars().count();
+        let end = edit.start + removed;
         self.rope.remove(edit.start..end);
         self.rope.insert(edit.start, insert);
+        let inserted = insert.chars().count();
+        for pos in self.anchors.iter_mut().flatten() {
+            if *pos >= end {
+                *pos = *pos + inserted - removed;
+            } else if *pos > edit.start {
+                *pos = edit.start;
+            }
+        }
         self.selection = selection;
         self.extra = extra.clone();
         self.goal_column = None;
@@ -736,6 +751,68 @@ impl Buffer {
             anchor: 0,
             head: self.len_chars(),
         };
+    }
+
+    // --- anchors ---------------------------------------------------------
+
+    /// A position that moves with edits before it; returns its id.
+    pub fn add_anchor(&mut self, pos: usize) -> usize {
+        self.anchors.push(Some(pos.min(self.len_chars())));
+        self.anchors.len() - 1
+    }
+
+    pub fn anchor(&self, id: usize) -> Option<usize> {
+        self.anchors.get(id).copied().flatten()
+    }
+
+    pub fn remove_anchor(&mut self, id: usize) {
+        if let Some(slot) = self.anchors.get_mut(id) {
+            *slot = None;
+        }
+    }
+
+    // --- extend selection ----------------------------------------------
+
+    /// Extend Selection (⌥↑): grows the selection to the word, then to each enclosing syntax
+    /// node, then the line and the whole file.
+    pub fn extend_selection(&mut self) {
+        let current = self.selection.range();
+        let text = self.text();
+        let mut candidates: Vec<Range<usize>> = Vec::new();
+        let word = self.word_range_at(self.selection.head);
+        if current.is_empty() && !word.is_empty() {
+            // From a caret, the word comes first (not a token that merely touches the caret).
+            candidates.push(word);
+        } else {
+            candidates.push(word);
+            for r in php_syntax::node_ranges(self.lang(), &text) {
+                candidates.push(self.byte_to_char(r.start)..self.byte_to_char(r.end));
+            }
+            let line = self.line_range_at(current.start);
+            let line_end = line.start + self.line_len(self.rope.char_to_line(current.start));
+            candidates.push(line.start..line_end);
+            candidates.push(0..self.len_chars());
+        }
+        let next = candidates
+            .into_iter()
+            .filter(|r| r.start <= current.start && r.end >= current.end && *r != current && !r.is_empty())
+            .min_by_key(|r| r.len());
+        if let Some(next) = next {
+            let before = self.selection;
+            self.extra.clear();
+            self.selection = Selection { anchor: next.start, head: next.end };
+            self.expansions.push((before, self.selection));
+        }
+    }
+
+    /// Shrink Selection (⌥↓): undoes the last Extend Selection.
+    pub fn shrink_selection(&mut self) {
+        while let Some((before, after)) = self.expansions.pop() {
+            if after == self.selection {
+                self.selection = before;
+                return;
+            }
+        }
     }
 
     // --- text operations -------------------------------------------------
@@ -1339,6 +1416,27 @@ mod tests {
         assert_eq!(b.text(), "\ta\n\tb");
         b.indent_lines(-1);
         assert_eq!(b.text(), "a\nb");
+    }
+
+    #[test]
+    fn anchors_follow_edits_and_extend_selection() {
+        let mut b = Buffer::new("<?php\n$a = foo($bar, 2);");
+        let id = b.add_anchor(10);
+        b.move_to(0, false);
+        b.insert("// x\n");
+        assert_eq!(b.anchor(id), Some(15));
+        b.undo();
+        assert_eq!(b.anchor(id), Some(10));
+        let at = b.text().find("bar").unwrap();
+        b.move_to(at, false);
+        b.extend_selection();
+        assert_eq!(b.selected_text(), "$bar");
+        b.extend_selection();
+        b.extend_selection();
+        assert!(b.selected_text().contains("$bar, 2"), "{}", b.selected_text());
+        b.shrink_selection();
+        b.shrink_selection();
+        assert_eq!(b.selected_text(), "$bar");
     }
 
     #[test]
