@@ -31,13 +31,27 @@ pub fn scope_class(doc: &Document, index: &Index, scope: Node) -> Option<String>
     let current = || doc.current_class(scope.start_byte());
     match text.to_ascii_lowercase().as_str() {
         "self" | "static" => current(),
-        "parent" => {
+        "parent" => parent_class(doc, scope.start_byte()).or_else(|| {
             let class = current()?;
             index.class(&class)?.extends.first().cloned()
-        }
+        }),
         _ if scope.kind() == "variable_name" => type_of(doc, index, scope, 0),
         _ => doc.ctx.resolve_class(text),
     }
+}
+
+/// The `extends` of the class around `offset`, read from the document itself (so it works
+/// before the file is reindexed).
+fn parent_class(doc: &Document, offset: usize) -> Option<String> {
+    let mut node = doc.tree.root_node().descendant_for_byte_range(offset, offset)?;
+    while node.kind() != "class_declaration" {
+        node = node.parent()?;
+    }
+    let mut cursor = node.walk();
+    let base = node.named_children(&mut cursor).find(|n| n.kind() == "base_clause")?;
+    let mut cursor = base.walk();
+    let name = base.named_children(&mut cursor).find(|n| matches!(n.kind(), "name" | "qualified_name"))?;
+    doc.ctx.resolve_class(doc.text(name))
 }
 
 /// Infers the class of an expression node.

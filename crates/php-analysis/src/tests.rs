@@ -223,3 +223,35 @@ fn static_members_of_unimported_class_import_it() {
     let edit = query.additional_edit.clone().expect("auto-import");
     assert_eq!(edit.text.trim(), "use App\\Models\\Post;");
 }
+
+const ARCHIVE: &str = r#"<?php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Archive extends Model
+{
+    public static function query(): Builder
+    {
+        // Pos in a comment
+        $label = 'Pos in a string';
+        return parent::query();
+    }
+}
+"#;
+
+#[test]
+fn parent_calls_go_to_the_parent_method() {
+    assert_eq!(
+        goto(ARCHIVE, at(ARCHIVE, "parent::query", 9)),
+        vec![("/p/Model.php".to_string(), "query".to_string())]
+    );
+}
+
+#[test]
+fn no_autopopup_in_comments_and_plain_strings() {
+    assert!(labels(ARCHIVE, at(ARCHIVE, "Pos in a comment", 3)).is_empty());
+    assert!(labels(ARCHIVE, at(ARCHIVE, "Pos in a string", 3)).is_empty());
+    // Code right after them still completes.
+    assert!(labels(USER, at(USER, "new Post", 6)).contains(&"Post".to_string()));
+}

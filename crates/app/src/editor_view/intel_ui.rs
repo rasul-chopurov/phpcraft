@@ -198,6 +198,14 @@ impl EditorView {
             cx.notify();
             return;
         }
+        // Among equally good prefix matches, items chosen more often come first.
+        let mut items = items;
+        let text = self.buffer.text();
+        items.sort_by_cached_key(|item| {
+            let typed = text.get(item.replace.clone()).unwrap_or("");
+            let degree = php_analysis::matcher::degree(&item.label, typed).min(2);
+            (degree, std::cmp::Reverse(stats::count(&stats::key(item))))
+        });
         let items = items
             .into_iter()
             .map(|item| MenuItem {
@@ -254,6 +262,7 @@ impl EditorView {
     }
 
     fn apply_completion(&mut self, item: CompletionItem, cx: &mut Context<Self>) {
+        stats::record(stats::key(&item));
         let mut caret = item.replace.end;
         let mut edits = vec![(item.replace.clone(), item.insert.clone())];
         // Put the caret inside `()` when the callable takes arguments.
@@ -459,7 +468,22 @@ impl EditorView {
                             .text_color(theme::syntax(php_syntax::Highlight::Keyword))
                             .child(item.icon),
                     )
-                    .child(div().text_color(theme::text()).child(item.label.clone()))
+                    .child({
+                        // Matched characters in bold, like PhpStorm's lookup.
+                        let highlights = match &item.action {
+                            MenuAction::Complete(completion) => {
+                                let start = self.buffer.byte_to_char(completion.replace.start);
+                                let end = self.buffer.byte_to_char(completion.replace.end);
+                                let typed = self.buffer.slice(start..end);
+                                php_analysis::matcher::match_ranges(&item.label, &typed)
+                                    .into_iter()
+                                    .map(|r| (r, gpui::HighlightStyle { font_weight: Some(gpui::FontWeight::BOLD), color: Some(theme::accent()), ..Default::default() }))
+                                    .collect()
+                            }
+                            _ => Vec::new(),
+                        };
+                        div().text_color(theme::text()).child(gpui::StyledText::new(item.label.clone()).with_highlights(highlights))
+                    })
                     .child(
                         div()
                             .flex_1()
@@ -507,4 +531,46 @@ fn relative(root: &std::path::Path, path: &std::path::Path) -> String {
         .unwrap_or(path)
         .display()
         .to_string()
+}
+
+/// How often each completion was chosen, like IntelliJ's StatisticsWeigher: frequently
+/// picked items move up among equally good matches.
+mod stats {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    static COUNTS: Mutex<Option<HashMap<String, u32>>> = Mutex::new(None);
+
+    fn path() -> std::path::PathBuf {
+        crate::config::dir().join("completion_stats.json")
+    }
+
+    fn with<R>(f: impl FnOnce(&mut HashMap<String, u32>) -> R) -> R {
+        let mut guard = COUNTS.lock().unwrap();
+        let counts = guard.get_or_insert_with(|| {
+            std::fs::read_to_string(path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+        });
+        f(counts)
+    }
+
+    pub fn key(item: &php_analysis::CompletionItem) -> String {
+        format!("{:?}:{}", item.kind, item.label)
+    }
+
+    pub fn count(key: &str) -> u32 {
+        with(|c| c.get(key).copied().unwrap_or(0))
+    }
+
+    pub fn record(key: String) {
+        let snapshot = with(|c| {
+            *c.entry(key).or_default() += 1;
+            // Keep the file small.
+            if c.len() > 5000 {
+                c.retain(|_, n| *n > 1);
+            }
+            serde_json::to_string(c).unwrap_or_default()
+        });
+        let _ = std::fs::create_dir_all(crate::config::dir());
+        let _ = std::fs::write(path(), snapshot);
+    }
 }

@@ -716,6 +716,12 @@ impl Workspace {
                 )))
             })
             .child(div().flex_1())
+            .child(tool("tool-search", "⌕ Search", "⇧⇧").on_click(cx.listener(|this, _, window, cx| {
+                this.search_everywhere(&super::navigation::SearchEverywhere, window, cx)
+            })))
+            .child(tool("tool-git", "Git", "⌘9").on_click(cx.listener(|this, _, window, cx| {
+                this.toggle_git_log(&super::git_panel::ToggleGitLog, window, cx)
+            })))
             .child(self.render_run_widget(cx))
             .child(
                 tool("tool-agent", "✦ AI", "").on_click(cx.listener(|this, _, window, cx| this.toggle_agent(&super::agent_panel::ToggleAgent, window, cx))),

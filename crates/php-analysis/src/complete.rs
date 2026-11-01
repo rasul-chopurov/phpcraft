@@ -94,10 +94,25 @@ pub fn complete(
             item.replace = typed_from(item)..offset;
         }
         let typed = items.first().map_or(&source[arg.range.start..offset], |i| &source[i.replace.clone()]);
-        return rank(items, typed);
+        return rank(items, typed, None);
     }
 
     let lead = &before[..start];
+    // Like PhpCompletionConfidence: nothing in comments, numbers or plain strings (string
+    // arguments with known meaning were handled above); variables still complete inside
+    // double-quoted strings.
+    if let Some(node) = doc.tree.root_node().descendant_for_byte_range(offset.saturating_sub(1), offset.saturating_sub(1)) {
+        let mut current = Some(node);
+        while let Some(n) = current {
+            match n.kind() {
+                "comment" | "float" | "integer" => return Vec::new(),
+                "string" | "string_content" | "nowdoc" | "nowdoc_body" => return Vec::new(),
+                "encapsed_string" | "heredoc" if !lead.ends_with('$') && !lead.ends_with("->") => return Vec::new(),
+                _ => {}
+            }
+            current = n.parent();
+        }
+    }
     let items = if lead.ends_with('$') {
         variables(doc, offset, start - 1..offset)
     } else if let Some(object_end) = lead.strip_suffix("?->").or(lead.strip_suffix("->")).map(str::len) {
@@ -132,31 +147,57 @@ pub fn complete(
         global_items(doc, index, prefix, replace.clone())
     };
     let items = items.into_iter().filter(|i| matches(&i.label, prefix.trim_start_matches('$'))).collect();
-    rank(items, prefix.trim_start_matches('$'))
+    let class = doc.current_class(offset);
+    let namespace = class.as_deref().map(php_index::namespace_of).unwrap_or("").to_string();
+    let place = Place { class, namespace, path: doc.path, index };
+    rank(items, prefix.trim_start_matches('$'), Some(&place))
 }
 
-/// Case-insensitive prefix or subsequence ("CamelHumps"-like) match.
-fn matches(label: &str, typed: &str) -> bool {
-    if typed.is_empty() {
-        return true;
-    }
-    let label = label.trim_start_matches('$').to_ascii_lowercase();
-    let typed = typed.to_ascii_lowercase();
-    if label.starts_with(&typed) {
-        return true;
-    }
-    let mut chars = label.chars();
-    typed.chars().all(|t| chars.any(|c| c == t)) && label.starts_with(typed.chars().next().unwrap())
+use crate::matcher::{degree, matches};
+
+/// Where completion happens, for proximity ranking (like PhpStorm's PhpScopeWeigher,
+/// PhpNamespaceWeigher and PhpSameFileWeigher).
+struct Place<'a> {
+    class: Option<String>,
+    namespace: String,
+    path: &'a std::path::Path,
+    index: &'a Index,
 }
 
-fn rank(mut items: Vec<CompletionItem>, typed: &str) -> Vec<CompletionItem> {
-    let typed_lower = typed.to_ascii_lowercase();
-    items.sort_by_key(|item| {
+impl Place<'_> {
+    /// Lower is closer.
+    fn proximity(&self, item: &CompletionItem) -> u32 {
+        match item.kind {
+            // Members of the class itself before inherited ones.
+            CompletionKind::Method | CompletionKind::Property | CompletionKind::Constant => {
+                let own = self.class.as_deref().map(short_name).is_some_and(|c| item.detail.ends_with(&format!(" {c}")) || item.detail == c);
+                if own { 0 } else { 1 }
+            }
+            CompletionKind::Class => {
+                let Some(class) = self.index.class(&item.detail) else { return 50 };
+                let namespace = php_index::namespace_of(&class.fqn);
+                let same_file = &*class.path == self.path;
+                let vendor = class.path.components().any(|c| c.as_os_str() == "vendor");
+                let common = namespace.split('\\').zip(self.namespace.split('\\')).take_while(|(a, b)| a.eq_ignore_ascii_case(b)).count() as u32;
+                if same_file {
+                    0
+                } else {
+                    (if vendor { 30 } else { 10 }) + 10u32.saturating_sub(common)
+                }
+            }
+            _ => 0,
+        }
+    }
+}
+
+/// PhpStorm's order: priority (kind), prefix matching, then proximity; ties by length/name.
+fn rank(mut items: Vec<CompletionItem>, typed: &str, place: Option<&Place>) -> Vec<CompletionItem> {
+    items.sort_by_cached_key(|item| {
         let label = item.label.trim_start_matches('$');
         (
-            !label.starts_with(typed),
-            !label.to_ascii_lowercase().starts_with(&typed_lower),
+            degree(&item.label, typed),
             item.kind == CompletionKind::Keyword,
+            place.map_or(0, |p| p.proximity(item)),
             label.len(),
             item.label.clone(),
         )
@@ -254,7 +295,7 @@ fn global_items(doc: &Document, index: &Index, prefix: &str, replace: Range<usiz
     if !prefix.contains('\\') {
         let first = typed.chars().next().unwrap_or(' ').to_ascii_lowercase();
         for class in index.classes() {
-            if !class.name.to_ascii_lowercase().starts_with(first) || !matches(&class.name, typed) {
+            if !class.name.to_lowercase().starts_with(first) || !matches(&class.name, typed) {
                 continue;
             }
             let (insert, additional_edit) = class_insertion(doc, &class.fqn);

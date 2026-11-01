@@ -4,6 +4,7 @@
 //! string literals such as `route('home')` or `view('users.index')`.
 
 mod complete;
+pub mod matcher;
 mod goto;
 mod imports;
 mod types;
