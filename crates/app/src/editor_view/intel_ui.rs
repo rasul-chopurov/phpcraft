@@ -32,6 +32,7 @@ pub enum MenuAction {
     Import(String),
     OptimizeImports,
     Paste(String),
+    Mnemonic(char),
     Nothing,
 }
 
@@ -445,6 +446,7 @@ impl EditorView {
             MenuAction::Import(fqn) => self.import_class(&fqn, cx),
             MenuAction::OptimizeImports => self.run_optimize_imports(cx),
             MenuAction::Paste(text) => self.paste_text(&text, cx),
+            MenuAction::Mnemonic(c) => self.set_bookmark_mnemonic(c, cx),
             MenuAction::Nothing => {}
         }
         cx.notify();

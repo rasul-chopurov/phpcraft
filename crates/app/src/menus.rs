@@ -47,7 +47,7 @@ pub fn set(cx: &mut App) {
             &[
                 Some(("New Project…", "workspace::NewProject")),
                 Some(("Open…", "workspace::OpenFolder")),
-                Some(("Clone Repository…", "workspace::OpenProjects")),
+                Some(("Clone Repository…", "workspace::GitClone")),
                 Some(("Recent Projects…", "workspace::OpenProjects")),
                 Some(("Close Project", "workspace::CloseProject")),
                 None,
@@ -97,6 +97,12 @@ pub fn set(cx: &mut App) {
                 Some(("Clone Caret Below", "editor::CloneCaretBelow")),
                 Some(("Extend Selection", "editor::ExtendSelection")),
                 Some(("Shrink Selection", "editor::ShrinkSelection")),
+                None,
+                Some(("Toggle Bookmark", "editor::ToggleBookmark")),
+                Some(("Toggle Bookmark with Mnemonic", "editor::ToggleBookmarkWithMnemonic")),
+                Some(("Next Bookmark", "editor::NextBookmark")),
+                Some(("Previous Bookmark", "editor::PrevBookmark")),
+                Some(("Show Bookmarks…", "workspace::ShowBookmarks")),
             ],
         ),
         menu(
@@ -113,6 +119,7 @@ pub fn set(cx: &mut App) {
                 Some(("Markdown Preview", "editor::ToggleMarkdownPreview")),
                 Some(("Git Blame", "editor::ToggleBlame")),
                 Some(("Soft-Wrap", "editor::ToggleSoftWrap")),
+                Some(("Show Whitespaces", "editor::ToggleWhitespace")),
             ],
         ),
         menu(
@@ -246,6 +253,28 @@ pub fn set(cx: &mut App) {
             .flatten()
             .collect(),
         },
+        menu(
+            cx,
+            "Window",
+            &[
+                Some(("Reopen Closed Tab", "workspace::ReopenClosedTab")),
+                Some(("Pin / Unpin Tab", "workspace::TogglePinTab")),
+                None,
+                Some(("Close Tab", "workspace::CloseTab")),
+                Some(("Close Other Tabs", "workspace::CloseOtherTabs")),
+                Some(("Close Tabs to the Left", "workspace::CloseTabsLeft")),
+                Some(("Close Tabs to the Right", "workspace::CloseTabsRight")),
+                Some(("Close Unmodified Tabs", "workspace::CloseUnmodifiedTabs")),
+                Some(("Close All but Pinned", "workspace::CloseAllButPinned")),
+                Some(("Close All Tabs", "workspace::CloseAllTabs")),
+                None,
+                Some(("Next Tab", "workspace::NextTab")),
+                Some(("Previous Tab", "workspace::PrevTab")),
+                Some(("Split Right", "workspace::SplitRight")),
+                Some(("Unsplit", "workspace::UnsplitPane")),
+                Some(("Next Splitter", "workspace::FocusNextPane")),
+            ],
+        ),
         menu(
             cx,
             "Help",

@@ -25,6 +25,9 @@ pub(super) enum MenuCommand {
     CloseTab(usize),
     CloseOthers(usize),
     CloseAll,
+    CloseLeft(usize),
+    CloseRight(usize),
+    TogglePin(usize),
     /// Terminal tab commands (by tab index).
     TerminalRename(usize),
     TerminalClose(usize),
@@ -116,6 +119,11 @@ impl Workspace {
             Some(("Close", "⌘W", MenuCommand::CloseTab(ix), true)),
             Some(("Close Other Tabs", "", MenuCommand::CloseOthers(ix), self.tabs.len() > 1)),
             Some(("Close All Tabs", "", MenuCommand::CloseAll, true)),
+            Some(("Close Tabs to the Left", "", MenuCommand::CloseLeft(ix), ix > 0)),
+            Some(("Close Tabs to the Right", "", MenuCommand::CloseRight(ix), ix + 1 < self.tabs.len())),
+            Some(("Close Unmodified Tabs", "", MenuCommand::Action("workspace::CloseUnmodifiedTabs"), true)),
+            Some((if self.is_pinned(ix, cx) { "Unpin Tab" } else { "Pin Tab" }, "", MenuCommand::TogglePin(ix), true)),
+            Some(("Reopen Closed Tab", "", MenuCommand::Action("workspace::ReopenClosedTab"), !self.closed_tabs.is_empty())),
             Some(("Split Right", "⌘\\", MenuCommand::Action("workspace::SplitRight"), self.pane_count() < super::panes::MAX_PANES)),
             None,
         ];
@@ -207,18 +215,11 @@ impl Workspace {
             }
             MenuCommand::OpenInSplit(p) => self.open_in_right_split(&p, window, cx),
             MenuCommand::CloseTab(ix) => self.close_tab_at(ix, window, cx),
-            MenuCommand::CloseOthers(ix) => {
-                for i in (0..self.tabs.len()).rev() {
-                    if i != ix {
-                        self.close_tab_at(i, window, cx);
-                    }
-                }
-            }
-            MenuCommand::CloseAll => {
-                for i in (0..self.tabs.len()).rev() {
-                    self.close_tab_at(i, window, cx);
-                }
-            }
+            MenuCommand::CloseOthers(ix) => self.close_tabs_where(false, move |i, _, _| i != ix, window, cx),
+            MenuCommand::CloseAll => self.close_tabs_where(false, |_, _, _| true, window, cx),
+            MenuCommand::CloseLeft(ix) => self.close_tabs_where(false, move |i, _, _| i < ix, window, cx),
+            MenuCommand::CloseRight(ix) => self.close_tabs_where(false, move |i, _, _| i > ix, window, cx),
+            MenuCommand::TogglePin(ix) => self.toggle_pin_at(ix, cx),
             MenuCommand::TerminalRename(ix) => self.start_terminal_rename(ix, window, cx),
             MenuCommand::TerminalClose(ix) => self.close_terminal_tab(ix, window, cx),
             MenuCommand::TerminalCloseOthers(ix) => self.close_other_terminals(ix, cx),

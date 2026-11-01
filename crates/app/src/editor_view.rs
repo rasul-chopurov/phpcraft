@@ -1,5 +1,6 @@
 //! Code editor view: renders a [`Buffer`] with gutter, highlighting, caret and selection.
 
+mod bookmarks;
 mod find_bar;
 mod folding;
 mod rows;
@@ -81,6 +82,11 @@ actions!(
         ExpandAll,
         FoldSelection,
         ToggleSoftWrap,
+        ToggleBookmark,
+        ToggleBookmarkWithMnemonic,
+        NextBookmark,
+        PrevBookmark,
+        ToggleWhitespace,
         ExtendSelection,
         ShrinkSelection,
         JoinLines,
@@ -153,6 +159,10 @@ pub struct EditorView {
     rows_cache: Option<(u64, Vec<(usize, usize)>, Option<usize>, std::rc::Rc<Vec<Row>>)>,
     /// Number of visual rows at the last paint (scroll limit).
     row_count: usize,
+    /// Bookmarks in this file: (line anchor, mnemonic).
+    bookmarks: Vec<(usize, Option<char>)>,
+    /// View ▸ Show Whitespaces.
+    show_whitespace: bool,
 }
 
 impl EditorView {
@@ -179,6 +189,8 @@ impl EditorView {
             soft_wrap: None,
             rows_cache: None,
             row_count: 0,
+            bookmarks: Vec::new(),
+            show_whitespace: false,
             buffer,
             focus_handle: cx.focus_handle(),
             scroll_y: px(0.),
@@ -194,6 +206,12 @@ impl EditorView {
             ghost_task: None,
             md_cache: None,
         }
+        .with_bookmarks()
+    }
+
+    fn with_bookmarks(mut self) -> Self {
+        self.load_bookmarks();
+        self
     }
 
     /// A compact text area (commit message): no gutter, no code intelligence.
@@ -405,6 +423,7 @@ impl EditorView {
             eprintln!("save failed: {err:#}");
             return;
         }
+        self.save_bookmarks();
         if let Some(path) = self.buffer.path() {
             let text = self.buffer.text();
             crate::local_history::record(path, &text, "Save");
@@ -495,6 +514,11 @@ impl EditorView {
 
     fn toggle_soft_wrap(&mut self, _: &ToggleSoftWrap, _: &mut Window, cx: &mut Context<Self>) {
         self.soft_wrap = Some(!self.soft_wrap_enabled());
+        cx.notify();
+    }
+
+    fn toggle_whitespace(&mut self, _: &ToggleWhitespace, _: &mut Window, cx: &mut Context<Self>) {
+        self.show_whitespace = !self.show_whitespace;
         cx.notify();
     }
 
@@ -972,6 +996,11 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::toggle_soft_wrap))
             .on_action(cx.listener(Self::extend_selection))
             .on_action(cx.listener(Self::shrink_selection))
+            .on_action(cx.listener(Self::toggle_bookmark))
+            .on_action(cx.listener(Self::toggle_bookmark_with_mnemonic))
+            .on_action(cx.listener(Self::next_bookmark))
+            .on_action(cx.listener(Self::prev_bookmark))
+            .on_action(cx.listener(Self::toggle_whitespace))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -1108,6 +1137,12 @@ impl Element for EditorElement {
             let fold_width = if view.plain { px(0.) } else { digit_width * 1.8 };
             let gutter_width = if view.plain { px(0.) } else { blame_width + digit_width * digits as f32 + fold_width + px(GUTTER_PADDING * 2.) };
             let markers = view.git_markers();
+            let bookmark_lines = view.bookmark_lines();
+            let indent_cols = match view.buffer.indent_unit() {
+                "\t" => 4,
+                unit => unit.len().max(1),
+            };
+            let show_whitespace = view.show_whitespace;
             let mut gutter_quads = Vec::new();
             let mut blame_lines = Vec::new();
             let mut fold_marks = Vec::new();
@@ -1292,8 +1327,38 @@ impl Element for EditorElement {
                 if let Some(link) = &link {
                     underline(link, theme::link(), &mut underlines);
                 }
+                // Indent guides at each indentation level of the line's leading whitespace.
+                if row.first && !view.plain {
+                    let lead: usize = text.chars().take_while(|c| *c == ' ' || *c == '\t').map(|c| if c == '\t' { 4 } else { 1 }).sum();
+                    let lead = if text.trim().is_empty() { 0 } else { lead };
+                    for level in 1..lead.div_ceil(indent_cols) {
+                        let x = text_x + digit_width * (level * indent_cols) as f32;
+                        if level * indent_cols < lead {
+                            gutter_quads.push(fill(Bounds::new(point(x, y), size(px(1.), line_height)), theme::border().opacity(0.6)));
+                        }
+                    }
+                }
+                if show_whitespace {
+                    for (byte, c) in text.char_indices().filter(|(_, c)| *c == ' ' || *c == '\t') {
+                        let x0 = shaped.x_for_index(byte);
+                        let x1 = shaped.x_for_index(byte + 1);
+                        let mid = (x0 + x1) / 2.;
+                        let quad = if c == ' ' {
+                            fill(Bounds::new(point(text_x + mid - px(1.), y + line_height / 2. - px(1.)), size(px(2.), px(2.))), theme::muted().opacity(0.6))
+                        } else {
+                            fill(Bounds::new(point(text_x + x0 + px(2.), y + line_height / 2.), size(x1 - x0 - px(4.), px(1.))), theme::muted().opacity(0.6))
+                        };
+                        gutter_quads.push(quad);
+                    }
+                }
                 if row.first {
                     let marker_x = bounds.left() + gutter_width - fold_width - px(4.);
+                    if let Some((_, mnemonic)) = bookmark_lines.iter().find(|(l, _)| *l == line) {
+                        let label: SharedString = mnemonic.map_or("◆".to_string(), |m| m.to_string()).into();
+                        let len = label.len();
+                        let mark = window.text_system().shape_line(label, px(theme::editor_font_size() - 2.), &[run(len, theme::accent())], None);
+                        fold_marks.push((mark, point(bounds.left() + px(4.), y)));
+                    }
                     let first_marker = markers.partition_point(|(l, _)| *l < line);
                     for (_, change) in markers[first_marker..].iter().take_while(|(l, _)| *l == line) {
                         gutter_quads.push(match change {

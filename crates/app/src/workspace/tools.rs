@@ -312,7 +312,7 @@ impl Workspace {
     }
 
     /// Opens a single-list navigation dialog with the given items.
-    fn open_list(
+    pub(super) fn open_list(
         &mut self,
         mode: crate::dialogs::NavMode,
         items: Vec<crate::dialogs::NavItem>,

@@ -213,7 +213,7 @@ const PHPSTORM_ACTIONS: &[(&str, &str)] = &[
     ("CodeCompletion", "editor::ShowCompletions"),
     ("ShowIntentionActions", "editor::ShowIntentions"),
     ("OptimizeImports", "editor::OptimizeImports"),
-    ("SaveAll", "editor::Save"),
+    ("SaveAll", "workspace::SaveAll"),
     ("Annotate", "editor::ToggleBlame"),
 ];
 

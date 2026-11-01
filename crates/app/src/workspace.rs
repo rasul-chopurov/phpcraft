@@ -14,6 +14,7 @@ mod git_menu;
 mod laravel_panel;
 mod panes;
 mod git_window;
+mod tabs;
 pub use git_panel::ShowCommit;
 pub(crate) use db_panel::RunSql;
 
@@ -76,6 +77,10 @@ pub struct Workspace {
     laravel: laravel_panel::LaravelState,
     /// Split editor panes; the focused one's tabs live in `tabs`/`active`.
     panes: Vec<Option<panes::Pane>>,
+    /// Files of closed tabs, newest last (Reopen Closed Tab).
+    closed_tabs: Vec<PathBuf>,
+    /// Pinned tabs (kept by Close Others / Close All but Pinned).
+    pinned: std::collections::HashSet<PathBuf>,
     focused_pane: usize,
     /// Database table editors shown as tabs; `Some` while one is the active tab.
     tables: Vec<Entity<crate::table_view::TableView>>,
@@ -153,6 +158,8 @@ impl Workspace {
             http_env: None,
             laravel: Default::default(),
             panes: vec![None],
+            closed_tabs: Vec::new(),
+            pinned: Default::default(),
             focused_pane: 0,
             tables: Vec::new(),
             table_active: None,
@@ -395,6 +402,7 @@ impl Workspace {
         if ix >= self.tabs.len() {
             return;
         }
+        self.remember_closed(ix, cx);
         self.tabs.remove(ix);
         let next = self.active.min(self.tabs.len().saturating_sub(1));
         if self.tabs.is_empty() && self.pane_count() > 1 {
@@ -504,6 +512,7 @@ impl Workspace {
             let dirty = buffer.is_dirty();
             let icon = file_icon(&buffer.title(), false, false);
             let active = ix == self.active;
+            let pinned = buffer.path().is_some_and(|p| self.pinned.contains(p));
             div()
                 .id(("tab", ix))
                 .group("tab")
@@ -517,6 +526,7 @@ impl Workspace {
                 .border_color(theme::border())
                 .when(active, |d| d.bg(theme::tab_active()).text_color(theme::ui_text()))
                 .when(!active, |d| d.text_color(theme::muted()).hover(|d| d.bg(theme::hover())))
+                .when(pinned, |d| d.child(div().text_size(px(9.)).text_color(theme::accent()).child("◆")))
                 .child(icon)
                 .child(title)
                 .child(
@@ -993,6 +1003,25 @@ impl Render for Workspace {
             // Files dropped from Finder / Explorer open in the editor; folders open as projects.
             .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| this.drop_paths(paths.paths(), window, cx)))
             .on_action(cx.listener(Self::close_tab))
+            .on_action(cx.listener(Self::reopen_closed_tab))
+            .on_action(cx.listener(Self::toggle_pin_tab))
+            .on_action(cx.listener(Self::close_tabs_left))
+            .on_action(cx.listener(Self::close_tabs_right))
+            .on_action(cx.listener(Self::close_unmodified_tabs))
+            .on_action(cx.listener(Self::close_all_but_pinned))
+            .on_action(cx.listener(Self::close_other_tabs))
+            .on_action(cx.listener(Self::close_all_tabs))
+            .on_action(cx.listener(Self::show_bookmarks))
+            .on_action(cx.listener(Self::go_to_bookmark_0))
+            .on_action(cx.listener(Self::go_to_bookmark_1))
+            .on_action(cx.listener(Self::go_to_bookmark_2))
+            .on_action(cx.listener(Self::go_to_bookmark_3))
+            .on_action(cx.listener(Self::go_to_bookmark_4))
+            .on_action(cx.listener(Self::go_to_bookmark_5))
+            .on_action(cx.listener(Self::go_to_bookmark_6))
+            .on_action(cx.listener(Self::go_to_bookmark_7))
+            .on_action(cx.listener(Self::go_to_bookmark_8))
+            .on_action(cx.listener(Self::go_to_bookmark_9))
             .on_action(cx.listener(Self::next_tab))
             .on_action(cx.listener(Self::prev_tab))
             .on_action(cx.listener(Self::navigate_back))

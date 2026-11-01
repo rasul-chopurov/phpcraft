@@ -1,6 +1,7 @@
 // Release builds on Windows are GUI apps: no console window.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod bookmarks;
 mod config;
 mod dialogs;
 mod deployment;

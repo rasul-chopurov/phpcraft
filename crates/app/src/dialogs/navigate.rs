@@ -30,12 +30,13 @@ pub enum NavMode {
     Recent,
     UnusedViews,
     Tables,
+    Bookmarks,
 }
 
 impl NavMode {
     /// Modes showing one list of `sources.recent` without tabs.
     fn is_single(self) -> bool {
-        matches!(self, Self::Recent | Self::UnusedViews | Self::Tables)
+        matches!(self, Self::Recent | Self::UnusedViews | Self::Tables | Self::Bookmarks)
     }
 
     const TABS: [NavMode; 6] = [
@@ -58,6 +59,7 @@ impl NavMode {
             Self::Recent => "Recent Files",
             Self::UnusedViews => "Unused Views",
             Self::Tables => "Database Tables",
+            Self::Bookmarks => "Bookmarks",
         }
     }
 }
@@ -307,7 +309,7 @@ impl NavigateDialog {
             NavMode::Symbols => section(&self.sources.symbols, LIMIT).collect(),
             NavMode::Actions => section(&self.sources.actions, LIMIT).collect(),
             NavMode::Text => self.text_results.1.iter().map(|i| Row::Item(i.clone(), Vec::new())).collect(),
-            NavMode::Recent | NavMode::UnusedViews | NavMode::Tables => {
+            NavMode::Recent | NavMode::UnusedViews | NavMode::Tables | NavMode::Bookmarks => {
                 section(&self.sources.recent, 500).collect()
             }
             NavMode::All => {
