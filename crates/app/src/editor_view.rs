@@ -1,5 +1,6 @@
 //! Code editor view: renders a [`Buffer`] with gutter, highlighting, caret and selection.
 
+mod find_bar;
 mod intel_ui;
 
 use std::ops::Range;
@@ -18,6 +19,10 @@ use crate::intel::Intel;
 use crate::theme;
 use crate::workspace::Workspace;
 use intel_ui::Menu;
+pub use find_bar::{
+    CloseFind, FindNext, FindPrev, ReplaceAll, ReplaceNext, ShowFind, ShowReplace, ToggleCase, ToggleRegex,
+    ToggleWord,
+};
 pub use intel_ui::{
     GoToDeclaration, MenuCancel, MenuConfirm, MenuDown, MenuUp, OptimizeImports, ShowCompletions,
     ShowIntentions,
@@ -82,6 +87,7 @@ pub struct EditorView {
     intel: Arc<Intel>,
     workspace: gpui::WeakEntity<Workspace>,
     menu: Option<Menu>,
+    find: Option<find_bar::FindBar>,
     /// Byte range underlined while ⌘ is held over a navigable symbol.
     hover_link: Option<Range<usize>>,
     /// Unresolved class references for the buffer version they were computed for.
@@ -101,6 +107,7 @@ impl EditorView {
             intel,
             workspace,
             menu: None,
+            find: None,
             hover_link: None,
             diagnostics: None,
             caret_point: None,
@@ -135,6 +142,19 @@ impl EditorView {
         self.close_menu();
         self.center_on_caret = true;
         self.changed(cx);
+    }
+
+    /// Reloads the buffer from disk after an external change, unless it has unsaved edits.
+    pub fn reload_if_clean(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
+        if self.buffer.is_dirty() {
+            return;
+        }
+        if let Ok(buffer) = Buffer::open(path) {
+            let caret = self.buffer.selection.head.min(buffer.len_chars());
+            self.buffer = buffer;
+            self.buffer.move_to(caret, false);
+            cx.notify();
+        }
     }
 
     /// Caret movement closes popups.
@@ -471,10 +491,13 @@ impl Render for EditorView {
             key_context.add("menu");
         }
         let cursor = if self.hover_link.is_some() { CursorStyle::PointingHand } else { CursorStyle::IBeam };
-        gpui::div()
+        let find_bar = self.render_find_bar(cx);
+        let editor = gpui::div()
             .key_context(key_context)
             .track_focus(&self.focus_handle)
-            .size_full()
+            .flex_1()
+            .w_full()
+            .min_h(px(0.))
             .overflow_hidden()
             .cursor(cursor)
             .on_action(cx.listener(Self::go_to_declaration))
@@ -524,7 +547,18 @@ impl Render for EditorView {
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .child(EditorElement { view: cx.entity() })
-            .children(self.render_menu(cx))
+            .children(self.render_menu(cx));
+        gpui::div()
+            .key_context("EditorPane")
+            .size_full()
+            .flex()
+            .flex_col()
+            .on_action(cx.listener(Self::show_find))
+            .on_action(cx.listener(Self::show_replace))
+            .on_action(cx.listener(Self::find_next))
+            .on_action(cx.listener(Self::find_prev))
+            .children(find_bar)
+            .child(editor)
     }
 }
 
@@ -637,6 +671,10 @@ impl Element for EditorElement {
                 view.current_diagnostics().iter().map(|u| u.range.clone()).collect();
             let link = view.hover_link.clone();
             let mut underlines = Vec::new();
+            let (find_matches, find_current) = match &view.find {
+                Some(find) => (find.matches.clone(), find.current),
+                None => (Vec::new(), None),
+            };
 
             let mut lines = Vec::new();
             let mut selection_quads = Vec::new();
@@ -721,6 +759,16 @@ impl Element for EditorElement {
                 };
                 for problem in &problems {
                     underline(problem, theme::error(), &mut underlines);
+                }
+                let first_match = find_matches.partition_point(|m| m.end <= line_start);
+                for (ix, found) in find_matches.iter().enumerate().skip(first_match) {
+                    if found.start > line_end {
+                        break;
+                    }
+                    let x0 = shaped.x_for_index(found.start.max(line_start) - line_start);
+                    let x1 = shaped.x_for_index(found.end.min(line_end) - line_start);
+                    let color = if Some(ix) == find_current { theme::find_current() } else { theme::find_match() };
+                    selection_quads.insert(0, fill(Bounds::from_corners(point(text_x + x0, y), point(text_x + x1, y + line_height)), color));
                 }
                 if let Some(link) = &link {
                     underline(link, theme::link(), &mut underlines);

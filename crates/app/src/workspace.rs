@@ -1,5 +1,6 @@
 //! Main window: project tree, editor tabs and status bar.
 
+mod navigation;
 mod tools;
 
 use std::path::{Path, PathBuf};
@@ -15,6 +16,7 @@ use project::{Project, Row};
 use crate::editor_view::EditorView;
 use crate::intel::Intel;
 use php_index::Location;
+pub use navigation::{FindInFiles, GoToClass, GoToFile, GoToLine, GoToSymbol, RecentFiles, ReplaceInFiles, SearchEverywhere};
 pub use tools::{OpenArtisan, OpenMake, OpenRouteSearch};
 use crate::theme;
 
@@ -35,6 +37,10 @@ pub struct Workspace {
     output: Option<tools::Output>,
     artisan_commands: tools::CommandCache,
     laravel_menu_open: bool,
+    recent: Vec<PathBuf>,
+    files_cache: Option<Arc<Vec<crate::dialogs::NavItem>>>,
+    shift_clean: bool,
+    last_shift_tap: Option<std::time::Instant>,
 }
 
 impl Workspace {
@@ -55,6 +61,10 @@ impl Workspace {
             output: None,
             artisan_commands: None,
             laravel_menu_open: false,
+            recent: Vec::new(),
+            files_cache: None,
+            shift_clean: false,
+            last_shift_tap: None,
             project,
             rows,
             tabs: Vec::new(),
@@ -82,6 +92,7 @@ impl Workspace {
     }
 
     pub fn open_file(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
+        self.remember_recent(path);
         if let Some(ix) = self
             .tabs
             .iter()
@@ -288,7 +299,7 @@ impl Workspace {
             Some(tab) => {
                 let buffer = &tab.read(cx).buffer;
                 let (line, col) = buffer.char_to_line_col(buffer.selection.head);
-                let lang = if buffer.is_php() { "PHP" } else { "Text" };
+                let lang = buffer.lang().name();
                 format!("{}:{}    LF    UTF-8    {lang}", line + 1, col + 1).into()
             }
             None => "".into(),
@@ -357,6 +368,16 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::new_model))
             .on_action(cx.listener(Self::new_pivot_table))
             .on_action(cx.listener(Self::toggle_laravel_menu))
+            .on_action(cx.listener(Self::find_in_files))
+            .on_action(cx.listener(Self::replace_in_files))
+            .on_action(cx.listener(Self::search_everywhere))
+            .on_action(cx.listener(Self::go_to_file))
+            .on_action(cx.listener(Self::go_to_class))
+            .on_action(cx.listener(Self::go_to_symbol))
+            .on_action(cx.listener(Self::recent_files))
+            .on_action(cx.listener(Self::go_to_line))
+            .on_modifiers_changed(cx.listener(Self::on_modifiers))
+            .capture_key_down(cx.listener(|this, _: &gpui::KeyDownEvent, _, _| this.on_any_key()))
             .on_action(cx.listener(Self::close_output))
             .relative()
             .size_full()

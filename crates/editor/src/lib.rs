@@ -180,6 +180,15 @@ impl Buffer {
         self.slice(self.selection.range())
     }
 
+    /// Language for highlighting, from the path (or `<?php` for unsaved buffers).
+    pub fn lang(&self) -> php_syntax::Lang {
+        match &self.path {
+            Some(path) => php_syntax::Lang::from_path(path),
+            None if self.is_php() => php_syntax::Lang::Php,
+            None => php_syntax::Lang::Plain,
+        }
+    }
+
     pub fn is_php(&self) -> bool {
         let by_ext = self
             .path
@@ -193,11 +202,7 @@ impl Buffer {
     pub fn highlights(&mut self) -> &[Span] {
         let stale = self.highlights.as_ref().is_none_or(|(v, _)| *v != self.version);
         if stale {
-            let spans = if self.is_php() {
-                php_syntax::highlight(&self.text())
-            } else {
-                Vec::new()
-            };
+            let spans = php_syntax::highlight_lang(self.lang(), &self.text());
             self.highlights = Some((self.version, spans));
         }
         &self.highlights.as_ref().unwrap().1

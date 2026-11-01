@@ -12,7 +12,10 @@ use gpui::{
 use project::Project;
 
 use editor_view::*;
-use workspace::{CloseTab, NavigateBack, NextTab, OpenArtisan, OpenMake, OpenRouteSearch, PrevTab, Workspace};
+use workspace::{
+    CloseTab, FindInFiles, GoToClass, GoToFile, GoToLine, GoToSymbol, NavigateBack, NextTab, OpenArtisan, OpenMake,
+    OpenRouteSearch, PrevTab, RecentFiles, ReplaceInFiles, SearchEverywhere, Workspace,
+};
 
 actions!(phpcraft, [Quit]);
 
@@ -56,6 +59,14 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-alt-o", OptimizeImports, editor),
         KeyBinding::new("cmd-[", NavigateBack, None),
         KeyBinding::new("cmd-alt-left", NavigateBack, None),
+        KeyBinding::new("cmd-shift-f", FindInFiles, None),
+        KeyBinding::new("cmd-shift-r", ReplaceInFiles, None),
+        KeyBinding::new("cmd-shift-o", GoToFile, None),
+        KeyBinding::new("cmd-o", GoToClass, None),
+        KeyBinding::new("cmd-alt-o", GoToSymbol, None),
+        KeyBinding::new("cmd-e", RecentFiles, None),
+        KeyBinding::new("cmd-l", GoToLine, None),
+        KeyBinding::new("cmd-shift-a", SearchEverywhere, None),
         KeyBinding::new("cmd-n", OpenMake, None),
         KeyBinding::new("cmd-shift-,", OpenMake, None),
         KeyBinding::new("ctrl-shift-r", OpenRouteSearch, None),
@@ -88,6 +99,30 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("up", dialogs::SelectPrev, Some("ArtisanDialog")),
         KeyBinding::new("down", dialogs::SelectNext, Some("ArtisanDialog")),
         KeyBinding::new("tab", dialogs::Complete, Some("ArtisanDialog")),
+        KeyBinding::new("enter", dialogs::Confirm, Some("ListDialog")),
+        KeyBinding::new("escape", dialogs::Cancel, Some("ListDialog")),
+        KeyBinding::new("up", dialogs::SelectPrev, Some("ListDialog")),
+        KeyBinding::new("down", dialogs::SelectNext, Some("ListDialog")),
+        KeyBinding::new("tab", dialogs::NextMode, Some("NavigateDialog")),
+        KeyBinding::new("shift-tab", dialogs::PrevMode, Some("NavigateDialog")),
+    ]);
+    let pane = Some("EditorPane");
+    let find = Some("FindBar");
+    cx.bind_keys([
+        KeyBinding::new("cmd-f", ShowFind, pane),
+        KeyBinding::new("cmd-r", ShowReplace, pane),
+        KeyBinding::new("cmd-g", FindNext, pane),
+        KeyBinding::new("f3", FindNext, pane),
+        KeyBinding::new("cmd-shift-g", FindPrev, pane),
+        KeyBinding::new("shift-f3", FindPrev, pane),
+        KeyBinding::new("enter", FindNext, find),
+        KeyBinding::new("shift-enter", FindPrev, find),
+        KeyBinding::new("escape", CloseFind, find),
+        KeyBinding::new("alt-c", ToggleCase, find),
+        KeyBinding::new("alt-w", ToggleWord, find),
+        KeyBinding::new("alt-x", ToggleRegex, find),
+        KeyBinding::new("enter", ReplaceNext, Some("ReplaceField")),
+        KeyBinding::new("cmd-alt-enter", ReplaceAll, find),
     ]);
     // Bound last so they win over the plain editor bindings while a popup is open.
     let menu = Some("Editor && menu");

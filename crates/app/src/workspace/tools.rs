@@ -13,7 +13,7 @@ use crate::theme;
 actions!(workspace, [OpenMake, OpenArtisan, CloseOutput, OpenRouteSearch, NewModel, NewPivotTable, ToggleLaravelMenu]);
 
 /// Bottom panel showing Artisan output and generation results.
-pub struct Output {
+pub(super) struct Output {
     pub title: String,
     pub text: String,
     pub running: bool,
@@ -39,7 +39,8 @@ impl Workspace {
 
     fn open_make_kind(&mut self, kind: MakeKind, window: &mut Window, cx: &mut Context<Self>) {
         let root = self.project.root().to_path_buf();
-        let dialog = cx.new(|cx| MakeDialog::new(&root, kind, window, cx));
+        let models = self.intel.models();
+        let dialog = cx.new(|cx| MakeDialog::new(&root, kind, models, window, cx));
         self.show_modal(dialog, window, cx);
     }
 
@@ -61,7 +62,7 @@ impl Workspace {
         self.show_modal(dialog, window, cx);
     }
 
-    fn show_modal<D: gpui::Render + gpui::EventEmitter<DialogEvent>>(
+    pub(super) fn show_modal<D: gpui::Render + gpui::EventEmitter<DialogEvent>>(
         &mut self,
         dialog: Entity<D>,
         window: &mut Window,
@@ -103,6 +104,32 @@ impl Workspace {
                 });
             }
             DialogEvent::OpenMakeKind(kind) => self.open_make_kind(*kind, window, cx),
+            DialogEvent::FilesListed(files) => self.files_cache = Some(files.clone()),
+            DialogEvent::OpenLocation(location) => {
+                let location = location.clone();
+                self.dismiss_modal(window, cx);
+                let from = self
+                    .tabs
+                    .get(self.active)
+                    .and_then(|t| t.read(cx).buffer.path().map(|p| (p.to_path_buf(), t.read(cx).buffer.selection.head)));
+                self.open_location(&location, from, window, cx);
+            }
+            DialogEvent::RunAction(action) => {
+                let action = action.boxed_clone();
+                self.dismiss_modal(window, cx);
+                // After the modal closes, so editor actions reach the focused editor.
+                window.defer(cx, move |window, cx| window.dispatch_action(action, cx));
+            }
+            DialogEvent::GoToLine(line, column) => {
+                let (line, column) = (*line, *column);
+                self.dismiss_modal(window, cx);
+                self.jump_to_line(line, column, cx);
+            }
+            DialogEvent::ReplaceInFiles { query, replacement, paths } => {
+                let (query, replacement, paths) = (query.clone(), replacement.clone(), paths.clone());
+                self.dismiss_modal(window, cx);
+                self.run_replace_in_files(query, replacement, paths, cx);
+            }
             DialogEvent::OpenRoute(route) => {
                 let location = self.intel.route_location(route);
                 self.dismiss_modal(window, cx);

@@ -90,6 +90,9 @@ pub struct Relation {
     pub target: String,
     /// `through` model for has-through relations; morph name for morphOne/Many/ToMany.
     pub extra: Option<String>,
+    /// Fully qualified related class when known (picked from the project's models);
+    /// otherwise the target is assumed to live next to the new model.
+    pub target_fqn: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,7 +203,7 @@ pub fn parse_relations(input: &str) -> Vec<Relation> {
             let kind = RelationKind::ALL.into_iter().find(|k| k.method().eq_ignore_ascii_case(method))?;
             let target = parts.next()?.to_string();
             let extra = parts.next().map(str::to_string);
-            Some(Relation { kind, target, extra })
+            Some(Relation { kind, target, extra, target_fqn: None })
         })
         .collect()
 }
@@ -262,6 +265,11 @@ pub fn model_source(namespace: &str, name: &str, factory: bool, spec: &ModelSpec
     }
     for relation in &spec.relations {
         uses.push(format!("Illuminate\\Database\\Eloquent\\Relations\\{}", relation.kind.class()));
+        if let Some(fqn) = &relation.target_fqn
+            && fqn.rsplit_once('\\').map(|(ns, _)| ns) != Some(namespace)
+        {
+            uses.push(fqn.clone());
+        }
     }
     uses.sort_by_key(|u| u.to_ascii_lowercase());
     uses.dedup();
@@ -416,13 +424,13 @@ pub fn pivot_columns(a: (&str, IdType), b: (&str, IdType)) -> String {
     )
 }
 
-/// Factory `definition()` entries and the models they reference.
-pub fn factory_definition(spec: &ModelSpec) -> (String, Vec<String>) {
+/// Factory `definition()` entries and the related models (short name, optional FQN) they use.
+pub fn factory_definition(spec: &ModelSpec) -> (String, Vec<(String, Option<String>)>) {
     let mut lines = String::new();
     let mut models = Vec::new();
     for relation in spec.relations.iter().filter(|r| r.kind == RelationKind::BelongsTo) {
         lines.push_str(&format!("            '{}' => {}::factory(),\n", foreign_key(&relation.target), relation.target));
-        models.push(relation.target.clone());
+        models.push((relation.target.clone(), relation.target_fqn.clone()));
     }
     for field in &spec.fields {
         let name = field.name.as_str();
@@ -467,6 +475,10 @@ mod tests {
         assert_eq!(fields[2].default.as_deref(), Some("false"));
         assert!(fields[1].nullable && fields[3].unique);
 
+        let mut with_fqn = parse_relations("belongsTo:Team");
+        with_fqn[0].target_fqn = Some("App\\Domain\\Team".into());
+        let source = model_source("App\\Models", "Post", false, &ModelSpec { relations: with_fqn, ..ModelSpec::default() });
+        assert!(source.contains("use App\\Domain\\Team;"), "{source}");
         let relations = parse_relations("belongsTo:User, hasMany:Comment, belongsToMany:Tag, morphMany:Image:imageable, hasManyThrough:Deployment:Environment, bogus:X");
         let names: Vec<_> = relations.iter().map(relation_name).collect();
         assert_eq!(names, ["user", "comments", "tags", "images", "deployments"]);

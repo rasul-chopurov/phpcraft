@@ -337,7 +337,7 @@ impl Maker {
             app_namespace,
             // `pestphp/pest-plugin` alone (allow-plugins config) doesn't mean Pest is installed.
             uses_pest: composer.contains("\"pestphp/pest\":") || root.join("vendor/pestphp/pest").is_dir(),
-            uses_filament: composer.contains("\"filament/filament\":"),
+            uses_filament: has_filament(root, &composer, &lock),
             filament_v3: package_version(&lock, "filament/filament").is_some_and(|v| v.starts_with('3')),
         }
     }
@@ -448,7 +448,10 @@ impl Maker {
                 if has(Extra::Factory) {
                     let factory = sibling(Extra::Factory, "Factory");
                     let (definition, models) = model_spec::factory_definition(spec);
-                    let mut uses: Vec<String> = models.iter().map(|m| format!("{}\\{m}", t.app("Models"))).collect();
+                    let mut uses: Vec<String> = models
+                        .iter()
+                        .map(|(m, fqn)| fqn.clone().unwrap_or_else(|| format!("{}\\{m}", t.app("Models"))))
+                        .collect();
                     uses.push(model_fqn.clone());
                     let path = factory.path(&t.root, "database/factories");
                     let ns = format!("{}\\Factories", t.database_namespace);
@@ -572,6 +575,19 @@ impl Maker {
         files
     }
 
+}
+
+/// Filament may be required directly, pulled in transitively, or only by a laravel-modules module.
+fn has_filament(root: &Path, composer: &str, lock: &str) -> bool {
+    let named = |text: &str| text.contains("\"filament/filament\"");
+    named(composer)
+        || named(lock)
+        || root.join("vendor/filament/filament").is_dir()
+        || fs::read_dir(root.join("Modules")).is_ok_and(|entries| {
+            entries
+                .flatten()
+                .any(|e| fs::read_to_string(e.path().join("composer.json")).is_ok_and(|c| named(&c)))
+        })
 }
 
 /// `"version": "v3.2.1"` of a package in composer.lock, without the leading `v`.

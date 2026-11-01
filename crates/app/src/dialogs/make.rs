@@ -143,6 +143,8 @@ enum Dropdown {
 
 pub struct MakeDialog {
     root: PathBuf,
+    /// Project models (FQNs) offered while typing a relation's model.
+    models: Vec<String>,
     maker: Maker,
     kind: MakeKind,
     modules: Vec<String>,
@@ -168,12 +170,13 @@ pub struct MakeDialog {
 impl EventEmitter<DialogEvent> for MakeDialog {}
 
 impl MakeDialog {
-    pub fn new(root: &Path, kind: MakeKind, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(root: &Path, kind: MakeKind, models: Vec<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let maker = Maker::new(root);
         let modules = maker.modules();
         let extras_available = maker.extras(kind);
         let mut dialog = Self {
             root: root.to_path_buf(),
+            models,
             kind,
             modules,
             module: None,
@@ -284,10 +287,17 @@ impl MakeDialog {
                 .filter_map(|row| {
                     let target = text(&row.model);
                     let extra = text(&row.extra);
+                    let target_fqn = self
+                        .models
+                        .iter()
+                        .find(|fqn| php_index::short_name(fqn) == target || **fqn == target)
+                        .cloned();
+                    let target = php_index::short_name(&target).to_string();
                     (!target.is_empty()).then(|| Relation {
                         kind: RelationKind::ALL[row.kind],
                         target,
                         extra: (!extra.is_empty()).then_some(extra),
+                        target_fqn,
                     })
                 })
                 .collect(),
@@ -487,7 +497,76 @@ impl MakeDialog {
         )
     }
 
-    fn render_fields_table(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Project models matching what is typed in relation row `ix`, shown while it has focus.
+    fn model_suggestions(&self, ix: usize, window: &Window, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let field = &self.relations[ix].model;
+        if !field.focus_handle(cx).is_focused(window) {
+            return None;
+        }
+        let typed = field.read(cx).text().trim().to_ascii_lowercase();
+        let matches: Vec<String> = self
+            .models
+            .iter()
+            .filter(|fqn| {
+                let short = php_index::short_name(fqn).to_ascii_lowercase();
+                short.contains(&typed) && short != typed
+            })
+            .take(8)
+            .cloned()
+            .collect();
+        if matches.is_empty() {
+            return None;
+        }
+        let items: Vec<_> = matches
+            .into_iter()
+            .enumerate()
+            .map(|(i, fqn)| {
+                let short = php_index::short_name(&fqn).to_string();
+                let namespace = php_index::namespace_of(&fqn).to_string();
+                div()
+                    .id(("model-suggestion", i))
+                    .flex()
+                    .gap_2()
+                    .px_2()
+                    .h(px(22.))
+                    .items_center()
+                    .cursor_pointer()
+                    .hover(|d| d.bg(theme::selection()))
+                    .child(div().text_color(theme::syntax(php_syntax::Highlight::Keyword)).child("C"))
+                    .child(short.clone())
+                    .child(div().text_color(theme::muted()).child(namespace))
+                    .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        let model = this.relations[ix].model.clone();
+                        model.update(cx, |f, cx| f.set_text(short.clone(), cx));
+                        // Move on so the list closes.
+                        let next = this.relations[ix].extra.focus_handle(cx);
+                        window.focus(&next);
+                        cx.notify();
+                    }))
+            })
+            .collect();
+        Some(
+            gpui::deferred(
+                gpui::anchored().child(
+                    div()
+                        .occlude()
+                        .min_w(px(260.))
+                        .py_1()
+                        .bg(theme::panel_bg())
+                        .border_1()
+                        .border_color(theme::border_strong())
+                        .rounded_sm()
+                        .shadow_lg()
+                        .text_size(px(12.))
+                        .children(items),
+                ),
+            )
+            .with_priority(3),
+        )
+    }
+
+    fn render_fields_table(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let header = |text: &'static str, width: Option<f32>| {
             div()
                 .map(|d| match width {
@@ -555,7 +634,7 @@ impl MakeDialog {
                     .items_start()
                     .gap_2()
                     .child(self.select(format!("rel-{ix}"), kind.method().into(), Some(150.), Dropdown::RelationKind(ix), kinds.clone(), cx))
-                    .child(div().flex_1().child(row.model.clone()))
+                    .child(div().flex_1().flex().flex_col().child(row.model.clone()).children(self.model_suggestions(ix, window, cx)))
                     .child(div().w(px(200.)).flex_none().when(needs_extra, |d| d.child(row.extra.clone())))
                     .child(remove_button(format!("remove-rel-{ix}")).on_click(cx.listener(move |this, _, _, cx| {
                         this.relations.remove(ix);
@@ -717,7 +796,7 @@ impl Focusable for MakeDialog {
 }
 
 impl Render for MakeDialog {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let is_model = self.kind == MakeKind::Model;
         let title: SharedString = if is_model { "New Eloquent Model".into() } else { format!("New {}", self.kind.label()).into() };
         let name_label = match self.kind {
@@ -741,7 +820,7 @@ impl Render for MakeDialog {
         );
         if is_model {
             body = body
-                .child(div().flex().gap_3().child(self.render_fields_table(cx)).child(self.render_model_options(cx)))
+                .child(div().flex().gap_3().child(self.render_fields_table(window, cx)).child(self.render_model_options(cx)))
                 .child(self.render_post_generations(cx));
         } else if !self.maker.extras(self.kind).is_empty() {
             let extras = self.maker.extras(self.kind).into_iter().map(|extra| {

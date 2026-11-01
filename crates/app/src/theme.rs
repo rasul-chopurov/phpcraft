@@ -57,6 +57,12 @@ pub fn success() -> Hsla {
 pub fn overlay() -> Hsla {
     gpui::hsla(0., 0., 0., 0.45)
 }
+pub fn find_match() -> Hsla {
+    rgb(0x32593d).into()
+}
+pub fn find_current() -> Hsla {
+    rgb(0x4c7a4d).into()
+}
 pub fn error() -> Hsla {
     rgb(0xbc3f3c).into()
 }
@@ -78,6 +84,7 @@ pub fn syntax(highlight: Highlight) -> Hsla {
         Highlight::Variable | Highlight::Property | Highlight::Constant => 0x9876aa,
         Highlight::Operator => 0xa9b7c6,
         Highlight::Tag => 0xe8bf6a,
+        Highlight::Attribute => 0xbababa,
     };
     rgb(color).into()
 }

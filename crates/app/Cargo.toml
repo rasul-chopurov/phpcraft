@@ -13,3 +13,4 @@ php-syntax.workspace = true
 php-index.workspace = true
 php-analysis.workspace = true
 laravel.workspace = true
+search.workspace = true

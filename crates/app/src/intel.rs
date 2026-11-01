@@ -119,6 +119,73 @@ impl Intel {
         Some(Location { path, range: offset..offset })
     }
 
+    /// All indexed classes: (short name, FQN, location). Project classes first.
+    pub fn class_entries(&self) -> Vec<(String, String, Location)> {
+        let index = self.index.read().unwrap();
+        let vendor = self.root.join("vendor");
+        let mut out: Vec<(bool, String, String, Location)> = index
+            .classes()
+            .map(|c| {
+                let location = Location { path: c.path.to_path_buf(), range: c.range.clone() };
+                (c.path.starts_with(&vendor), c.name.clone(), c.fqn.clone(), location)
+            })
+            .collect();
+        out.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+        out.into_iter().map(|(_, name, fqn, loc)| (name, fqn, loc)).collect()
+    }
+
+    /// Project (non-vendor) members and functions: (label, container, icon, location).
+    pub fn symbol_entries(&self) -> Vec<(String, String, &'static str, Location)> {
+        let index = self.index.read().unwrap();
+        let vendor = self.root.join("vendor");
+        let mut out = Vec::new();
+        for class in index.classes().filter(|c| !c.path.starts_with(&vendor)) {
+            for member in class.members.iter().filter(|m| !m.virtual_member) {
+                let icon = match member.kind {
+                    php_index::MemberKind::Method => "m",
+                    php_index::MemberKind::Property => "f",
+                    _ => "k",
+                };
+                out.push((
+                    member.name.clone(),
+                    class.fqn.clone(),
+                    icon,
+                    Location { path: class.path.to_path_buf(), range: member.range.clone() },
+                ));
+            }
+        }
+        for function in index.functions().filter(|f| !f.path.starts_with(&vendor)) {
+            out.push((
+                php_index::short_name(&function.fqn).to_string(),
+                php_index::namespace_of(&function.fqn).to_string(),
+                "ƒ",
+                Location { path: function.path.to_path_buf(), range: function.range.clone() },
+            ));
+        }
+        out
+    }
+
+    /// Eloquent models declared in the project (not vendor), as FQNs sorted by short name.
+    pub fn models(&self) -> Vec<String> {
+        const MODEL: &str = "illuminate\\database\\eloquent\\model";
+        let index = self.index.read().unwrap();
+        let vendor = self.root.join("vendor");
+        let mut models: Vec<String> = index
+            .classes()
+            .filter(|c| !c.path.starts_with(&vendor))
+            .filter(|c| {
+                index
+                    .ancestors(&c.fqn)
+                    .iter()
+                    .skip(1)
+                    .any(|a| a.fqn.eq_ignore_ascii_case(MODEL))
+            })
+            .map(|c| c.fqn.clone())
+            .collect();
+        models.sort_by_key(|f| php_index::short_name(f).to_ascii_lowercase());
+        models
+    }
+
     pub fn import(&self, path: &Path, source: &str, fqn: &str) -> Option<TextEdit> {
         Document::parse(path, source).and_then(|doc| php_analysis::import_edit(&doc, fqn))
     }

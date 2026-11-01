@@ -1,6 +1,8 @@
 //! Modal dialogs: Laravel Make (code generation) and Artisan command runner.
 
+mod find_files;
 mod make;
+mod navigate;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -13,7 +15,9 @@ use laravel::artisan::{self, ArtisanCommand};
 use laravel::make::MakeKind;
 use laravel::routes::RouteInfo;
 
+pub use find_files::FindInFilesDialog;
 pub use make::{MakeChooser, MakeDialog};
+pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog, NextMode, PrevMode};
 
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
@@ -29,6 +33,13 @@ pub enum DialogEvent {
     /// Open the small arguments/options dialog for a command.
     ConfigureArtisan(ArtisanCommand),
     OpenRoute(RouteInfo),
+    OpenLocation(php_index::Location),
+    ReplaceInFiles { query: search::TextQuery, replacement: String, paths: Vec<std::path::PathBuf> },
+    /// The project file list was computed; the workspace caches it.
+    FilesListed(Arc<Vec<NavItem>>),
+    RunAction(Box<dyn gpui::Action>),
+    /// 0-based line and column.
+    GoToLine(usize, usize),
     CommandsLoaded(Arc<Vec<ArtisanCommand>>),
 }
 
