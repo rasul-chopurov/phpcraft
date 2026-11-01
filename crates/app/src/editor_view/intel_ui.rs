@@ -37,6 +37,7 @@ pub enum MenuAction {
     OverrideMethod(String),
     /// An intention's edits (byte ranges in the current text).
     Edits(Vec<(std::ops::Range<usize>, String)>),
+    Surround(usize),
     Nothing,
 }
 
@@ -475,6 +476,7 @@ impl EditorView {
             MenuAction::Mnemonic(c) => self.set_bookmark_mnemonic(c, cx),
             MenuAction::Generate(kind) => self.run_generate(kind, window, cx),
             MenuAction::OverrideMethod(name) => self.override_method(&name, cx),
+            MenuAction::Surround(ix) => self.apply_surround(ix, cx),
             MenuAction::Edits(edits) => {
                 let caret = self.caret_byte();
                 self.buffer.apply_edits(edits, caret);

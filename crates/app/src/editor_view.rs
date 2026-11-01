@@ -7,6 +7,7 @@ mod generate;
 mod hierarchy;
 mod info;
 mod rows;
+mod snippets;
 mod ghost;
 mod intel_ui;
 mod multicaret;
@@ -110,6 +111,7 @@ actions!(
         InlineVariable,
         NextProblem,
         PrevProblem,
+        SurroundWith,
         ExtendSelection,
         ShrinkSelection,
         JoinLines,
@@ -402,6 +404,9 @@ impl EditorView {
         self.moved(cx);
     }
     fn tab(&mut self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
+        if self.expand_template(cx) {
+            return;
+        }
         self.buffer.tab();
         self.moved(cx);
     }
@@ -1057,6 +1062,7 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::inline_variable))
             .on_action(cx.listener(Self::next_problem))
             .on_action(cx.listener(Self::prev_problem))
+            .on_action(cx.listener(Self::surround_with))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))

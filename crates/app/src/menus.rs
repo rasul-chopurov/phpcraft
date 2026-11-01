@@ -154,6 +154,7 @@ pub fn set(cx: &mut App) {
                 Some(("Code Completion", "editor::ShowCompletions")),
                 Some(("Show Intention Actions", "editor::ShowIntentions")),
                 Some(("Generate…", "editor::Generate")),
+                Some(("Surround With…", "editor::SurroundWith")),
                 Some(("Inspect Code…", "workspace::InspectCode")),
                 Some(("Problems", "workspace::ShowProblems")),
                 Some(("Next Problem", "editor::NextProblem")),
