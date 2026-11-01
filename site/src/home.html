@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{meta_title}}</title>
+<meta name="description" content="{{meta_description}}">
+<meta property="og:title" content="{{meta_title}}">
+<meta property="og:description" content="{{meta_description}}">
+<meta property="og:image" content="https://path.az/img/baku.jpg">
+<meta property="og:url" content="https://path.az{{path}}">
+<link rel="canonical" href="https://path.az{{path}}">
+<link rel="alternate" hreflang="en" href="https://path.az/">
+<link rel="alternate" hreflang="az" href="https://path.az/az/">
+<link rel="alternate" hreflang="ru" href="https://path.az/ru/">
+<link rel="icon" href="/img/phpcraft.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="{{home}}"><span class="logo"><i></i></span><b>path.az</b></a>
+    <div class="links mono">
+      <a href="#phpcraft">PhpCraft</a>
+      <a href="#family">{{nav_products}}</a>
+      <a href="#idea">{{nav_idea}}</a>
+      <a href="#download">{{nav_download}}</a>
+      <a href="https://github.com/rasul-chopurov/phpcraft">GitHub</a>
+    </div>
+    <div class="langs mono">{{langs}}</div>
+  </div>
+</nav>
+
+<section class="hero" id="phpcraft">
+  <div class="art" aria-hidden="true"></div>
+  <div class="wrap">
+    <div class="crumb mono">01 / <b>PhpCraft</b></div>
+    <div class="app">
+      <img src="/img/phpcraft.svg" alt="PhpCraft">
+      <div class="badge mono">PhpCraft · <span class="alpha">v0.0.1 alpha</span></div>
+    </div>
+    <h1>{{hero_title_1}} <em>{{hero_title_2}}</em></h1>
+    <p class="sub">{{hero_sub}}</p>
+    <div class="cta">
+      <a class="btn primary" id="dl-main" href="#download">↓ {{download}}</a>
+      <a class="btn" href="/phpcraft/">{{learn_more}}</a>
+      <a class="btn" href="https://github.com/rasul-chopurov/phpcraft">GitHub</a>
+    </div>
+    <div class="hint mono" id="os-hint">macOS · Windows · Linux · {{free_open}}</div>
+    <div class="shot"><img src="/img/split.jpg" alt="PhpCraft" width="1400" height="911"></div>
+  </div>
+</section>
+
+<section id="highlights">
+  <div class="wrap"><div class="label mono"><span>02 / {{highlights}}</span><span>PhpCraft</span></div></div>
+  <div class="wrap grid">
+    <div class="cell"><div class="n mono">01</div><h3>{{h1_t}}</h3><p>{{h1_p}}</p></div>
+    <div class="cell"><div class="n mono">02</div><h3>{{h2_t}}</h3><p>{{h2_p}}</p></div>
+    <div class="cell"><div class="n mono">03</div><h3>{{h3_t}}</h3><p>{{h3_p}}</p></div>
+    <div class="cell"><div class="n mono">04</div><h3>{{h4_t}}</h3><p>{{h4_p}}</p></div>
+    <div class="cell"><div class="n mono">05</div><h3>{{h5_t}}</h3><p>{{h5_p}}</p></div>
+    <div class="cell"><div class="n mono">06</div><h3>{{h6_t}}</h3><p>{{h6_p}}</p></div>
+  </div>
+</section>
+
+<section id="family" class="family">
+  <div class="wrap">
+    <div class="label mono"><span>03 / {{family}}</span><span>{{family_note}}</span></div>
+    <h2>{{family_title_1}} <em>{{family_title_2}}</em></h2>
+    <p class="lead">{{family_lead}}</p>
+    <div class="products">
+      <a class="product live" href="/phpcraft/">
+        <div class="ptop"><span class="picon php">Php</span><span class="mono status">{{status_alpha}}</span></div>
+        <h3>PhpCraft</h3>
+        <p>{{p_php}}</p>
+        <span class="mono more">{{open_page}} →</span>
+      </a>
+      <div class="product">
+        <div class="ptop"><span class="picon data">Db</span><span class="mono status soon">{{status_soon}}</span></div>
+        <h3>DataCraft</h3>
+        <p>{{p_data}}</p>
+        <span class="mono more muted">{{in_progress}}</span>
+      </div>
+      <div class="product">
+        <div class="ptop"><span class="picon box">Px</span><span class="mono status soon">{{status_soon}}</span></div>
+        <h3>PathBox</h3>
+        <p>{{p_box}}</p>
+        <span class="mono more muted">{{in_progress}}</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="idea" class="idea">
+  <div class="wrap">
+    <div class="label mono"><span>04 / {{idea}}</span><span>path.az</span></div>
+    <div class="idea-row">
+      <div>
+        <div class="flag" aria-hidden="true"><i style="background:#00b5e2"></i><i style="background:#ef3340"></i><i style="background:#509e2f"></i></div>
+        <h2>{{idea_title_1}} <em>{{idea_title_2}}</em></h2>
+        <p class="lead">{{idea_lead}}</p>
+      </div>
+      <ul class="principles">
+        <li><b>{{pr1_t}}</b><span>{{pr1_p}}</span></li>
+        <li><b>{{pr2_t}}</b><span>{{pr2_p}}</span></li>
+        <li><b>{{pr3_t}}</b><span>{{pr3_p}}</span></li>
+        <li><b>{{pr4_t}}</b><span>{{pr4_p}}</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="download" class="get">
+  <div class="wrap">
+    <div class="label mono"><span>05 / {{get}}</span><span>{{free_open}}</span></div>
+    <h2>{{get_title}} <em id="os-name">{{your_computer}}</em>.</h2>
+    <p class="lead">{{get_lead}}</p>
+    <div class="platforms">
+      <div class="pf" data-os="mac">
+        <h3>macOS <small>{{your_system}}</small></h3>
+        <a data-file="macos-arm64.dmg">Apple silicon (M1–M4) <span>.dmg</span></a>
+        <a data-file="macos-x64.dmg">Intel <span>.dmg</span></a>
+        <p>{{mac_note}}</p>
+      </div>
+      <div class="pf" data-os="win">
+        <h3>Windows <small>{{your_system}}</small></h3>
+        <a data-file="windows-x64-Setup.exe">64-bit (x64) <span>.exe</span></a>
+        <a data-file="windows-x86-Setup.exe">32-bit (x86) <span>.exe</span></a>
+        <a data-file="windows-x64-portable.zip">{{portable}} <span>.zip</span></a>
+      </div>
+      <div class="pf" data-os="linux">
+        <h3>Linux <small>{{your_system}}</small></h3>
+        <a data-deb="amd64">Ubuntu / Debian x86_64 <span>.deb</span></a>
+        <a data-deb="arm64">Ubuntu / Debian arm64 <span>.deb</span></a>
+        <a data-file="linux-x86_64.tar.gz">{{any_distro}} x86_64 <span>.tar.gz</span></a>
+        <a data-file="linux-arm64.tar.gz">{{any_distro}} arm64 <span>.tar.gz</span></a>
+      </div>
+    </div>
+    <div class="all mono"><a href="https://github.com/rasul-chopurov/phpcraft/releases">{{all_releases}} →</a></div>
+  </div>
+</section>
+
+<section class="community">
+  <div class="wrap">
+    <h2>{{join_title}}</h2>
+    <p class="lead">{{join_lead}}</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/rasul-chopurov/phpcraft">★ {{star}}</a>
+      <a class="btn" href="https://github.com/rasul-chopurov/phpcraft/issues">{{issues}}</a>
+      <a class="btn" href="mailto:rasulchopurov@gmail.com">{{contact}}</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span class="made">{{made_with}}</span>
+    <span class="mono">path.az · #opensource · Apache-2.0 · <span class="langs">{{langs}}</span></span>
+  </div>
+  <p class="legal">{{legal}}</p>
+</footer>
+
+<script>
+(function(){
+  var VERSION = "0.0.1-alpha";
+  var base = "https://github.com/rasul-chopurov/phpcraft/releases/download/v" + VERSION + "/";
+  document.querySelectorAll("[data-file]").forEach(function(a){ a.href = base + "PhpCraft-" + VERSION + "-" + a.dataset.file; });
+  document.querySelectorAll("[data-deb]").forEach(function(a){ a.href = base + "phpcraft_" + VERSION + "_" + a.dataset.deb + ".deb"; });
+  var ua = navigator.userAgent, os = null, name = null;
+  if (/Mac/.test(ua)) { os = "mac"; name = "macOS"; }
+  else if (/Win/.test(ua)) { os = "win"; name = "Windows"; }
+  else if (/Linux|X11/.test(ua) && !/Android/.test(ua)) { os = "linux"; name = "Linux"; }
+  if (!os) return;
+  var card = document.querySelector('.pf[data-os="' + os + '"]');
+  card.classList.add("mine");
+  document.getElementById("os-name").textContent = name;
+  var first = card.querySelector("a");
+  var main = document.getElementById("dl-main");
+  main.href = first.href;
+  main.textContent = "↓ {{download_for}} " + name;
+})();
+</script>
+</body>
+</html>
