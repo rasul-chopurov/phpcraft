@@ -55,6 +55,18 @@
 - **Filament 3, 4 and 5**: resources (with pages, schemas, tables), pages, widgets
 - **laravel-modules**: pick a module or the app; files go to `Modules/<Name>/…`
 
+**Framework completion**
+- Validation rules in `rules()`, `validate()` and `Validator::make()` — per `|` segment
+- Middleware aliases (from `bootstrap/app.php` / `Kernel.php`), Gate abilities and policy methods
+- Filament: model columns and relations in `TextInput::make('…')`, `TextColumn::make('…')`, `->relationship('…')`
+- Blade directives after `@`, model columns in `where('…')`/`orderBy('…')`, Inertia pages
+
+**Editor & workspace**
+- Find/replace (⌘F/⌘R), Find/Replace in Files (⇧⌘F/⇧⌘R), Search Everywhere (⇧⇧), Go to File/Class/Symbol
+- ⌘/ comments, ⌘D duplicate, move/delete lines, multi-language highlighting (PHP, Blade, HTML, JS/TS, CSS, JSON, YAML, SQL, Markdown, logs…)
+- Auto save, JSON themes (⌘K ⌘T), editable keymap (⌘K ⌘S), settings (⌘,)
+- macOS, Windows and Linux
+
 **Artisan**
 - ⌃⇧X: searchable command list; each command opens a small form for its arguments and options; output panel
 

@@ -16,6 +16,7 @@ pub struct Intel {
     /// Model columns/relations from Generate Helper Code, re-applied after reindexing.
     helpers: RwLock<Vec<laravel::helper::ModelHelp>>,
     columns: RwLock<laravel::columns::ColumnProvider>,
+    framework: RwLock<laravel::framework::FrameworkProvider>,
     ready: AtomicBool,
 }
 
@@ -29,6 +30,7 @@ impl Intel {
             ),
             helpers: RwLock::new(Vec::new()),
             columns: RwLock::new(Default::default()),
+            framework: RwLock::new(Default::default()),
             ready: AtomicBool::new(false),
         })
     }
@@ -66,6 +68,11 @@ impl Intel {
         let members = helpers.iter().map(|h| h.members.len()).sum();
         let models = helpers.len();
         *self.columns.write().unwrap() = laravel::columns::ColumnProvider::new(&helpers);
+        let framework = {
+            let index = self.index.read().unwrap();
+            laravel::framework::FrameworkProvider::new(&root, &index, &helpers)
+        };
+        *self.framework.write().unwrap() = framework;
         *self.helpers.write().unwrap() = helpers;
         self.apply_helpers(None);
         (models, members)
@@ -131,9 +138,11 @@ impl Intel {
     fn with_providers<R>(&self, f: impl FnOnce(&[&dyn StringProvider]) -> R) -> R {
         let laravel = self.laravel.read().unwrap();
         let columns = self.columns.read().unwrap();
+        let framework = self.framework.read().unwrap();
         let mut providers: Vec<&dyn StringProvider> =
             laravel.iter().map(|l| l as &dyn StringProvider).collect();
         providers.push(&*columns);
+        providers.push(&*framework);
         f(&providers)
     }
 
@@ -223,6 +232,24 @@ impl Intel {
     }
 
     pub fn complete(&self, path: &Path, source: &str, offset: usize) -> Vec<CompletionItem> {
+        // Blade directives: `@fore` -> `@foreach(...)`.
+        if is_blade(path) {
+            let word_start = source[..offset]
+                .char_indices()
+                .rev()
+                .take_while(|(_, c)| c.is_ascii_alphanumeric())
+                .last()
+                .map_or(offset, |(i, _)| i);
+            let at_sign = word_start.checked_sub(1).filter(|&i| source.as_bytes()[i] == b'@');
+            let after_word_char = at_sign.and_then(|i| i.checked_sub(1)).is_some_and(|i| source.as_bytes()[i].is_ascii_alphanumeric());
+            if let Some(at) = at_sign.filter(|_| !after_word_char) {
+                let typed = source[word_start..offset].to_ascii_lowercase();
+                return laravel::framework::blade_directive_items(at..offset)
+                    .into_iter()
+                    .filter(|item| item.label[1..].to_ascii_lowercase().starts_with(&typed))
+                    .collect();
+            }
+        }
         let index = self.index.read().unwrap();
         Document::parse(path, source)
             .map(|doc| self.with_providers(|p| php_analysis::complete(&doc, &index, offset, p)))

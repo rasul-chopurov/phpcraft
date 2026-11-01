@@ -223,7 +223,7 @@ impl EditorView {
         let trigger = typed.chars().count() == 1
             && (typed
                 .chars()
-                .all(|c| c.is_alphanumeric() || c == '_' || c == '$' || c == '\\')
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '$' | '\\' | '@' | '|'))
                 || before == "->"
                 || before == "::"
                 || (self.menu.is_some() && typed != " "));

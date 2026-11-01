@@ -5,6 +5,7 @@ mod array_keys;
 pub mod artisan;
 pub mod columns;
 pub mod database;
+pub mod framework;
 pub mod helper;
 pub mod make;
 pub mod routes;
@@ -71,6 +72,10 @@ impl Laravel {
 
     /// Classifies a string argument by the call it is passed to.
     pub fn classify(arg: &StringArg) -> Option<Kind> {
+        // Array elements (`view('x', ['k' => 'v'])`, `config(['a' => 'b'])`) aren't names.
+        if arg.in_array {
+            return None;
+        }
         let first = arg.arg_index == 0;
         let kind = if arg.is_static(&["Inertia"], &["render"]) || arg.is_function(&["inertia"]) {
             Kind::Inertia
@@ -442,6 +447,10 @@ impl StringProvider for Laravel {
 
 fn file_location(path: PathBuf) -> Location {
     Location { path, range: 0..0 }
+}
+
+pub(crate) fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
+    walk(dir, out);
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {

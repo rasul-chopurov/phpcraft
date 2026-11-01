@@ -69,6 +69,8 @@ pub enum Callee {
     Method { class: Option<String>, name: String },
     /// `Route::view('x')`.
     Static { class: Option<String>, name: String },
+    /// Not inside a call (e.g. an array returned from `rules()`).
+    None,
 }
 
 /// A string literal argument under the cursor.
@@ -82,6 +84,17 @@ pub struct StringArg {
     /// Class at the start of a call chain (`User` in `User::where(..)->orderBy('x')`),
     /// for query builders that don't carry the model type.
     pub chain_root: Option<String>,
+    /// The string is an element (or element value) of an array literal.
+    pub in_array: bool,
+    /// Key of the nearest enclosing keyed array element: `'email'` in
+    /// `['email' => 'required|email']` or `['email' => ['required']]`.
+    pub array_key: Option<String>,
+    pub enclosing_method: Option<String>,
+    pub enclosing_class: Option<String>,
+    /// Class named by the enclosing class's `$model` property (Filament resources, factories).
+    pub class_model: Option<String>,
+    /// Caret position (byte offset in the document).
+    pub offset: usize,
 }
 
 /// Framework-specific handling of string literals (routes, views, config keys...).
@@ -103,38 +116,90 @@ pub fn string_arg_at(doc: &Document, index: &Index, offset: usize) -> Option<Str
     if offset < range.start || offset > range.end {
         return None;
     }
-    let argument = string.parent().filter(|p| p.kind() == "argument")?;
-    let arguments = argument.parent()?;
-    let mut cursor = arguments.walk();
-    let arg_index = arguments
-        .named_children(&mut cursor)
-        .position(|a| a.id() == argument.id())?;
-    let call = arguments.parent()?;
-    let callee = match call.kind() {
-        "function_call_expression" => {
-            Callee::Function(doc.text(call.child_by_field_name("function")?).to_ascii_lowercase())
+    // Step out of (nested) array literals, remembering the nearest element key.
+    let mut in_array = false;
+    let mut array_key = None;
+    let mut child = string;
+    let mut parent = string.parent()?;
+    while parent.kind() == "array_element_initializer" {
+        in_array = true;
+        if array_key.is_none()
+            && parent.named_child_count() == 2
+            && parent.named_child(1).is_some_and(|v| v.id() == child.id())
+            && let Some(key) = parent.named_child(0).filter(|k| matches!(k.kind(), "string" | "encapsed_string"))
+        {
+            array_key = Some(doc.text(key).trim_matches(['\'', '"']).to_string());
         }
-        "member_call_expression" | "nullsafe_member_call_expression" => Callee::Method {
-            class: call
-                .child_by_field_name("object")
-                .and_then(|o| types::type_of(doc, index, o, 0)),
-            name: doc.text(call.child_by_field_name("name")?).to_string(),
-        },
-        "scoped_call_expression" => Callee::Static {
-            class: call
-                .child_by_field_name("scope")
-                .and_then(|s| types::scope_class(doc, index, s)),
-            name: doc.text(call.child_by_field_name("name")?).to_string(),
-        },
+        child = parent.parent()?;
+        parent = child.parent()?;
+    }
+    let (callee, arg_index, call) = match parent.kind() {
+        "argument" => {
+            let arguments = parent.parent()?;
+            let mut cursor = arguments.walk();
+            let arg_index = arguments.named_children(&mut cursor).position(|a| a.id() == parent.id())?;
+            let call = arguments.parent()?;
+            let callee = match call.kind() {
+                "function_call_expression" => {
+                    Callee::Function(doc.text(call.child_by_field_name("function")?).to_ascii_lowercase())
+                }
+                "member_call_expression" | "nullsafe_member_call_expression" => Callee::Method {
+                    class: call.child_by_field_name("object").and_then(|o| types::type_of(doc, index, o, 0)),
+                    name: doc.text(call.child_by_field_name("name")?).to_string(),
+                },
+                "scoped_call_expression" => Callee::Static {
+                    class: call.child_by_field_name("scope").and_then(|s| types::scope_class(doc, index, s)),
+                    name: doc.text(call.child_by_field_name("name")?).to_string(),
+                },
+                _ => return None,
+            };
+            (callee, arg_index, Some(call))
+        }
+        _ if in_array => (Callee::None, 0, None),
         _ => return None,
     };
+    let enclosing_method = types::enclosing_function(string)
+        .filter(|f| f.kind() == "method_declaration")
+        .and_then(|f| f.child_by_field_name("name"))
+        .map(|n| doc.text(n).to_string());
+    let enclosing_class = doc.current_class(offset);
     Some(StringArg {
         value: doc.source[range.clone()].to_string(),
         range,
         callee,
         arg_index,
-        chain_root: chain_root(doc, index, call),
+        chain_root: call.and_then(|call| chain_root(doc, index, call)),
+        in_array,
+        array_key,
+        enclosing_method,
+        class_model: class_model(doc, offset),
+        enclosing_class,
+        offset,
     })
+}
+
+/// `protected static ?string $model = Post::class;` in the class around `offset`.
+fn class_model(doc: &Document, offset: usize) -> Option<String> {
+    let mut node = doc.tree.root_node().descendant_for_byte_range(offset, offset)?;
+    while !php_index::is_class_like(node.kind()) {
+        node = node.parent()?;
+    }
+    let body = node.child_by_field_name("body")?;
+    let mut cursor = body.walk();
+    for item in body.named_children(&mut cursor) {
+        if item.kind() != "property_declaration" {
+            continue;
+        }
+        let mut inner = item.walk();
+        for element in item.named_children(&mut inner) {
+            let is_model = element.child_by_field_name("name").is_some_and(|n| doc.text(n) == "$model");
+            if let (true, Some(value)) = (is_model, element.child_by_field_name("default_value")) {
+                let class = doc.text(value).strip_suffix("::class")?;
+                return doc.ctx.resolve_class(class);
+            }
+        }
+    }
+    None
 }
 
 /// The file a string literal under `offset` points to: `__DIR__ . '/../x.php'`,

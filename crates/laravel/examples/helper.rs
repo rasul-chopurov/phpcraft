@@ -17,8 +17,9 @@ fn main() {
         index.augment(&help.fqn, help.members.clone());
     }
     let columns = laravel::columns::ColumnProvider::new(&helpers);
+    let framework = laravel::framework::FrameworkProvider::new(root, &index, &helpers);
     let laravel = laravel::Laravel::new(root);
-    let providers: [&dyn StringProvider; 2] = [&laravel, &columns];
+    let providers: [&dyn StringProvider; 3] = [&laravel, &columns, &framework];
     let path = root.join(&args[1]);
     let source = std::fs::read_to_string(&path).unwrap();
     let doc = Document::parse(&path, &source).unwrap();

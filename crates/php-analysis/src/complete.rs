@@ -82,15 +82,18 @@ pub fn complete(
     let replace = start..offset;
 
     if let Some(arg) = string_arg_at(doc, index, offset) {
-        let typed = &source[arg.range.start..offset];
+        // Providers may replace only part of the string (e.g. one `|`-separated rule):
+        // the typed prefix starts where their replacement starts.
+        let typed_from = |item: &CompletionItem| item.replace.start.clamp(arg.range.start, offset);
         let mut items: Vec<_> = providers
             .iter()
             .flat_map(|p| p.complete(&arg))
-            .filter(|item| matches(&item.label, typed))
+            .filter(|item| matches(&item.label, &source[typed_from(item)..offset]))
             .collect();
         for item in &mut items {
-            item.replace = arg.range.start..offset;
+            item.replace = typed_from(item)..offset;
         }
+        let typed = items.first().map_or(&source[arg.range.start..offset], |i| &source[i.replace.clone()]);
         return rank(items, typed);
     }
 
