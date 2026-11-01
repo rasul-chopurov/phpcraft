@@ -44,3 +44,12 @@ PLIST
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
 (cd target/release && rm -f PhpCraft-macos.zip && ditto -c -k --keepParent PhpCraft.app PhpCraft-macos.zip)
 echo "Built $APP"
+
+# Disk image: the app plus a link to /Applications for drag-and-drop install.
+DMG_STAGE=target/release/dmg
+rm -rf "$DMG_STAGE" && mkdir -p "$DMG_STAGE"
+cp -R "$APP" "$DMG_STAGE/"
+ln -s /Applications "$DMG_STAGE/Applications"
+rm -f "target/release/PhpCraft-$VERSION.dmg"
+hdiutil create -volname "PhpCraft" -srcfolder "$DMG_STAGE" -ov -format UDZO "target/release/PhpCraft-$VERSION.dmg" >/dev/null
+echo "Built target/release/PhpCraft-$VERSION.dmg"
