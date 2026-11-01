@@ -394,46 +394,55 @@ impl Workspace {
         }
     }
 
+    /// Only the visible rows are built (a fully expanded vendor/ has thousands).
     fn render_project_tree(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let rows = self.rows.iter().enumerate().map(|(ix, row)| {
-            let selected = self.selected_path.as_deref() == Some(row.entry.path.as_path());
-            let icon = file_icon(&row.entry.name, row.entry.is_dir, row.expanded);
-            div()
-                .id(ix)
-                .mx_1()
-                .pl(px(6. + 12. * row.depth as f32))
-                .pr_2()
-                .h(px(24.))
-                .flex()
-                .items_center()
-                .gap_1p5()
-                .rounded_md()
-                .text_color(theme::ui_text())
-                .when(selected, |d| d.bg(theme::active_row()))
-                .when(!selected, |d| d.hover(|d| d.bg(theme::hover())))
-                .child(div().w(px(12.)).flex_none().flex().justify_center().when(row.entry.is_dir, |d| {
-                    d.child(crate::icons::icon(
-                        if row.expanded { crate::icons::Icon::chevron_down } else { crate::icons::Icon::chevron_right },
-                        11.,
-                        theme::muted(),
-                    ))
-                }))
-                .child(div().w(px(16.)).flex_none().flex().justify_center().child(icon))
-                .child(div().overflow_hidden().whitespace_nowrap().child(SharedString::from(row.entry.name.clone())))
-                .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
-                    this.click_row(ix, event.click_count(), window, cx)
-                }))
-                .on_mouse_down(MouseButton::Right, {
-                    let path = row.entry.path.clone();
-                    let is_dir = row.entry.is_dir;
-                    cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
-                        this.selected_path = Some(path.clone());
-                        this.open_tree_menu(path.clone(), is_dir, event.position, cx);
-                    })
+        gpui::uniform_list(
+            "project-tree",
+            self.rows.len(),
+            cx.processor(|this, range: std::ops::Range<usize>, _, cx| range.filter_map(|ix| this.tree_row(ix, cx)).collect::<Vec<_>>()),
+        )
+        .flex_1()
+        .pb_2()
+    }
+
+    fn tree_row(&self, ix: usize, cx: &mut Context<Self>) -> Option<gpui::Stateful<gpui::Div>> {
+        let row = self.rows.get(ix)?;
+        let selected = self.selected_path.as_deref() == Some(row.entry.path.as_path());
+        let icon = file_icon(&row.entry.name, row.entry.is_dir, row.expanded);
+        Some(div()
+            .id(ix)
+            .mx_1()
+            .pl(px(6. + 12. * row.depth as f32))
+            .pr_2()
+            .h(px(24.))
+            .flex()
+            .items_center()
+            .gap_1p5()
+            .rounded_md()
+            .text_color(theme::ui_text())
+            .when(selected, |d| d.bg(theme::active_row()))
+            .when(!selected, |d| d.hover(|d| d.bg(theme::hover())))
+            .child(div().w(px(12.)).flex_none().flex().justify_center().when(row.entry.is_dir, |d| {
+                d.child(crate::icons::icon(
+                    if row.expanded { crate::icons::Icon::chevron_down } else { crate::icons::Icon::chevron_right },
+                    11.,
+                    theme::muted(),
+                ))
+            }))
+            .child(div().w(px(16.)).flex_none().flex().justify_center().child(icon))
+            .child(div().overflow_hidden().whitespace_nowrap().child(SharedString::from(row.entry.name.clone())))
+            .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                this.click_row(ix, event.click_count(), window, cx)
+            }))
+            .on_mouse_down(MouseButton::Right, {
+                let path = row.entry.path.clone();
+                let is_dir = row.entry.is_dir;
+                cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                    this.selected_path = Some(path.clone());
+                    this.open_tree_menu(path.clone(), is_dir, event.position, cx);
                 })
-        });
-        let rows: Vec<_> = rows.collect();
-        div().id("project-tree").flex_1().overflow_y_scroll().pb_2().children(rows)
+            })
+        )
     }
 
     fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
