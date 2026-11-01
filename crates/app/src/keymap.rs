@@ -122,6 +122,9 @@ const DEFAULTS: &[Default] = &[
     both("alt-f7", "editor::FindUsages", ED),
     both("shift-f6", "editor::RenameSymbol", ED),
     per("cmd-n", "alt-insert", "editor::Generate", ED),
+    per("f1", "ctrl-q", "editor::QuickDocumentation", ED),
+    both("secondary-p", "editor::ParameterInfo", ED),
+    both("escape", "editor::CloseInfo", Some("Editor && info")),
     both("secondary-shift-f7", "editor::HighlightUsages", ED),
     both("escape", "editor::ClearUsageHighlights", Some("Editor && usages")),
     // Bookmarks.

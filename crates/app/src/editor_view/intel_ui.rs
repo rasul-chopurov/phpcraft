@@ -237,6 +237,8 @@ impl EditorView {
 
     /// Opens completion automatically after typing identifier characters, `->`, `::` or `$`.
     pub(super) fn after_typing(&mut self, typed: &str, cx: &mut Context<Self>) {
+        // Parameter Info opens on `(` and follows the arguments being typed.
+        self.refresh_parameter_info(typed == "(" && self.buffer.is_php(), cx);
         let before = self
             .buffer
             .slice(self.buffer.selection.head.saturating_sub(2)..self.buffer.selection.head);

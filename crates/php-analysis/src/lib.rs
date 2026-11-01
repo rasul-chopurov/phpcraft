@@ -4,6 +4,7 @@
 //! string literals such as `route('home')` or `view('users.index')`.
 
 mod complete;
+mod docs;
 mod generate;
 pub mod matcher;
 mod goto;
@@ -19,6 +20,7 @@ use tree_sitter::{Node, Tree};
 
 pub use complete::{CompletionItem, CompletionKind, complete};
 pub use goto::{goto_definition, reference_range};
+pub use docs::{Documentation, documentation, parameter_info};
 pub use generate::{generate_accessors, generate_constructor, generate_phpdoc, implement_methods, overridable_methods, override_method};
 pub use usages::{Symbol, symbol_at, usages_in};
 pub use imports::{

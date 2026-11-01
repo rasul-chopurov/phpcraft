@@ -4,6 +4,7 @@ mod bookmarks;
 mod find_bar;
 mod folding;
 mod generate;
+mod info;
 mod rows;
 mod ghost;
 mod intel_ui;
@@ -94,6 +95,9 @@ actions!(
         ClearUsageHighlights,
         RenameSymbol,
         Generate,
+        QuickDocumentation,
+        ParameterInfo,
+        CloseInfo,
         ExtendSelection,
         ShrinkSelection,
         JoinLines,
@@ -172,6 +176,8 @@ pub struct EditorView {
     show_whitespace: bool,
     /// Highlight Usages in File: byte ranges for a buffer version.
     usage_highlights: Option<(u64, Vec<Range<usize>>)>,
+    /// Quick Documentation / Parameter Info popup.
+    info: Option<info::Info>,
 }
 
 impl EditorView {
@@ -201,6 +207,7 @@ impl EditorView {
             bookmarks: Vec::new(),
             show_whitespace: false,
             usage_highlights: None,
+            info: None,
             buffer,
             focus_handle: cx.focus_handle(),
             scroll_y: px(0.),
@@ -283,6 +290,7 @@ impl EditorView {
     /// Caret movement closes popups.
     fn moved(&mut self, cx: &mut Context<Self>) {
         self.close_menu();
+        self.info = None;
         self.changed(cx);
     }
 
@@ -919,6 +927,9 @@ impl Render for EditorView {
         if !self.current_usage_highlights().is_empty() {
             key_context.add("usages");
         }
+        if self.info.is_some() {
+            key_context.add("info");
+        }
         if self.menu_open() {
             key_context.add("menu");
         } else if self.ghost().is_some() {
@@ -1019,6 +1030,9 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::clear_usage_highlights))
             .on_action(cx.listener(Self::rename_symbol))
             .on_action(cx.listener(Self::generate))
+            .on_action(cx.listener(Self::quick_documentation))
+            .on_action(cx.listener(Self::parameter_info))
+            .on_action(cx.listener(Self::close_info))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -1027,7 +1041,8 @@ impl Render for EditorView {
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .child(EditorElement { view: cx.entity() })
-            .children(self.render_menu(cx));
+            .children(self.render_menu(cx))
+            .children(self.render_info());
         gpui::div()
             .key_context("EditorPane")
             .size_full()
