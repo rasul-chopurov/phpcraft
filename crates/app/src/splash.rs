@@ -111,6 +111,11 @@ pub fn show(cx: &mut App, then: impl FnOnce(&mut App) + 'static) {
         let _ = cx.update(|cx| {
             then(cx);
             let _ = handle.update(cx, |_, window, _| window.remove_window());
+            // The splash took focus from the app; bring the new window to the front.
+            cx.activate(true);
+            if let Some(window) = cx.windows().into_iter().find(|w| w.window_id() != handle.window_id()) {
+                let _ = window.update(cx, |_, window, _| window.activate_window());
+            }
         });
     })
     .detach();

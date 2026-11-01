@@ -715,7 +715,7 @@ impl Workspace {
             .text_size(px(13.))
             .child(toolbar)
             .children(add_menu)
-            .children(self.db.filter.clone().map(|f| div().px_2().pb_1().child(f)))
+            .children(self.db.filter.clone().map(|f| div().px_2().pb_1().flex().child(f)))
             .child(div().id("db-tree").h(px(320.)).flex_none().overflow_y_scroll().border_b_1().border_color(theme::border()).children(tree))
             .child(
                 div()

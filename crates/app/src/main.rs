@@ -112,10 +112,15 @@ fn main() {
                 }
                 None => welcome::open(cx),
             }
-            // Closing the last project brings the welcome window back.
+                // Closing the last window quits, except after Close Project, which goes back to
+            // the welcome window.
             cx.on_window_closed(|cx| {
                 if cx.windows().is_empty() {
-                    welcome::open(cx);
+                    if project_window::take_return_to_welcome() {
+                        welcome::open(cx);
+                    } else {
+                        cx.quit();
+                    }
                 }
             })
             .detach();

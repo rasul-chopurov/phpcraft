@@ -477,7 +477,7 @@ impl Workspace {
             .border_color(theme::border_strong())
             .text_size(px(13.))
             .children(header)
-            .child(div().flex_1().min_h(px(0.)).flex().flex_col().child(content))
+            .child(div().flex_1().w_full().min_h(px(0.)).flex().flex_col().child(content))
             .child(self.resize_handle(side));
         Some(
             match side {

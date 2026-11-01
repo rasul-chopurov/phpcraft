@@ -27,6 +27,13 @@ pub fn new_workspace(root: &Path, window: &mut Window, cx: &mut gpui::App) -> an
     }))
 }
 
+static RETURN_TO_WELCOME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the window that just closed asked for the welcome window (and clears the request).
+pub fn take_return_to_welcome() -> bool {
+    RETURN_TO_WELCOME.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
 impl ProjectWindow {
     pub fn new(workspace: Entity<Workspace>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // The window's size and position are remembered under its first project.
@@ -82,7 +89,9 @@ impl ProjectWindow {
             workspace.update(cx, |w, cx| w.save_all(cx));
         }
         if self.tabs.is_empty() {
-            // The welcome window comes back when the last project closes.
+            // Close Project on the last tab: the welcome window comes back (the window's close
+            // button quits instead).
+            RETURN_TO_WELCOME.store(true, std::sync::atomic::Ordering::Relaxed);
             window.remove_window();
             return;
         }

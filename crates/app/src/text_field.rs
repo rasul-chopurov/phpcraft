@@ -6,7 +6,7 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
     EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId, LayoutId,
     MouseButton, MouseDownEvent, PaintQuad, Pixels, Point, ShapedLine, SharedString, Style,
-    TextRun, UTF16Selection, Window, actions, div, fill, font, point, prelude::*, px, relative,
+    TextRun, UTF16Selection, Window, actions, div, fill, font, point, prelude::*, px,
     size,
 };
 
@@ -317,6 +317,7 @@ impl Render for TextField {
             .on_action(cx.listener(Self::copy))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .w_full()
+            .flex_grow()
             .h(px(28.))
             .px_2()
             .flex()
@@ -369,8 +370,15 @@ impl Element for FieldElement {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, ()) {
+        // Fill the field, but never collapse below the text: a percentage width resolves to
+        // nothing while the parent's width is still unknown, and the text then spilled out.
+        let field = self.field.read(cx);
+        let text: SharedString = if field.text.is_empty() { field.placeholder.clone() } else { field.text.clone().into() };
+        let run = TextRun { len: text.len(), font: font(theme::editor_font()), color: theme::text(), background_color: None, underline: None, strikethrough: None };
+        let width = window.text_system().shape_line(text, px(13.), &[run], None).width;
         let mut style = Style::default();
-        style.size.width = relative(1.).into();
+        style.size.width = gpui::relative(1.).into();
+        style.min_size.width = (width + px(4.)).min(px(260.)).into();
         style.size.height = px(18.).into();
         (window.request_layout(style, [], cx), ())
     }

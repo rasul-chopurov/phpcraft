@@ -329,7 +329,7 @@ impl Workspace {
                 .items_center()
                 .gap_2()
                 .child(div().w(px(76.)).flex_none().text_color(theme::muted()).child(label))
-                .child(div().flex_1().child(field.clone()))
+                .child(div().flex_1().flex().child(field.clone()))
         };
         let use_password = form.use_password;
         div()
