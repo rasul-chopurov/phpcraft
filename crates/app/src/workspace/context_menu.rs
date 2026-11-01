@@ -289,6 +289,7 @@ impl Workspace {
                 crate::local_history::record_disk(&[path.clone()], "Before Delete");
                 trash::delete(path).map(|_| None).map_err(|e| e.to_string())
             }
+            FileOp::RenameSymbol(symbol) => self.rename_symbol(symbol, name, cx),
         };
         match result {
             Ok(created) => {

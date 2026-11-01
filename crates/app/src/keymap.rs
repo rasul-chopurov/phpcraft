@@ -120,6 +120,7 @@ const DEFAULTS: &[Default] = &[
     per("alt-down", "ctrl-shift-w", "editor::ShrinkSelection", ED),
     // Usages.
     both("alt-f7", "editor::FindUsages", ED),
+    both("shift-f6", "editor::RenameSymbol", ED),
     both("secondary-shift-f7", "editor::HighlightUsages", ED),
     both("escape", "editor::ClearUsageHighlights", Some("Editor && usages")),
     // Bookmarks.

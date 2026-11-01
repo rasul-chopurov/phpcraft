@@ -3,7 +3,7 @@
 
 use gpui::{Context, Window};
 
-use super::{ClearUsageHighlights, EditorView, FindUsages, HighlightUsages};
+use super::{ClearUsageHighlights, EditorView, FindUsages, HighlightUsages, RenameSymbol};
 
 impl EditorView {
     pub(super) fn find_usages(&mut self, _: &FindUsages, window: &mut Window, cx: &mut Context<Self>) {
@@ -46,5 +46,14 @@ impl EditorView {
             Some((version, ranges)) if *version == self.buffer.version() => ranges.clone(),
             _ => Vec::new(),
         }
+    }
+
+    /// Refactor ▸ Rename (⇧F6).
+    pub(super) fn rename_symbol(&mut self, _: &RenameSymbol, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.path() else { return };
+        let Some(symbol) = self.intel.symbol_at(&path, &self.buffer.text(), self.caret_byte()) else { return };
+        // Unsaved edits first, so offsets match the files on disk.
+        self.save_now(cx);
+        self.workspace.update(cx, |ws, cx| ws.start_rename(symbol, window, cx)).ok();
     }
 }

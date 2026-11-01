@@ -18,6 +18,8 @@ pub enum FileOp {
     Delete(PathBuf),
     /// New ▸ <template> in a folder.
     FromTemplate(PathBuf, crate::templates::Template),
+    /// Refactor ▸ Rename of a PHP symbol.
+    RenameSymbol(php_analysis::Symbol),
 }
 
 pub struct InputDialog {
@@ -34,6 +36,7 @@ impl InputDialog {
             FileOp::Rename(path) => Some(path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
             FileOp::NewFile(_) | FileOp::NewDirectory(_) | FileOp::FromTemplate(..) => Some(String::new()),
             FileOp::Delete(_) => None,
+            FileOp::RenameSymbol(symbol) => Some(symbol.name.clone()),
         };
         let focus_handle = cx.focus_handle();
         let field = initial.map(|text| {
@@ -78,6 +81,7 @@ impl Render for InputDialog {
             FileOp::Rename(path) => (format!("Rename {}", name(path)), "Rename"),
             FileOp::Delete(path) => (format!("Move {} to the Trash?", name(path)), "Delete"),
             FileOp::FromTemplate(dir, template) => (format!("New {} in {}", template.label(), name(dir)), "Create"),
+            FileOp::RenameSymbol(symbol) => (format!("Rename '{}' and its usages to", symbol.name), "Refactor"),
         };
         card(420.)
             .key_context("Dialog")

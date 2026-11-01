@@ -15,6 +15,7 @@ mod laravel_panel;
 mod panes;
 mod git_window;
 mod tabs;
+mod refactor;
 pub use git_panel::ShowCommit;
 pub(crate) use db_panel::RunSql;
 

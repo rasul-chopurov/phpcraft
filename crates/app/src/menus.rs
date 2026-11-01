@@ -161,6 +161,13 @@ pub fn set(cx: &mut App) {
         ),
         menu(
             cx,
+            "Refactor",
+            &[
+                Some(("Rename…", "editor::RenameSymbol")),
+            ],
+        ),
+        menu(
+            cx,
             "Laravel",
             &[
                 Some(("Code Generation…", "workspace::OpenMake")),

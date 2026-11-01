@@ -180,6 +180,11 @@ impl Intel {
             .map(|l| l.root().to_path_buf())
     }
 
+    /// Drops a file from the index (after it was renamed or deleted).
+    pub fn remove_file(&self, path: &Path) {
+        self.index.write().unwrap().remove_file(path);
+    }
+
     pub fn update_file(&self, path: &Path, source: &str) {
         if path.extension().is_some_and(|e| e == "php") {
             self.index.write().unwrap().update_file(path, source);
