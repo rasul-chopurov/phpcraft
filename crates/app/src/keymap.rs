@@ -336,6 +336,11 @@ pub fn apply(cx: &mut App) -> Vec<String> {
     errors
 }
 
+/// The context an action is bound in by default (`Some(None)` = global), if it has a default.
+pub fn default_context(action: &str) -> Option<Option<String>> {
+    DEFAULTS.iter().find(|d| d.action == action).map(|d| d.context.map(str::to_string))
+}
+
 /// Sets the keys for an action in a context (replacing earlier user keys for it).
 /// `keys: None` removes the user override, restoring the default.
 pub fn set_binding(action: &str, context: Option<&str>, keys: Option<&str>) -> std::io::Result<()> {

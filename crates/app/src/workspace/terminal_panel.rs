@@ -38,7 +38,14 @@ impl Workspace {
                 config.name.clone(),
                 config.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             ),
-            None => (None, "Local".to_string(), HashMap::new()),
+            None => {
+                let shell = crate::config::Settings::load_cached().terminal_shell;
+                let command = (!shell.trim().is_empty()).then(|| {
+                    let mut parts = shell.split_whitespace().map(str::to_string);
+                    terminal::Command { program: parts.next().unwrap_or_default(), args: parts.collect() }
+                });
+                (command, "Local".to_string(), HashMap::new())
+            }
         };
         let view = match TerminalView::spawn(&root, command, title.clone(), env, cx) {
             Ok(view) => view,

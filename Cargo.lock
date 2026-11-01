@@ -3868,6 +3868,7 @@ dependencies = [
  "search",
  "serde",
  "serde_json",
+ "sys-locale",
  "terminal",
 ]
 

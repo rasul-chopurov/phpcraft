@@ -62,8 +62,6 @@ actions!(
     ]
 );
 
-const FONT_SIZE: f32 = 13.5;
-const LINE_HEIGHT: f32 = 20.;
 const GUTTER_PADDING: f32 = 12.;
 const TEXT_PADDING: f32 = 8.;
 /// Width of the git blame column, in digits.
@@ -154,7 +152,7 @@ impl EditorView {
     }
 
     fn line_height() -> Pixels {
-        px(LINE_HEIGHT)
+        px(theme::editor_line_height())
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
@@ -875,7 +873,7 @@ impl Element for EditorElement {
         cx: &mut App,
     ) -> EditorPrepaint {
         let line_height = EditorView::line_height();
-        let font_size = px(FONT_SIZE);
+        let font_size = px(theme::editor_font_size());
         let run = |len: usize, color: Hsla| TextRun {
             len,
             font: font(theme::editor_font()),
@@ -1068,7 +1066,7 @@ impl Element for EditorElement {
                     let label = format!("{:<12} {}", author, entry.date);
                     let len = label.len();
                     blame_lines.push((
-                        window.text_system().shape_line(label.into(), px(FONT_SIZE - 1.5), &[run(len, theme::muted())], None),
+                        window.text_system().shape_line(label.into(), px(theme::editor_font_size() - 1.5), &[run(len, theme::muted())], None),
                         y,
                     ));
                 }

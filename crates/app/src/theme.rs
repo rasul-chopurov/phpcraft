@@ -38,6 +38,7 @@ pub struct Theme {
 
 struct Fonts {
     editor: SharedString,
+    editor_size: f32,
     ui: SharedString,
 }
 
@@ -178,7 +179,8 @@ pub fn init(cx: &mut App) {
             ],
         )
     };
-    *FONTS.write().unwrap() = Some(Fonts { editor, ui });
+    *FONTS.write().unwrap() = Some(Fonts { editor, editor_size: settings.editor_font_size.clamp(8., 32.), ui });
+    crate::i18n::set_language(&settings.language);
     set(&settings.theme, cx);
 }
 
@@ -198,6 +200,16 @@ pub fn editor_font() -> SharedString {
         .as_ref()
         .map(|f| f.editor.clone())
         .unwrap_or_else(|| "Menlo".into())
+}
+
+/// Editor (and terminal) font size in pixels.
+pub fn editor_font_size() -> f32 {
+    FONTS.read().unwrap().as_ref().map(|f| f.editor_size).unwrap_or(13.5)
+}
+
+/// Line height that fits [`editor_font_size`].
+pub fn editor_line_height() -> f32 {
+    (editor_font_size() * 1.48).round()
 }
 
 pub fn ui_font() -> SharedString {

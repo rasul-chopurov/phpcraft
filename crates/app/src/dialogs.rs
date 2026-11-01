@@ -24,7 +24,7 @@ pub use git::{BranchDialog, ConfirmDialog, GitCommand, LocalHistoryDialog};
 pub use make::{MakeChooser, MakeDialog};
 pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
 pub use prefs::{KeymapDialog, SettingsDialog, ThemeDialog};
-pub use projects::{ProjectDialog, avatar};
+pub use projects::{ProjectDialog, avatar, project_name, tilde};
 pub use run::RunDialog;
 
 use crate::text_field::{FieldEvent, TextField};

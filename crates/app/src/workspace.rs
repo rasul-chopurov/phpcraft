@@ -4,7 +4,7 @@ mod git_panel;
 mod terminal_panel;
 mod git_window;
 pub use git_panel::ShowCommit;
-pub use tools::{SyncPull, SyncPush};
+pub use tools::{OpenKeymap, OpenLaravelSettings, SyncPull, SyncPush};
 mod navigation;
 mod tools;
 

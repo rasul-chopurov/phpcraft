@@ -2,15 +2,18 @@ mod config;
 mod dialogs;
 mod diff_view;
 mod editor_view;
+mod i18n;
 mod intel;
 mod keymap;
 mod local_history;
 mod markdown_preview;
 mod run_configs;
+mod settings_import;
 mod sync;
 mod terminal_view;
 mod text_field;
 mod theme;
+mod welcome;
 mod workspace;
 
 use gpui::{
@@ -49,8 +52,11 @@ pub fn open_project_window(root: &std::path::Path, cx: &mut App) -> anyhow::Resu
 }
 
 fn main() {
-    let root = std::env::args().nth(1).unwrap_or_else(|| ".".into());
-    if let Err(err) = Project::open(&root) {
+    // `phpcraft <folder>` opens a project; without arguments the welcome window shows.
+    let root = std::env::args().nth(1);
+    if let Some(root) = &root
+        && let Err(err) = Project::open(root)
+    {
         eprintln!("cannot open project {root}: {err:#}");
         std::process::exit(1);
     }
@@ -59,10 +65,22 @@ fn main() {
         theme::init(cx);
         keymap::apply(cx);
         cx.on_action(|_: &Quit, cx| cx.quit());
-        if let Err(err) = open_project_window(std::path::Path::new(&root), cx) {
-            eprintln!("failed to open window: {err:#}");
-            cx.quit();
+        match &root {
+            Some(root) => {
+                if let Err(err) = open_project_window(std::path::Path::new(root), cx) {
+                    eprintln!("failed to open window: {err:#}");
+                    cx.quit();
+                }
+            }
+            None => welcome::open(cx),
         }
+        // Closing the last project brings the welcome window back.
+        cx.on_window_closed(|cx| {
+            if cx.windows().is_empty() {
+                welcome::open(cx);
+            }
+        })
+        .detach();
         cx.activate(true);
     });
 }

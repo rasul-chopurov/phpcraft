@@ -446,54 +446,252 @@ impl Render for ThemeDialog {
 use crate::config::{AutoSave, Settings};
 
 /// Workspace settings: auto save, project tree behaviour, theme and editor font.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SettingsPage {
+    Appearance,
+    System,
+    Editor,
+    Keymap,
+    VersionControl,
+    Terminal,
+    Laravel,
+    Import,
+}
+
+/// `(page, group, title, search keywords)` in tree order.
+const PAGES: &[(SettingsPage, &str, &str, &str)] = &[
+    (SettingsPage::Appearance, "Appearance & Behavior", "Appearance", "theme color dark light"),
+    (SettingsPage::System, "Appearance & Behavior", "System Settings", "auto save autosave delay project tree single click select opened updates"),
+    (SettingsPage::Keymap, "", "Keymap", "shortcuts keys bindings"),
+    (SettingsPage::Editor, "Editor", "Font", "font size family editor"),
+    (SettingsPage::VersionControl, "Version Control", "Git & Local History", "git history versions sync gist backup"),
+    (SettingsPage::Laravel, "Languages & Frameworks", "Laravel", "laravel php artisan models"),
+    (SettingsPage::Terminal, "Tools", "Terminal", "terminal shell zsh bash"),
+    (SettingsPage::Import, "Tools", "Import Settings", "import vscode phpstorm zed migrate"),
+];
+
 pub struct SettingsDialog {
     settings: Settings,
+    page: SettingsPage,
+    search: Entity<TextField>,
     delay: Entity<TextField>,
     font: Entity<TextField>,
+    font_size: Entity<TextField>,
+    shell: Entity<TextField>,
     themes: Vec<String>,
+    status: Option<String>,
     focus_handle: FocusHandle,
+    _subscription: Subscription,
 }
 
 impl EventEmitter<DialogEvent> for SettingsDialog {}
 
+fn field(placeholder: &'static str, text: String, cx: &mut Context<SettingsDialog>) -> Entity<TextField> {
+    cx.new(|cx| {
+        let mut f = TextField::new(placeholder, cx);
+        f.set_text(text, cx);
+        f
+    })
+}
+
 impl SettingsDialog {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let settings = Settings::load();
-        let delay_text = settings.auto_save_delay_ms.to_string();
-        let font_text = settings.editor_font.clone();
-        let delay = cx.new(|cx| {
-            let mut f = TextField::new("1000", cx);
-            f.set_text(delay_text, cx);
-            f
-        });
-        let font = cx.new(|cx| {
-            let mut f = TextField::new("JetBrains Mono", cx);
-            f.set_text(font_text, cx);
-            f
+        let delay = field("1000", settings.auto_save_delay_ms.to_string(), cx);
+        let font = field("JetBrains Mono", settings.editor_font.clone(), cx);
+        let font_size = field("13.5", settings.editor_font_size.to_string(), cx);
+        let shell = field("Login shell", settings.terminal_shell.clone(), cx);
+        let search = cx.new(|cx| TextField::new("Search settings", cx));
+        let subscription = cx.subscribe(&search, |this: &mut Self, _, _: &FieldEvent, cx| {
+            if let Some(first) = this.visible_pages(cx).first() {
+                this.page = first.0;
+            }
+            cx.notify();
         });
         let focus_handle = cx.focus_handle();
-        window.focus(&focus_handle);
+        window.focus(&search.focus_handle(cx));
         Self {
             settings,
+            page: SettingsPage::Appearance,
+            search,
             delay,
             font,
+            font_size,
+            shell,
             themes: theme::available().into_iter().map(|t| t.name).collect(),
+            status: None,
             focus_handle,
+            _subscription: subscription,
         }
     }
 
-    fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
-        let mut settings = self.settings.clone();
+    fn visible_pages(&self, cx: &App) -> Vec<(SettingsPage, &'static str, &'static str)> {
+        let query = self.search.read(cx).text().to_ascii_lowercase();
+        PAGES
+            .iter()
+            .filter(|(_, group, title, keywords)| {
+                query.is_empty() || format!("{group} {title} {keywords}").to_ascii_lowercase().contains(&query)
+            })
+            .map(|(page, group, title, _)| (*page, *group, *title))
+            .collect()
+    }
+
+    fn apply(&mut self, cx: &mut Context<Self>) {
+        let settings = &mut self.settings;
         settings.auto_save_delay_ms = self.delay.read(cx).text().trim().parse().unwrap_or(1000);
         settings.editor_font = self.font.read(cx).text().trim().to_string();
+        settings.editor_font_size = self.font_size.read(cx).text().trim().parse::<f32>().unwrap_or(13.5).clamp(8., 32.);
+        settings.terminal_shell = self.shell.read(cx).text().trim().to_string();
         settings.save();
-        // Re-picks the editor font and applies the theme.
+        // Re-picks fonts and applies the theme.
         theme::init(cx);
+        self.status = Some("Applied".into());
+        cx.notify();
+    }
+
+    fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
+        self.apply(cx);
         cx.emit(DialogEvent::Dismiss);
     }
 
     fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        // Undo a live theme preview.
+        theme::init(cx);
         cx.emit(DialogEvent::Dismiss);
+    }
+
+    fn render_page(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let s = &self.settings;
+        let row = |label: &'static str| div().flex().items_center().gap_3().child(div().w(px(150.)).flex_none().text_color(theme::muted()).child(label));
+        let toggle = |id: &'static str, text: &'static str, on: bool, f: fn(&mut Settings)| {
+            super::checkbox(id, text, on).on_click(cx.listener(move |this, _, _, cx| {
+                f(&mut this.settings);
+                cx.notify();
+            }))
+        };
+        let body = div().flex().flex_col().gap_4();
+        match self.page {
+            SettingsPage::Appearance => {
+                let themes = self.themes.iter().map(|name| {
+                    let name = name.clone();
+                    option_chip(SharedString::from(format!("theme-{name}")), &name, s.theme == name).on_click(cx.listener(move |this, _, _, cx| {
+                        this.settings.theme = name.clone();
+                        theme::set(&name, cx);
+                        cx.notify();
+                    }))
+                });
+                body.child(row("Theme").child(div().flex().flex_wrap().gap_1().children(themes))).into_any_element()
+            }
+            SettingsPage::System => {
+                let modes = [(AutoSave::Off, "Off"), (AutoSave::OnFocusChange, "On focus change"), (AutoSave::AfterDelay, "After delay")];
+                let auto_save = modes.into_iter().map(|(mode, text)| {
+                    option_chip(SharedString::from(format!("autosave-{text}")), text, s.auto_save == mode).on_click(cx.listener(move |this, _, _, cx| {
+                        this.settings.auto_save = mode;
+                        cx.notify();
+                    }))
+                });
+                body.child(row("Auto save").child(div().flex().gap_1().children(auto_save)))
+                    .when(s.auto_save == AutoSave::AfterDelay, |d| d.child(row("Delay (ms)").child(div().w(px(120.)).child(self.delay.clone()))))
+                    .child(
+                        row("Project tree").child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_2()
+                                .child(toggle("single-click", "Open files with a single click", s.open_on_single_click, |s| s.open_on_single_click ^= true))
+                                .child(toggle("select-opened", "Always select opened file", s.select_opened_file, |s| s.select_opened_file ^= true)),
+                        ),
+                    )
+                    .into_any_element()
+            }
+            SettingsPage::Editor => body
+                .child(row("Font").child(div().flex_1().child(self.font.clone())))
+                .child(row("Size").child(div().w(px(90.)).child(self.font_size.clone())))
+                .child(div().text_size(px(12.)).text_color(theme::muted()).child("Used by the editor and the terminal."))
+                .into_any_element(),
+            SettingsPage::Keymap => body
+                .child(div().text_color(theme::muted()).child(format!("Custom shortcuts are stored in {}", keymap::user_path().display())))
+                .child(div().flex().child(button("settings-keymap", "Configure Keymap…", false).on_click(cx.listener(|_, _, window, cx| {
+                    cx.emit(DialogEvent::Dismiss);
+                    window.dispatch_action(Box::new(crate::workspace::OpenKeymap), cx);
+                }))))
+                .into_any_element(),
+            SettingsPage::VersionControl => body
+                .child(row("Local History").child(div().flex().gap_1().children([5usize, 10, 20, 50].into_iter().map(|n| {
+                    option_chip(SharedString::from(format!("history-{n}")), &format!("{n} versions"), s.local_history_versions == n).on_click(cx.listener(
+                        move |this, _, _, cx| {
+                            this.settings.local_history_versions = n;
+                            cx.notify();
+                        },
+                    ))
+                }))))
+                .child(
+                    row("Settings Sync")
+                        .child(div().flex_1().text_size(px(12.)).text_color(theme::muted()).child(match crate::sync::gist_id() {
+                            Some(id) => format!("GitHub gist {id}"),
+                            None => "Secret GitHub gist via the gh CLI".to_string(),
+                        }))
+                        .child(button("sync-pull", "Pull", false).on_click(cx.listener(|_, _, window, cx| {
+                            window.dispatch_action(Box::new(crate::workspace::SyncPull), cx);
+                            cx.emit(DialogEvent::Dismiss);
+                        })))
+                        .child(button("sync-push", "Push", false).on_click(cx.listener(|_, _, window, cx| {
+                            window.dispatch_action(Box::new(crate::workspace::SyncPush), cx);
+                            cx.emit(DialogEvent::Dismiss);
+                        }))),
+                )
+                .into_any_element(),
+            SettingsPage::Terminal => body
+                .child(row("Shell path").child(div().flex_1().child(self.shell.clone())))
+                .child(div().text_size(px(12.)).text_color(theme::muted()).child("Empty starts your login shell. Arguments may follow the path, e.g. /bin/zsh -l"))
+                .into_any_element(),
+            SettingsPage::Laravel => body
+                .child(div().text_color(theme::muted()).child("Laravel options are stored per project in .phpcraft/laravel.json."))
+                .child(div().flex().child(button("settings-laravel", "Laravel Settings…", false).on_click(cx.listener(|_, _, window, cx| {
+                    cx.emit(DialogEvent::Dismiss);
+                    window.dispatch_action(Box::new(crate::workspace::OpenLaravelSettings), cx);
+                }))))
+                .into_any_element(),
+            SettingsPage::Import => {
+                let sources = crate::settings_import::Source::ALL.into_iter().map(|source| {
+                    let location = source.locate();
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .child(div().w(px(100.)).text_color(theme::ui_text()).child(source.name()))
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(px(12.))
+                                .text_color(theme::muted())
+                                .child(location.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "Not found".into())),
+                        )
+                        .when(location.is_some(), |d| {
+                            d.child(button(source.name(), "Import", false).on_click(cx.listener(move |this, _, _, cx| {
+                                match crate::settings_import::import(source) {
+                                    Ok(report) => {
+                                        theme::init(cx);
+                                        keymap::apply(cx);
+                                        this.settings = Settings::load();
+                                        this.status = Some(format!(
+                                            "{}: {} setting(s), {} shortcut(s) imported",
+                                            source.name(),
+                                            report.settings.len(),
+                                            report.bindings.len()
+                                        ));
+                                    }
+                                    Err(err) => this.status = Some(err),
+                                }
+                                cx.notify();
+                            })))
+                        })
+                });
+                body.child(div().text_color(theme::muted()).child("Fonts, theme, auto save, terminal shell and keyboard shortcuts."))
+                    .children(sources)
+                    .into_any_element()
+            }
+        }
     }
 }
 
@@ -519,89 +717,72 @@ fn option_chip(id: SharedString, label: &str, active: bool) -> gpui::Stateful<gp
 
 impl Render for SettingsDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let s = &self.settings;
-        let label = |text: &'static str| div().w(px(170.)).flex_none().text_color(theme::muted()).child(text);
-        let modes = [(AutoSave::Off, "Off"), (AutoSave::OnFocusChange, "On focus change"), (AutoSave::AfterDelay, "After delay")];
-        let auto_save = modes.into_iter().map(|(mode, text)| {
-            option_chip(SharedString::from(format!("autosave-{text}")), text, s.auto_save == mode).on_click(cx.listener(move |this, _, _, cx| {
-                this.settings.auto_save = mode;
-                cx.notify();
-            }))
-        });
-        let themes = self.themes.iter().map(|name| {
-            let name = name.clone();
-            let active = s.theme == name;
-            option_chip(SharedString::from(format!("theme-{name}")), &name, active).on_click(cx.listener(move |this, _, _, cx| {
-                this.settings.theme = name.clone();
-                theme::set(&name, cx);
-                cx.notify();
-            }))
-        });
-        let toggle = |id: &'static str, text: &'static str, on: bool, f: fn(&mut Settings)| {
-            super::checkbox(id, text, on).on_click(cx.listener(move |this, _, _, cx| {
-                f(&mut this.settings);
-                cx.notify();
-            }))
-        };
-        card(620.)
+        let mut tree: Vec<gpui::AnyElement> = Vec::new();
+        let mut last_group = "";
+        for (page, group, title) in self.visible_pages(cx) {
+            if group != last_group && !group.is_empty() {
+                tree.push(div().px_2().pt_2().pb_1().text_size(px(12.)).text_color(theme::muted()).child(group).into_any_element());
+            }
+            last_group = group;
+            let active = page == self.page;
+            tree.push(
+                div()
+                    .id(SharedString::from(format!("settings-page-{title}")))
+                    .pl(px(if group.is_empty() { 8. } else { 18. }))
+                    .pr_2()
+                    .h(px(26.))
+                    .flex()
+                    .items_center()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .text_color(theme::ui_text())
+                    .when(active, |d| d.bg(theme::selection()))
+                    .when(!active, |d| d.hover(|d| d.bg(theme::hover())))
+                    .child(title)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.page = page;
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        }
+        let (group, title) = PAGES.iter().find(|p| p.0 == self.page).map(|p| (p.1, p.2)).unwrap_or(("", ""));
+        let page = self.render_page(cx);
+        card(820.)
             .key_context("Dialog")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::cancel))
-            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child("Settings"))
             .child(
                 div()
                     .flex()
-                    .flex_col()
-                    .gap_3()
-                    .p_3()
-                    .child(div().flex().items_center().gap_2().child(label("Auto save")).child(div().flex().gap_1().children(auto_save)))
-                    .when(s.auto_save == AutoSave::AfterDelay, |d| {
-                        d.child(div().flex().items_center().gap_2().child(label("Delay (ms)")).child(div().w(px(120.)).child(self.delay.clone())))
-                    })
-                    .child(div().flex().items_center().gap_2().child(label("Project tree")).child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(toggle("single-click", "Open files with a single click", s.open_on_single_click, |s| s.open_on_single_click ^= true))
-                            .child(toggle("select-opened", "Always select opened file", s.select_opened_file, |s| s.select_opened_file ^= true)),
-                    ))
-                    .child(div().flex().items_start().gap_2().child(label("Theme")).child(div().flex().flex_wrap().gap_1().children(themes)))
-                    .child(div().flex().items_center().gap_2().child(label("Editor font")).child(div().flex_1().child(self.font.clone())))
-                    .child(div().flex().items_center().gap_2().child(label("Local History")).child(div().flex().gap_1().children(
-                        [5usize, 10, 20, 50].into_iter().map(|n| {
-                            option_chip(SharedString::from(format!("history-{n}")), &format!("{n} versions"), s.local_history_versions == n)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.settings.local_history_versions = n;
-                                    cx.notify();
-                                }))
-                        }),
-                    )))
+                    .h(px(460.))
                     .child(
                         div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(label("Settings Sync"))
+                            .id("settings-tree")
+                            .w(px(230.))
+                            .flex_none()
+                            .p_2()
+                            .border_r_1()
+                            .border_color(theme::border())
+                            .overflow_y_scroll()
+                            .child(div().pb_1().child(self.search.clone()))
+                            .children(tree),
+                    )
+                    .child(
+                        div()
+                            .id("settings-page")
+                            .flex_1()
+                            .p_4()
+                            .overflow_y_scroll()
                             .child(
                                 div()
-                                    .flex_1()
-                                    .text_size(px(12.))
-                                    .text_color(theme::muted())
-                                    .child(match crate::sync::gist_id() {
-                                        Some(id) => format!("GitHub gist {id}"),
-                                        None => "Secret GitHub gist via the gh CLI".to_string(),
-                                    }),
+                                    .pb_3()
+                                    .text_size(px(15.))
+                                    .text_color(theme::ui_text())
+                                    .child(if group.is_empty() { title.to_string() } else { format!("{group}  ›  {title}") }),
                             )
-                            .child(button("sync-pull", "Pull", false).on_click(cx.listener(|_, _, window, cx| {
-                                window.dispatch_action(Box::new(crate::workspace::SyncPull), cx);
-                                cx.emit(DialogEvent::Dismiss);
-                            })))
-                            .child(button("sync-push", "Push", false).on_click(cx.listener(|_, _, window, cx| {
-                                window.dispatch_action(Box::new(crate::workspace::SyncPush), cx);
-                                cx.emit(DialogEvent::Dismiss);
-                            }))),
+                            .child(page),
                     ),
             )
             .child(
@@ -612,8 +793,11 @@ impl Render for SettingsDialog {
                     .p_3()
                     .border_t_1()
                     .border_color(theme::border())
-                    .child(div().flex_1().text_size(px(11.)).text_color(theme::muted()).child(format!("Saved to {}", crate::config::dir().join("settings.json").display())))
+                    .child(div().flex_1().text_size(px(12.)).text_color(theme::muted()).child(self.status.clone().unwrap_or_else(|| {
+                        format!("Saved to {}", crate::config::dir().join("settings.json").display())
+                    })))
                     .child(button("settings-cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.cancel(&Cancel, window, cx))))
+                    .child(button("settings-apply", "Apply", false).on_click(cx.listener(|this, _, _, cx| this.apply(cx))))
                     .child(button("settings-ok", "OK", true).on_click(cx.listener(|this, _, window, cx| this.confirm(&Confirm, window, cx)))),
             )
     }

@@ -37,6 +37,15 @@ pub struct Settings {
     pub select_opened_file: bool,
     /// Versions kept per file in Local History.
     pub local_history_versions: usize,
+    pub editor_font_size: f32,
+    /// UI language code, or `"system"`.
+    pub language: String,
+    /// Shell for the terminal; empty uses the login shell.
+    pub terminal_shell: String,
+    /// Look for a new release on GitHub at startup (at most daily).
+    pub check_for_updates: bool,
+    /// Unix seconds of the last automatic check.
+    pub last_update_check: u64,
 }
 
 impl Default for Settings {
@@ -49,6 +58,11 @@ impl Default for Settings {
             open_on_single_click: true,
             select_opened_file: true,
             local_history_versions: history::DEFAULT_KEEP,
+            editor_font_size: 13.5,
+            language: "system".into(),
+            terminal_shell: String::new(),
+            check_for_updates: true,
+            last_update_check: 0,
         }
     }
 }
@@ -107,5 +121,11 @@ pub fn remember_project(root: &std::path::Path) {
     projects.insert(0, root.to_path_buf());
     projects.truncate(20);
     let _ = fs::create_dir_all(dir());
+    let _ = fs::write(dir().join("recent_projects.json"), serde_json::to_string_pretty(&projects).unwrap_or_default());
+}
+
+pub fn forget_project(root: &std::path::Path) {
+    let mut projects = recent_projects();
+    projects.retain(|p| p != root);
     let _ = fs::write(dir().join("recent_projects.json"), serde_json::to_string_pretty(&projects).unwrap_or_default());
 }

@@ -35,12 +35,12 @@ pub fn avatar(name: &str, size: f32) -> gpui::Div {
         .child(initials(name))
 }
 
-fn project_name(path: &Path) -> String {
+pub fn project_name(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 /// `~/qorug/erp-server`
-fn tilde(path: &Path) -> String {
+pub fn tilde(path: &Path) -> String {
     match dirs::home_dir().and_then(|home| path.strip_prefix(&home).ok().map(Path::to_path_buf)) {
         Some(rel) => format!("~/{}", rel.display()),
         None => path.display().to_string(),
@@ -71,6 +71,13 @@ impl ProjectDialog {
         window.focus(&focus_handle);
         let recent = crate::config::recent_projects().into_iter().filter(|p| p != current).collect();
         Self { current: current.to_path_buf(), recent, selected: 0, clone: None, focus_handle }
+    }
+
+    /// Opens directly in Clone Repository mode (welcome screen).
+    pub fn clone_repository(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut dialog = Self::new(Path::new(""), window, cx);
+        dialog.activate(1, window, cx);
+        dialog
     }
 
     fn rows(&self) -> Vec<Row> {

@@ -12,8 +12,10 @@ use terminal::{CellView, Palette, Snapshot, Terminal, TerminalEvent};
 
 use crate::theme;
 
-const FONT_SIZE: f32 = 13.;
-const LINE_HEIGHT: f32 = 18.;
+
+fn line_height() -> f32 {
+    (theme::editor_font_size() * 1.36).round()
+}
 
 pub enum TerminalViewEvent {
     TitleChanged,
@@ -134,7 +136,7 @@ impl TerminalView {
     fn cell_at(&self, position: Point<Pixels>) -> (usize, usize) {
         let x = (position.x - self.origin.x).max(px(0.));
         let y = (position.y - self.origin.y).max(px(0.));
-        ((y / px(LINE_HEIGHT)) as usize, (x / self.cell_width) as usize)
+        ((y / px(line_height())) as usize, (x / self.cell_width) as usize)
     }
 
     fn selected_text(&self, snapshot: &Snapshot) -> Option<String> {
@@ -202,8 +204,8 @@ impl TerminalView {
     }
 
     fn on_scroll(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let delta = event.delta.pixel_delta(px(LINE_HEIGHT)).y;
-        let lines = (delta / px(LINE_HEIGHT)).round() as i32;
+        let delta = event.delta.pixel_delta(px(line_height())).y;
+        let lines = (delta / px(line_height())).round() as i32;
         if lines != 0 {
             self.terminal.scroll(lines);
             cx.notify();
@@ -314,21 +316,21 @@ impl Render for TerminalView {
                 canvas(
                     move |bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App| {
                         let probe = TextRun { len: 1, font: font(theme::editor_font()), color: theme::text(), background_color: None, underline: None, strikethrough: None };
-                        let cell_width = window.text_system().shape_line("M".into(), px(FONT_SIZE), &[probe], None).width;
+                        let cell_width = window.text_system().shape_line("M".into(), px(theme::editor_font_size() - 0.5), &[probe], None).width;
                         let columns = ((bounds.size.width - px(8.)) / cell_width).floor().max(2.) as usize;
-                        let lines = (bounds.size.height / px(LINE_HEIGHT)).floor().max(1.) as usize;
+                        let lines = (bounds.size.height / px(line_height())).floor().max(1.) as usize;
                         view.update(cx, |view, _| {
                             view.cell_width = cell_width;
                             view.origin = bounds.origin + point(px(4.), px(0.));
                             // The first frames of a new window can lay out at zero size.
-                            if bounds.size.width > px(80.) && bounds.size.height > px(LINE_HEIGHT * 2.) {
+                            if bounds.size.width > px(80.) && bounds.size.height > px(line_height() * 2.) {
                                 view.terminal.resize(columns, lines);
                             }
                         });
                         let shaped: Vec<_> = rows
                             .into_iter()
                             .map(|row| {
-                                let line = window.text_system().shape_line(row.text.into(), px(FONT_SIZE), &row.runs, Some(cell_width));
+                                let line = window.text_system().shape_line(row.text.into(), px(theme::editor_font_size() - 0.5), &row.runs, Some(cell_width));
                                 (line, row.backgrounds)
                             })
                             .collect();
@@ -338,13 +340,13 @@ impl Render for TerminalView {
                         let origin = bounds.origin + point(px(4.), px(0.));
                         window.paint_quad(fill(bounds, background));
                         for (row, (line, backgrounds)) in shaped.iter().enumerate() {
-                            let y = origin.y + px(LINE_HEIGHT) * row as f32;
-                            if y + px(LINE_HEIGHT) > bounds.bottom() + px(1.) {
+                            let y = origin.y + px(line_height()) * row as f32;
+                            if y + px(line_height()) > bounds.bottom() + px(1.) {
                                 break;
                             }
                             for (start, end, color) in backgrounds {
                                 window.paint_quad(fill(
-                                    Bounds::new(point(origin.x + cell_width * *start as f32, y), size(cell_width * (end - start) as f32, px(LINE_HEIGHT))),
+                                    Bounds::new(point(origin.x + cell_width * *start as f32, y), size(cell_width * (end - start) as f32, px(line_height()))),
                                     *color,
                                 ));
                             }
@@ -355,15 +357,15 @@ impl Render for TerminalView {
                                 let from = if row == sr { sc } else { 0 };
                                 let to = if row == er { ec } else { (bounds.size.width / cell_width) as usize };
                                 window.paint_quad(fill(
-                                    Bounds::new(point(origin.x + cell_width * from as f32, y), size(cell_width * to.saturating_sub(from) as f32, px(LINE_HEIGHT))),
+                                    Bounds::new(point(origin.x + cell_width * from as f32, y), size(cell_width * to.saturating_sub(from) as f32, px(line_height()))),
                                     theme::selection(),
                                 ));
                             }
-                            let _ = line.paint(point(origin.x, y), px(LINE_HEIGHT), window, cx);
+                            let _ = line.paint(point(origin.x, y), px(line_height()), window, cx);
                         }
                         if let Some((row, col)) = cursor {
-                            let at = point(origin.x + cell_width * col as f32, origin.y + px(LINE_HEIGHT) * row as f32);
-                            let caret = Bounds::new(at, size(cell_width, px(LINE_HEIGHT)));
+                            let at = point(origin.x + cell_width * col as f32, origin.y + px(line_height()) * row as f32);
+                            let caret = Bounds::new(at, size(cell_width, px(line_height())));
                             if focused {
                                 window.paint_quad(fill(caret, theme::text().opacity(0.6)));
                             } else {
