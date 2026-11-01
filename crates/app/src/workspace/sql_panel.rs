@@ -13,18 +13,21 @@ pub fn is_sql_file(path: &std::path::Path) -> bool {
     path.extension().is_some_and(|e| e.eq_ignore_ascii_case("sql"))
 }
 
-/// The statement around byte `at`: from the previous `;` to the next one.
+/// The statement around byte `at`: from the previous `;` to the next one. A caret at the end
+/// of a line just after `;` means the statement that `;` ends.
 pub fn statement_at(text: &str, at: usize) -> &str {
-    let at = at.min(text.len());
+    let mut at = at.min(text.len());
+    while !text.is_char_boundary(at) {
+        at -= 1;
+    }
+    let line_rest = text[at..].split('\n').next().unwrap_or("");
+    let before = text[..at].trim_end_matches([' ', '\t']);
+    if line_rest.trim().is_empty() && before.ends_with(';') {
+        at = before.len() - 1;
+    }
     let start = text[..at].rfind(';').map_or(0, |i| i + 1);
     let end = text[at..].find(';').map_or(text.len(), |i| at + i);
-    let statement = text[start..end].trim();
-    if statement.is_empty() && start > 0 {
-        // Caret right after a `;`: the statement it ends.
-        let before = &text[..start - 1];
-        return before[before.rfind(';').map_or(0, |i| i + 1)..].trim();
-    }
-    statement
+    text[start..end].trim()
 }
 
 impl Workspace {
