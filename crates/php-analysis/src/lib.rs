@@ -6,6 +6,7 @@
 mod complete;
 mod docs;
 mod generate;
+mod hierarchy;
 pub mod matcher;
 mod goto;
 mod imports;
@@ -21,6 +22,7 @@ use tree_sitter::{Node, Tree};
 pub use complete::{CompletionItem, CompletionKind, complete};
 pub use goto::{goto_definition, reference_range};
 pub use docs::{Documentation, documentation, parameter_info};
+pub use hierarchy::{implementations, related_tests, super_declaration, type_hierarchy};
 pub use generate::{generate_accessors, generate_constructor, generate_phpdoc, implement_methods, overridable_methods, override_method};
 pub use usages::{Symbol, symbol_at, usages_in};
 pub use imports::{

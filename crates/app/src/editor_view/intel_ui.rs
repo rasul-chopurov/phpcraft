@@ -114,7 +114,7 @@ impl EditorView {
         self.intel.root().to_path_buf()
     }
 
-    fn navigate(&mut self, location: Location, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn navigate(&mut self, location: Location, window: &mut Window, cx: &mut Context<Self>) {
         let workspace = self.workspace.clone();
         let from = self.path().map(|p| (p, self.buffer.selection.head));
         // Deferred: the workspace may need to update this editor while we're borrowed.

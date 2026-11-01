@@ -4,6 +4,7 @@ mod bookmarks;
 mod find_bar;
 mod folding;
 mod generate;
+mod hierarchy;
 mod info;
 mod rows;
 mod ghost;
@@ -98,6 +99,10 @@ actions!(
         QuickDocumentation,
         ParameterInfo,
         CloseInfo,
+        GoToImplementation,
+        GoToSuperMethod,
+        GoToTest,
+        TypeHierarchy,
         ExtendSelection,
         ShrinkSelection,
         JoinLines,
@@ -1033,6 +1038,10 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::quick_documentation))
             .on_action(cx.listener(Self::parameter_info))
             .on_action(cx.listener(Self::close_info))
+            .on_action(cx.listener(Self::go_to_implementation))
+            .on_action(cx.listener(Self::go_to_super_method))
+            .on_action(cx.listener(Self::go_to_test))
+            .on_action(cx.listener(Self::type_hierarchy))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
