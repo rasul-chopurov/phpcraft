@@ -250,13 +250,9 @@ footer .made .heart{color:var(--heart)}
 <script>
 (function(){
   var VERSION = "0.0.4-alpha";
-  var base = "https://github.com/rasul-chopurov/phpcraft/releases/download/v" + VERSION + "/";
-  document.querySelectorAll("[data-file]").forEach(function(a){
-    a.href = base + "PhpCraft-" + VERSION + "-" + a.dataset.file;
-  });
-  document.querySelectorAll("[data-deb]").forEach(function(a){
-    a.href = base + "phpcraft_" + VERSION + "_" + a.dataset.deb + ".deb";
-  });
+  // Download links open the release page on GitHub, where every installer is listed.
+  var page = "https://github.com/rasul-chopurov/phpcraft/releases/tag/v" + VERSION;
+  document.querySelectorAll("[data-file], [data-deb]").forEach(function(a){ a.href = page; });
   var ua = navigator.userAgent, os = null, name = null;
   if (/Mac/.test(ua)) { os = "mac"; name = "macOS"; }
   else if (/Win/.test(ua)) { os = "win"; name = "Windows"; }
