@@ -183,7 +183,8 @@ fn read_entries(bytes: &[u8]) -> Option<HashMap<PathBuf, Entry>> {
         return None;
     }
     let count = r.u32()? as usize;
-    let mut out = HashMap::with_capacity(count);
+    // `count` comes from the file: cap it so a damaged file can't request a huge allocation.
+    let mut out = HashMap::with_capacity(count.min(bytes.len() / 16));
     for _ in 0..count {
         let path = PathBuf::from(r.str()?);
         let shared: Arc<Path> = Arc::from(path.as_path());
@@ -244,7 +245,10 @@ pub fn load(file: &Path) -> HashMap<PathBuf, Entry> {
 pub fn write(file: &Path, bytes: &[u8]) {
     let Some(dir) = file.parent() else { return };
     let _ = std::fs::create_dir_all(dir);
-    let tmp = file.with_extension("tmp");
+    // A unique temp name: two scans may write the cache at the same time.
+    static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = file.with_extension(format!("{}-{n}.tmp", std::process::id()));
     if std::fs::write(&tmp, bytes).is_ok() {
         let _ = std::fs::rename(&tmp, file);
     }

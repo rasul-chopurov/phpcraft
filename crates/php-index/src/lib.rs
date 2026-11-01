@@ -314,7 +314,9 @@ fn scan_dir<'s>(dir: PathBuf, walk: Walk<'s>, scope: &rayon::Scope<'s>) {
         if !is_php_source(&path) {
             continue;
         }
-        let Ok(metadata) = entry.metadata() else { continue };
+        // Symlinked files (path repositories in vendor/) are stamped by their target.
+        let metadata = if file_type.is_symlink() { fs::metadata(&path) } else { entry.metadata() };
+        let Ok(metadata) = metadata else { continue };
         let stamp = cache::stamp(&metadata);
         if let Some(hit) = walk.cached.get(&path).filter(|e| e.stamp == stamp) {
             walk.reused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

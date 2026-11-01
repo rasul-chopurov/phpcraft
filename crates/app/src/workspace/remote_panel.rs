@@ -39,6 +39,8 @@ pub(super) struct RemoteState {
     status: Option<(String, bool)>,
     form: Option<ServerForm>,
     selected_entry: Option<String>,
+    /// Bumped by every listing request; only the latest one's result is shown.
+    generation: u64,
 }
 
 fn field(cx: &mut Context<Workspace>, placeholder: &'static str, text: &str) -> Entity<TextField> {
@@ -48,6 +50,11 @@ fn field(cx: &mut Context<Workspace>, placeholder: &'static str, text: &str) -> 
         field.set_text(text, cx);
         field
     })
+}
+
+/// Quotes `s` for a POSIX shell.
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 fn join(dir: &str, name: &str) -> String {
@@ -98,12 +105,13 @@ impl Workspace {
         self.remote.entries = None;
         self.remote.busy = true;
         self.remote.selected_entry = None;
+        self.remote.generation += 1;
+        let generation = self.remote.generation;
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let target = dir.clone();
-            let result = cx.background_spawn(async move { deployment::list(&server, &password, &target) }).await;
+            let result = cx.background_spawn(async move { deployment::list(&server, &password, &dir) }).await;
             let _ = this.update(cx, |this, cx| {
-                if this.remote.cwd == dir {
+                if this.remote.generation == generation {
                     this.remote.entries = Some(result);
                     this.remote.busy = false;
                     cx.notify();
@@ -116,9 +124,20 @@ impl Workspace {
     /// Where a remote file lands locally: its mapped project path, or a temp folder.
     fn local_for(&self, server: &Server, remote: &str) -> PathBuf {
         let base = server.remote_root.trim_end_matches('/');
-        match remote.strip_prefix(base).map(|r| r.trim_start_matches('/')) {
-            Some(rel) if !rel.is_empty() && !base.is_empty() => self.project.root().join(rel),
-            _ => std::env::temp_dir().join("phpcraft-remote").join(&server.id).join(remote.trim_start_matches('/')),
+        // Only plain folder names: `..`, `.` and roots never leave the target folder.
+        let safe = |path: &str| -> PathBuf {
+            Path::new(path).components().filter_map(|c| match c {
+                std::path::Component::Normal(part) => Some(part),
+                _ => None,
+            }).collect()
+        };
+        let rel = remote.strip_prefix(base).filter(|r| r.starts_with('/')).map(|r| r.trim_start_matches('/'));
+        match rel {
+            Some(rel) if !rel.is_empty() && !base.is_empty() => self.project.root().join(safe(rel)),
+            _ => {
+                let id: String = server.id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+                std::env::temp_dir().join("phpcraft-remote").join(if id.is_empty() { "server".into() } else { id }).join(safe(remote))
+            }
         }
     }
 
@@ -209,11 +228,14 @@ impl Workspace {
 
     fn open_ssh(&mut self, cx: &mut Context<Self>) {
         let Some(server) = self.server() else { return };
+        // Every field is quoted for the local shell; the remote command is quoted again for the
+        // remote shell, so folder names from the server can't run anything.
         let mut command = format!("ssh -p {} -o StrictHostKeyChecking=accept-new", server.port);
         if !server.key.trim().is_empty() {
-            command.push_str(&format!(" -i '{}'", server.key.trim().replace('\'', "'\\''")));
+            command.push_str(&format!(" -i {}", sh_quote(server.key.trim())));
         }
-        command.push_str(&format!(" -t {}@{} \"cd '{}' 2>/dev/null; exec \\$SHELL -l\"", server.user, server.host, self.remote.cwd));
+        let remote = format!("cd {} 2>/dev/null; exec \"$SHELL\" -l", sh_quote(&self.remote.cwd));
+        command.push_str(&format!(" -t -- {} {}", sh_quote(&format!("{}@{}", server.user, server.host)), sh_quote(&remote)));
         let config = RunConfig { name: format!("SSH {}", server.name), kind: Kind::Shell { command }, env: Default::default() };
         self.add_terminal(Some(config), cx);
     }
@@ -270,9 +292,8 @@ impl Workspace {
             key: text(&form.key),
             use_password: form.use_password,
         };
-        if form.use_password {
-            deployment::set_password(self.project.root(), &id, form.password.read(cx).text());
-        }
+        let password = if form.use_password { form.password.read(cx).text().to_string() } else { String::new() };
+        deployment::set_password(self.project.root(), &id, &password);
         let servers = &mut self.remote.deployment.servers;
         match servers.iter_mut().find(|s| s.id == id) {
             Some(slot) => *slot = server,
@@ -288,6 +309,7 @@ impl Workspace {
     fn delete_server(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self.remote.selected.take() else { return };
         self.remote.deployment.servers.retain(|s| s.id != id);
+        deployment::set_password(self.project.root(), &id, "");
         if self.remote.deployment.default.as_deref() == Some(id.as_str()) {
             self.remote.deployment.default = self.remote.deployment.servers.first().map(|s| s.id.clone());
         }
@@ -557,5 +579,6 @@ mod tests {
         assert_eq!(join("/", "etc"), "/etc");
         assert_eq!(parent("/var/www/app"), "/var/www");
         assert_eq!(parent("/var"), "/");
+        assert_eq!(sh_quote("a'b $(x)"), "'a'\\''b $(x)'");
     }
 }

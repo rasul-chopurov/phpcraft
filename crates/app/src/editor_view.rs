@@ -708,6 +708,9 @@ impl Render for EditorView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut key_context = KeyContext::new_with_defaults();
         key_context.add("Editor");
+        if self.buffer.path().is_some_and(crate::http_client::is_http_file) {
+            key_context.add("HttpFile");
+        }
         if self.menu_open() {
             key_context.add("menu");
         } else if self.ghost().is_some() {

@@ -38,6 +38,8 @@ pub struct TableView {
     focus_handle: FocusHandle,
     /// The query editor of a console tab.
     console: Option<Entity<EditorView>>,
+    /// Bumped by every query; only the latest one's result is shown.
+    generation: u64,
 }
 
 fn laravel_driver(driver: Driver) -> &'static str {
@@ -71,6 +73,7 @@ impl TableView {
             status: None,
             focus_handle: cx.focus_handle(),
             console: None,
+            generation: 0,
         };
         view.load_columns(cx);
         view.reload(cx);
@@ -107,6 +110,7 @@ impl TableView {
             status: None,
             focus_handle: cx.focus_handle(),
             console: Some(console),
+            generation: 0,
         }
     }
 
@@ -184,9 +188,15 @@ impl TableView {
         self.added.clear();
         self.editing = None;
         self.selected = None;
+        self.generation += 1;
+        let generation = self.generation;
         cx.spawn(async move |this, cx| {
             let result = cx.background_spawn(async move { datasource::query(&root, &source, &password, &sql) }).await;
             let _ = this.update(cx, |view, cx| {
+                // A newer query was started meanwhile: its result wins.
+                if view.generation != generation {
+                    return;
+                }
                 view.loading = false;
                 view.result = Some(result.map(Arc::new));
                 cx.notify();

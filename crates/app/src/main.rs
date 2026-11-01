@@ -6,6 +6,7 @@ mod dialogs;
 mod deployment;
 mod diff_view;
 mod editor_view;
+mod http_client;
 mod i18n;
 mod icons;
 mod intel;

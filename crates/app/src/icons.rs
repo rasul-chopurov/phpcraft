@@ -114,6 +114,7 @@ pub fn for_file(name: &str) -> (Icon, Hsla) {
             "sql" | "sqlite" => (Icon::database, 0xc0a060),
             "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "ico" => (Icon::image, 0x98c379),
             "rs" => (Icon::file_code, 0xdea584),
+            "http" | "rest" => (Icon::globe, 0x22d3ee),
             "sh" | "zsh" | "bash" => (Icon::terminal, 0x98c379),
             _ if lower.starts_with(".env") => (Icon::settings, 0xa0a6b4),
             _ => (Icon::file, 0x8b90a0),

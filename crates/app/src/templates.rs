@@ -22,10 +22,11 @@ pub enum Template {
     Dockerfile,
     DockerCompose,
     EditorConfig,
+    HttpRequest,
 }
 
 impl Template {
-    pub const ALL: [Template; 17] = [
+    pub const ALL: [Template; 18] = [
         Template::PhpFile,
         Template::PhpClass,
         Template::PhpInterface,
@@ -43,6 +44,7 @@ impl Template {
         Template::Dockerfile,
         Template::DockerCompose,
         Template::EditorConfig,
+        Template::HttpRequest,
     ];
 
     pub fn label(self) -> &'static str {
@@ -64,6 +66,7 @@ impl Template {
             Template::Dockerfile => "Dockerfile",
             Template::DockerCompose => "Docker Compose File",
             Template::EditorConfig => "EditorConfig File",
+            Template::HttpRequest => "HTTP Request",
         }
     }
 
@@ -181,6 +184,7 @@ pub fn render(template: Template, name: &str, dir: &Path, root: &Path) -> Vec<(P
         Template::Css => vec![(dir.join(format!("{base}.css")), String::new())],
         Template::Dockerfile => vec![(dir.join("Dockerfile"), "FROM php:8.4-fpm\n\nWORKDIR /var/www/html\n".into())],
         Template::DockerCompose => vec![(dir.join("compose.yaml"), "services:\n  app:\n    build: .\n    volumes:\n      - .:/var/www/html\n".into())],
+        Template::HttpRequest => vec![(dir.join(format!("{}.http", base.trim_end_matches(".http"))), crate::http_client::TEMPLATE.into())],
         Template::EditorConfig => vec![(
             dir.join(".editorconfig"),
             "root = true\n\n[*]\ncharset = utf-8\nend_of_line = lf\nindent_size = 4\nindent_style = space\ninsert_final_newline = true\ntrim_trailing_whitespace = true\n\n[*.md]\ntrim_trailing_whitespace = false\n\n[*.{yml,yaml}]\nindent_size = 2\n".into(),

@@ -73,7 +73,12 @@ pub fn password(root: &Path, id: &str) -> String {
 pub fn set_password(root: &Path, id: &str, value: &str) {
     let mut map: std::collections::HashMap<String, String> =
         std::fs::read_to_string(secrets_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-    map.insert(format!("{}|{id}", root.display()), value.to_string());
+    let key = format!("{}|{id}", root.display());
+    if value.is_empty() {
+        map.remove(&key);
+    } else {
+        map.insert(key, value.to_string());
+    }
     let _ = std::fs::create_dir_all(crate::config::dir());
     let _ = std::fs::write(secrets_path(), serde_json::to_string_pretty(&map).unwrap_or_default());
     #[cfg(unix)]
@@ -152,13 +157,18 @@ pub fn run(server: &Server, password: &str, batch: &str) -> Result<String, Strin
     }
     // Password auth: OpenSSH asks SSH_ASKPASS, a throwaway script that prints it.
     let askpass = if server.use_password && !password.is_empty() {
-        let script = std::env::temp_dir().join(format!("phpcraft-askpass-{}-{}", std::process::id(), server.id));
+        // A fresh name per run: parallel runs (listing + test) must not delete each other's script.
+        static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let script = std::env::temp_dir().join(format!("phpcraft-askpass-{}-{run}", std::process::id()));
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
+            use std::io::Write as _;
+            use std::os::unix::fs::OpenOptionsExt;
             let escaped = password.replace('\'', "'\\''");
-            std::fs::write(&script, format!("#!/bin/sh\nprintf '%s\\n' '{escaped}'\n")).map_err(|e| e.to_string())?;
-            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())?;
+            // Created executable and owner-only in one step; never follows an existing file.
+            let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o700).open(&script).map_err(|e| e.to_string())?;
+            file.write_all(format!("#!/bin/sh\nprintf '%s\\n' '{escaped}'\n").as_bytes()).map_err(|e| e.to_string())?;
         }
         #[cfg(windows)]
         {
@@ -171,7 +181,7 @@ pub fn run(server: &Server, password: &str, batch: &str) -> Result<String, Strin
         command.args(["-o", "BatchMode=yes"]);
         None
     };
-    command.arg(format!("{}@{}", server.user, server.host));
+    command.arg("--").arg(format!("{}@{}", server.user, server.host));
     let result = (|| {
         let mut child = command
             .stdin(std::process::Stdio::piped())

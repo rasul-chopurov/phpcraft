@@ -3934,6 +3934,7 @@ dependencies = [
  "terminal",
  "trash",
  "tree-sitter",
+ "ureq",
  "winresource",
 ]
 
