@@ -3,6 +3,7 @@
 
 mod config;
 mod dialogs;
+mod deployment;
 mod diff_view;
 mod editor_view;
 mod i18n;
