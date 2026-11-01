@@ -669,6 +669,11 @@ impl Workspace {
                 let (id, delete_only) = (id.clone(), *delete_only);
                 self.unshelve(&id, delete_only, window, cx);
             }
+            DialogEvent::PullRequestDiff { host, number, base, file } => {
+                let (host, number, base, file) = (*host, *number, base.clone(), file.clone());
+                self.dismiss_modal(window, cx);
+                self.show_pull_request_diff(host, number, base, file, window, cx);
+            }
             DialogEvent::Git(command) => {
                 let command = command.clone();
                 self.dismiss_modal(window, cx);

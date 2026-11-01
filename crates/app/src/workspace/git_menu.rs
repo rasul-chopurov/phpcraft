@@ -27,6 +27,7 @@ actions!(
         GitAddRemote,
         GitOpenOnGitHub,
         GitCreatePullRequest,
+        GitPullRequests,
         GitOpenOnGitLab,
         GitClone,
         VcsOperations,
@@ -45,6 +46,10 @@ pub fn web_url(remote: &str) -> Option<String> {
         return Some(format!("https://{}/{path}", host.split(':').next().unwrap_or(host)));
     }
     remote.starts_with("http").then(|| remote.to_string())
+}
+
+fn base_label(merge_base: &str) -> String {
+    format!("base {}", &merge_base[..merge_base.len().min(8)])
 }
 
 impl Workspace {
@@ -150,6 +155,68 @@ impl Workspace {
         // GitHub's compare page starts a pull request for the current branch.
         let branch = self.git.branch.clone().map(|b| format!("/compare/{b}?expand=1")).unwrap_or_default();
         self.open_remote(Some("github"), &branch, cx);
+    }
+
+    pub(super) fn git_pull_requests(&mut self, _: &GitPullRequests, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(repo) = self.intel.repo().cloned() else { return };
+        let remotes = repo.remotes();
+        let origin = remotes.iter().find(|(name, _)| name == "origin").or(remotes.first());
+        let Some(host) = origin.and_then(|(_, url)| crate::pull_requests::host(url)) else {
+            self.output = Some(super::tools::Output { title: "Pull Requests".into(), text: "The origin remote is neither GitHub nor GitLab.".into(), running: false, ok: false });
+            cx.notify();
+            return;
+        };
+        let root = repo.root().to_path_buf();
+        let dialog = cx.new(|cx| crate::dialogs::PullRequestsDialog::new(root, host, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// The request's head (fetched into `refs/phpcraft/pr-N`) against its merge base with
+    /// `origin/<base>`, file by file.
+    pub(super) fn show_pull_request_diff(&mut self, host: crate::pull_requests::Host, number: u64, base: String, file: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(repo) = self.intel.repo().cloned() else { return };
+        let task = self.begin_task(format!("Fetching #{number}…"), cx);
+        cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    let head = crate::pull_requests::fetch_head(repo.root(), host, number)?;
+                    let _ = repo.run(&["fetch".into(), "--quiet".into(), "origin".into(), base.clone()]);
+                    let merge_base = repo.run(&["merge-base".into(), format!("origin/{base}"), head.clone()])?.trim().to_string();
+                    let files: Vec<String> = repo.run(&["diff".into(), "--name-only".into(), merge_base.clone(), head.clone()])?.lines().map(str::to_string).collect();
+                    Ok::<_, String>((repo, head, merge_base, files))
+                })
+                .await;
+            this.update_in(cx, |this, window, cx| {
+                this.end_task(task, cx);
+                match result {
+                    Ok((_, _, _, files)) if files.is_empty() => {
+                        this.output = Some(super::tools::Output { title: format!("Pull request #{number}"), text: "No changes against the base branch.".into(), running: false, ok: true })
+                    }
+                    Ok((repo, head, merge_base, files)) => {
+                        let index = file.and_then(|f| files.iter().position(|x| *x == f)).unwrap_or(0);
+                        let sources = files
+                            .iter()
+                            .map(|path| crate::diff_view::DiffSource {
+                                title: path.rsplit('/').next().unwrap_or(path).to_string(),
+                                subtitle: path.clone(),
+                                load: {
+                                    let (repo, head, merge_base, path) = (repo.clone(), head.clone(), merge_base.clone(), path.clone());
+                                    std::sync::Arc::new(move || (repo.show(&merge_base, &path).unwrap_or_default(), repo.show(&head, &path).unwrap_or_default()))
+                                },
+                                left_label: base_label(&merge_base),
+                                right_label: format!("#{number}"),
+                                open_path: Some(repo.root().join(path)),
+                            })
+                            .collect();
+                        this.open_diff_tab(&format!("#{number}"), sources, index, window, cx);
+                    }
+                    Err(err) => this.output = Some(super::tools::Output { title: format!("Pull request #{number}"), text: err, running: false, ok: false }),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub(super) fn git_open_on_gitlab(&mut self, _: &GitOpenOnGitLab, _: &mut Window, cx: &mut Context<Self>) {

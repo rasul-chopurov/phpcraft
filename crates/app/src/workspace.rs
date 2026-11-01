@@ -1141,6 +1141,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::git_add_remote))
             .on_action(cx.listener(Self::git_open_on_github))
             .on_action(cx.listener(Self::git_create_pull_request))
+            .on_action(cx.listener(Self::git_pull_requests))
             .on_action(cx.listener(Self::git_open_on_gitlab))
             .on_action(cx.listener(Self::git_clone))
             .on_action(cx.listener(Self::vcs_operations))

@@ -339,6 +339,7 @@ pub fn set(cx: &mut App) {
                     "GitHub",
                     &[Some(("Open on GitHub", "workspace::GitOpenOnGitHub")), Some(("Create Pull Request", "workspace::GitCreatePullRequest"))],
                 ))),
+                item(cx, "Pull Requests…", "workspace::GitPullRequests"),
                 item(cx, "Manage Remotes…", "workspace::GitManageRemotes"),
                 item(cx, "Add Remote…", "workspace::GitAddRemote"),
                 item(cx, "Clone…", "workspace::GitClone"),

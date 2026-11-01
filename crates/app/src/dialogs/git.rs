@@ -23,6 +23,8 @@ pub enum GitCommand {
     Raw { title: String, args: Vec<String>, changes_files: bool },
     /// Interactive rebase onto `base` with these steps.
     Rebase { base: String, steps: Vec<git::RebaseStep> },
+    /// `gh pr checkout` / `glab mr checkout`.
+    CheckoutPullRequest { host: crate::pull_requests::Host, number: u64 },
 }
 
 const MAX_ROWS: usize = 5000;

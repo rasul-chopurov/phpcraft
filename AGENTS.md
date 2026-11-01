@@ -89,6 +89,7 @@ Blade sections/stacks/props, routes in the gutter, generators incl. DTO / Nova, 
 component/view, facade→DI / rules→array / scope→#[Scope] intentions), Twig, Git (commit, log
 with graph, branches, diff, blame, merge conflicts in the editor, compare with revision /
 clipboard, interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes),
+Pull Requests (Git ▸ Pull Requests…: list, details, checkout, diff, comment via gh / glab),
 Xdebug debugger, Docker services, test runner with results and coverage, Composer menu, HTTP
 client (+ cURL / Postman / OpenAPI, history), database tools, SFTP deployment (auto upload),
 terminal, AI agents, settings sync and import (PhpStorm / VS Code / Zed).
@@ -104,16 +105,10 @@ terminal, AI agents, settings sync and import (PhpStorm / VS Code / Zed).
 
 ### In progress / next steps (in this order)
 
-1. **Pull Requests UI.** Backend is done in `crates/app/src/pull_requests.rs` (gh / glab: list,
-   details, checkout, comment, `fetch_head` into `refs/phpcraft/pr-N`). Still to do: a dialog
-   (Git ▸ Pull Requests…) — list on the left, details (body, comments, files) on the right,
-   buttons Checkout / Show Diff (DiffSource per file: `merge-base` vs `refs/phpcraft/pr-N`,
-   via `Workspace::open_diff_tab`) / Open in Browser / Add Comment; detect host from the
-   origin remote (`pull_requests::host`). Wire the action in `workspace.rs` and `menus.rs`.
-2. **Spell checker** for comments and strings: bundled English word list, camelCase splitting,
+1. **Spell checker** for comments and strings: bundled English word list, camelCase splitting,
    project dictionary in `.phpcraft/dictionary.txt`, problems with id `typo` (Weak), intention
    "Save to dictionary" and suggestions (edit distance).
-3. Final release (version per the user's answer), then push and deploy the site.
+2. Final release (version per the user's answer), then push and deploy the site.
 
 ### Known gaps / ideas after that
 

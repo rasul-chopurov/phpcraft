@@ -5,6 +5,7 @@ mod git;
 mod git_prompt;
 mod rebase;
 mod shelf;
+mod pull_requests;
 mod git_lists;
 mod make;
 mod navigate;
@@ -30,6 +31,7 @@ pub use git::{BranchDialog, ConfirmDialog, GitCommand, LocalHistoryDialog};
 pub use git_prompt::{GitPrompt, GitPromptDialog};
 pub use rebase::RebaseDialog;
 pub use shelf::{ShelfDialog, ShelfMode};
+pub use pull_requests::PullRequestsDialog;
 pub use git_lists::{GitList, GitListDialog};
 pub use make::{GeneratorDialog, MakeChooser, MakeDialog};
 pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
@@ -107,6 +109,8 @@ pub enum DialogEvent {
     Shelve { name: String, files: Vec<String> },
     /// Git ▸ Shelf: apply a shelf back (or only delete it).
     Unshelve { id: String, delete_only: bool },
+    /// Git ▸ Pull Requests ▸ Show Diff: the request against its base (one file, or all).
+    PullRequestDiff { host: crate::pull_requests::Host, number: u64, base: String, file: Option<String> },
 }
 
 /// Where a project opens.

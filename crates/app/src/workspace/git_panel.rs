@@ -279,8 +279,9 @@ impl Workspace {
             GitCommand::Rollback(files) => format!("Rollback {} file(s)", files.len()),
             GitCommand::Raw { title, .. } => title.clone(),
             GitCommand::Rebase { .. } => "Interactive rebase".into(),
+            GitCommand::CheckoutPullRequest { number, .. } => format!("Checkout #{number}"),
         };
-        let raw_changes = matches!(&command, GitCommand::Raw { changes_files: true, .. } | GitCommand::Rebase { .. });
+        let raw_changes = matches!(&command, GitCommand::Raw { changes_files: true, .. } | GitCommand::Rebase { .. } | GitCommand::CheckoutPullRequest { .. });
         if raw_changes {
             self.save_all(cx);
         }
@@ -293,7 +294,7 @@ impl Workspace {
         let root = repo.root().to_path_buf();
         let at_risk: Vec<std::path::PathBuf> = match &command {
             GitCommand::Rollback(files) => files.iter().map(|f| root.join(&f.path)).collect(),
-            GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::Merge(_) | GitCommand::Pull | GitCommand::CreateBranch { .. } | GitCommand::Raw { changes_files: true, .. } | GitCommand::Rebase { .. } => self
+            GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::Merge(_) | GitCommand::Pull | GitCommand::CreateBranch { .. } | GitCommand::Raw { changes_files: true, .. } | GitCommand::Rebase { .. } | GitCommand::CheckoutPullRequest { .. } => self
                 .git
                 .status
                 .iter()
@@ -325,6 +326,7 @@ impl Workspace {
                         GitCommand::Rebase { base, steps } => repo.rebase_interactive(&base, &steps).map_err(|e| {
                             format!("{e}\n\nThe rebase stopped: resolve the conflicts (Git ▸ Resolve Conflicts…), then Git ▸ Rebase ▸ Continue — or Abort.")
                         }),
+                        GitCommand::CheckoutPullRequest { host, number } => crate::pull_requests::checkout(repo.root(), host, number),
                     }
                 })
                 .await;
