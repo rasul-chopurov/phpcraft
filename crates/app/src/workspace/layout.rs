@@ -257,6 +257,11 @@ impl Workspace {
     /// Opens or closes a tool window (stripe click).
     pub(super) fn toggle_tool(&mut self, tool: ToolWindow, window: &mut Window, cx: &mut Context<Self>) {
         match tool {
+            // A stripe click always shows or hides (⌥F12 also moves focus).
+            ToolWindow::Terminal if self.layout.is_active(tool) => {
+                self.layout.hide(tool);
+                self.focus_active(window, cx);
+            }
             ToolWindow::Terminal => self.toggle_terminal(&super::terminal_panel::ToggleTerminal, window, cx),
             ToolWindow::Git => self.toggle_git_log(&super::git_panel::ToggleGitLog, window, cx),
             ToolWindow::Ai => self.toggle_agent(&super::agent_panel::ToggleAgent, window, cx),

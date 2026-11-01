@@ -516,6 +516,7 @@ impl Workspace {
                     .items_center()
                     .gap_3()
                     .child(info)
+                    .children(self.project_facts(cx).into_iter().map(|fact| div().child(fact)))
                     .child(
                         div()
                             .id("reindex")
@@ -719,6 +720,26 @@ impl Workspace {
             .text_size(px(13.))
             .when(empty, |d| d.child(div().p_3().text_color(theme::muted()).child("No modules in Modules/.")))
             .children(rows.collect::<Vec<_>>())
+    }
+
+    /// `Laravel 11.31.0`, `PHP 8.4.1`, `4 spaces` for the status bar.
+    fn project_facts(&self, cx: &gpui::App) -> Vec<String> {
+        let root = self.project.root();
+        let mut facts = Vec::new();
+        if self.intel.is_laravel()
+            && let Some(version) = crate::project_info::laravel_version(root)
+        {
+            facts.push(format!("Laravel {version}"));
+        }
+        if let Some(version) = crate::project_info::php_version() {
+            facts.push(format!("PHP {version}"));
+        }
+        if let Some(path) = self.tabs.get(self.active).and_then(|t| t.read(cx).buffer.path().map(|p| p.to_path_buf()))
+            && let Some(indent) = crate::project_info::editorconfig_indent(root, &path)
+        {
+            facts.push(format!("EditorConfig: {indent}"));
+        }
+        facts
     }
 
     /// `app › Models › User.php › User › posts()` for the status bar.

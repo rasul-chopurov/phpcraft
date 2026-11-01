@@ -249,6 +249,16 @@ impl Intel {
     }
 
     pub fn complete(&self, path: &Path, source: &str, offset: usize) -> Vec<CompletionItem> {
+        // Markup: Alpine/Livewire/Vue attributes, Tailwind classes, <livewire:…> tags.
+        let name = path.to_string_lossy();
+        if (name.ends_with(".blade.php") || name.ends_with(".html") || name.ends_with(".htm") || name.ends_with(".vue"))
+            && let Some(items) = laravel::frontend::complete(&self.root, path, source, offset)
+        {
+            return items;
+        }
+        if name.ends_with(".html") || name.ends_with(".htm") || name.ends_with(".vue") {
+            return Vec::new();
+        }
         // Blade directives: `@fore` -> `@foreach(...)`.
         if is_blade(path) {
             let word_start = source[..offset]

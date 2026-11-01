@@ -187,7 +187,8 @@ impl EditorView {
     /// Recomputes completion items at the caret. `explicit` shows the menu even for an empty prefix.
     pub(super) fn refresh_completion(&mut self, explicit: bool, cx: &mut Context<Self>) {
         let Some(path) = self.path() else { return };
-        if !self.buffer.is_php() {
+        let markup = ["html", "htm", "vue"].iter().any(|e| path.extension().is_some_and(|x| x == *e));
+        if !self.buffer.is_php() && !markup {
             return;
         }
         let items = self

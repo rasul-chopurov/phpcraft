@@ -9,6 +9,7 @@ mod local_history;
 mod markdown_preview;
 mod menus;
 mod modules;
+mod project_info;
 mod run_configs;
 mod settings_import;
 mod structure;
@@ -75,6 +76,8 @@ fn inherit_shell_path() {
 
 fn main() {
     inherit_shell_path();
+    // Ask `php` for its version off the UI thread (the status bar shows it).
+    std::thread::spawn(|| project_info::php_version());
     // `phpcraft <folder>` opens a project; without arguments the welcome window shows.
     let root = std::env::args().nth(1);
     if let Some(root) = &root

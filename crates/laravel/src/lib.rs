@@ -6,6 +6,7 @@ pub mod artisan;
 pub mod columns;
 pub mod database;
 pub mod framework;
+pub mod frontend;
 pub mod helper;
 pub mod make;
 pub mod routes;
