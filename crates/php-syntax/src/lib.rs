@@ -4,6 +4,7 @@
 mod blade;
 mod simple;
 mod ranges;
+pub mod twig;
 
 pub use ranges::{Fold, fold_ranges, node_ranges};
 
@@ -48,6 +49,7 @@ pub struct Span {
 pub enum Lang {
     Php,
     Blade,
+    Twig,
     Html,
     JavaScript,
     TypeScript,
@@ -87,6 +89,7 @@ impl Lang {
         }
         match path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).as_deref() {
             Some("php" | "phtml" | "phpt") => Self::Php,
+            Some("twig") => Self::Twig,
             Some("html" | "htm" | "vue" | "svelte") => Self::Html,
             Some("js" | "mjs" | "cjs" | "jsx") => Self::JavaScript,
             Some("ts" | "mts" | "cts") => Self::TypeScript,
@@ -108,6 +111,7 @@ impl Lang {
         match self {
             Self::Php => "PHP",
             Self::Blade => "Blade",
+            Self::Twig => "Twig",
             Self::Html => "HTML",
             Self::JavaScript => "JavaScript",
             Self::TypeScript => "TypeScript",
@@ -373,6 +377,7 @@ pub fn highlight_lang(lang: Lang, source: &str) -> Vec<Span> {
     match lang {
         Lang::Php => highlight(source),
         Lang::Blade => blade::highlight(source),
+        Lang::Twig => twig::highlight(source),
         Lang::Html => highlight_html(source),
         Lang::JavaScript => highlight_grammar(Grammar::JavaScript, source),
         Lang::TypeScript => highlight_grammar(Grammar::TypeScript, source),

@@ -1266,6 +1266,7 @@ pub fn comment_tokens(lang: php_syntax::Lang) -> (&'static str, &'static str) {
     use php_syntax::Lang;
     match lang {
         Lang::Blade => ("{{-- ", " --}}"),
+        Lang::Twig => ("{# ", " #}"),
         Lang::Html | Lang::Xml | Lang::Markdown => ("<!-- ", " -->"),
         Lang::Css => ("/* ", " */"),
         Lang::Yaml | Lang::Env | Lang::Ini | Lang::Shell | Lang::Dockerfile | Lang::Ignore => ("# ", ""),

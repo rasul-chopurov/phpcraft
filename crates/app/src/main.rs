@@ -34,6 +34,7 @@ mod sync;
 mod terminal_view;
 mod text_field;
 mod theme;
+mod twig;
 mod updates;
 mod welcome;
 mod window_state;

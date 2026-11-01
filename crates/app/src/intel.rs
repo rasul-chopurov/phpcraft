@@ -282,6 +282,9 @@ impl Intel {
     }
 
     pub fn goto(&self, path: &Path, source: &str, offset: usize) -> Vec<Location> {
+        if path.to_string_lossy().ends_with(".twig") {
+            return crate::twig::goto(&self.root, source, offset);
+        }
         let index = self.index.read().unwrap();
         let doc = Document::parse(path, source);
         let found = doc
@@ -340,6 +343,9 @@ impl Intel {
 
     pub fn complete(&self, path: &Path, source: &str, offset: usize) -> Vec<CompletionItem> {
         let name = path.to_string_lossy();
+        if name.ends_with(".twig") {
+            return crate::twig::complete(&self.root, source, offset);
+        }
         // Blade: section / stack names, component props as attributes and `$variables`.
         if is_blade(path) {
             let laravel = self.laravel.read().unwrap();
