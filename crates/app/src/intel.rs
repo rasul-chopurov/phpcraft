@@ -339,8 +339,24 @@ impl Intel {
     }
 
     pub fn complete(&self, path: &Path, source: &str, offset: usize) -> Vec<CompletionItem> {
-        // Markup: Alpine/Livewire/Vue attributes, Tailwind classes, <livewire:…> tags.
         let name = path.to_string_lossy();
+        // Blade: section / stack names, component props as attributes and `$variables`.
+        if is_blade(path) {
+            let laravel = self.laravel.read().unwrap();
+            if let Some(laravel) = laravel.as_ref() {
+                if let Some(items) = laravel.slot_completions(source, offset) {
+                    return items;
+                }
+                if let Some(mut items) = laravel.component_attribute_completions(source, offset) {
+                    items.extend(laravel::frontend::complete(&self.root, path, source, offset).unwrap_or_default());
+                    return items;
+                }
+            }
+            if let Some(items) = laravel::blade::prop_variable_completions(path, source, offset) {
+                return items;
+            }
+        }
+        // Markup: Alpine/Livewire/Vue attributes, Tailwind classes, <livewire:…> tags.
         if (name.ends_with(".blade.php") || name.ends_with(".html") || name.ends_with(".htm") || name.ends_with(".vue"))
             && let Some(items) = laravel::frontend::complete(&self.root, path, source, offset)
         {

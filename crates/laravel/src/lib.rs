@@ -2,6 +2,7 @@
 //! env keys, Inertia pages and Blade components — the Laravel Idea feature set.
 
 mod array_keys;
+pub mod blade;
 pub mod artisan;
 pub mod columns;
 pub mod dashboard;
@@ -127,7 +128,7 @@ impl Laravel {
 
     // --- views ---------------------------------------------------------
 
-    fn views_dir(&self) -> PathBuf {
+    pub(crate) fn views_dir(&self) -> PathBuf {
         self.root.join("resources/views")
     }
 
@@ -417,9 +418,17 @@ impl Laravel {
                 Tag::Livewire => self.livewire(&name),
             };
         }
+        // An attribute of `<x-alert type="…">`: the prop's declaration.
+        let props = self.component_attribute_target(source, offset);
+        if !props.is_empty() {
+            return props;
+        }
         let Some((callee, value)) = quoted_call_at(source, offset) else {
             return Vec::new();
         };
+        if blade::Slot::of(&callee).is_some() {
+            return self.slot_targets(source, &callee, &value);
+        }
         let kind = match callee.as_str() {
             "include" | "includeif" | "includewhen" | "includefirst" | "extends" | "component"
             | "each" | "view" => Kind::View,
@@ -482,7 +491,7 @@ fn php_files_in(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn studly(segment: &str) -> String {
+pub(crate) fn studly(segment: &str) -> String {
     segment
         .split(['-', '_'])
         .map(|part| {
