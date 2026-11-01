@@ -1,6 +1,7 @@
 //! Code editor view: renders a [`Buffer`] with gutter, highlighting, caret and selection.
 
 mod find_bar;
+mod ghost;
 mod intel_ui;
 
 use std::ops::Range;
@@ -25,6 +26,8 @@ pub use intel_ui::OptimizeImports;
 actions!(
     editor,
     [
+        AcceptGhost,
+        DismissGhost,
         ToggleMarkdownPreview,
         MoveLeft,
         MoveRight,
@@ -94,6 +97,9 @@ pub struct EditorView {
     plain: bool,
     /// Markdown files: editor, split or preview, plus the parsed preview for a buffer version.
     md_mode: MdMode,
+    /// AI inline completion and the request waiting for a pause in typing.
+    ghost: Option<ghost::Ghost>,
+    ghost_task: Option<gpui::Task<()>>,
     md_cache: Option<(u64, std::rc::Rc<Vec<crate::markdown_preview::Block>>)>,
     /// File contents at HEAD for change markers (`None`: not in a repository / untracked).
     git_base: Option<String>,
@@ -140,6 +146,8 @@ impl EditorView {
             layout: None,
             plain: false,
             md_mode: MdMode::Split,
+            ghost: None,
+            ghost_task: None,
             md_cache: None,
         }
     }
@@ -702,6 +710,8 @@ impl Render for EditorView {
         key_context.add("Editor");
         if self.menu_open() {
             key_context.add("menu");
+        } else if self.ghost().is_some() {
+            key_context.add("ghost");
         }
         let cursor = if self.hover_link.is_some() {
             CursorStyle::PointingHand
@@ -766,6 +776,8 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::move_line_up))
             .on_action(cx.listener(Self::move_line_down))
             .on_action(cx.listener(Self::toggle_blame))
+            .on_action(cx.listener(Self::accept_ghost))
+            .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -829,6 +841,8 @@ pub struct EditorPrepaint {
     gutter_quads: Vec<PaintQuad>,
     blame_lines: Vec<(ShapedLine, Pixels)>,
     plain: bool,
+    /// AI suggestion: first line shaped, painted at this origin.
+    ghost: Option<(ShapedLine, Point<Pixels>)>,
 }
 
 impl IntoElement for EditorElement {
@@ -934,6 +948,7 @@ impl Element for EditorElement {
             let mut lines = Vec::new();
             let mut selection_quads = Vec::new();
             let mut caret = None;
+            let mut ghost = None;
             for line in first_line..last_line {
                 let text = view.buffer.line(line);
                 let line_start = view.buffer.line_to_byte(line);
@@ -1004,6 +1019,22 @@ impl Element for EditorElement {
                         Bounds::new(point(text_x + x, y), size(px(2.), line_height)),
                         theme::caret(),
                     ));
+                    if let Some(suggestion) = view.ghost() {
+                        let mut lines = suggestion.text.lines();
+                        let first = lines.next().unwrap_or("").replace('\t', "    ");
+                        let more = lines.count();
+                        let label = if more > 0 { format!("{first}  ⋯ +{more} lines (Tab)") } else { first };
+                        let ghost_run = TextRun {
+                            len: label.len(),
+                            font: gpui::Font { style: gpui::FontStyle::Italic, ..font(theme::editor_font()) },
+                            color: theme::muted().opacity(0.8),
+                            background_color: None,
+                            underline: None,
+                            strikethrough: None,
+                        };
+                        let ghost_line = window.text_system().shape_line(label.into(), font_size, &[ghost_run], None);
+                        ghost = Some((ghost_line, point(text_x + x + px(1.), y)));
+                    }
                 }
                 let underline = |range: &Range<usize>, color: Hsla, out: &mut Vec<PaintQuad>| {
                     if range.end <= line_start || range.start > line_end || range.is_empty() {
@@ -1091,6 +1122,7 @@ impl Element for EditorElement {
                 gutter_quads,
                 blame_lines,
                 plain: view.plain,
+                ghost,
             }
         })
     }
@@ -1149,6 +1181,9 @@ impl Element for EditorElement {
             line.shaped
                 .paint(point(text_x, line.y), line_height, window, cx)
                 .ok();
+        }
+        if let Some((line, origin)) = prepaint.ghost.take() {
+            line.paint(origin, line_height, window, cx).ok();
         }
         if focus_handle.is_focused(window)
             && let Some(caret) = prepaint.caret.take()

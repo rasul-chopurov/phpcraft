@@ -232,6 +232,7 @@ impl EditorView {
         } else {
             self.menu = None;
         }
+        self.schedule_ghost(cx);
     }
 
     /// Accepts the selected completion when `typed` is a commit character. Returns whether it did.

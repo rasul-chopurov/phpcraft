@@ -86,6 +86,7 @@
 - Chat with Claude over the Anthropic API (your key), or with OpenCode, Claude Code and Codex over ACP
 - Reads and searches the project, edits files and runs commands — edits and commands wait for your Allow
 - The open file and selection are sent as context; streamed Markdown replies
+- AI inline completion: ghost text after a pause in typing, Tab accepts, Esc dismisses
 
 **Welcome & Settings**
 - Welcome window: recent projects, Open, Clone Repository, New Laravel Project, Customize

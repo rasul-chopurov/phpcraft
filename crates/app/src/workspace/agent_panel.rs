@@ -68,7 +68,7 @@ fn config_path() -> std::path::PathBuf {
     crate::config::dir().join("agent.json")
 }
 
-fn load_config() -> AgentConfig {
+pub(crate) fn load_config() -> AgentConfig {
     std::fs::read_to_string(config_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 

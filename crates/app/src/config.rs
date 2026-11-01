@@ -46,6 +46,8 @@ pub struct Settings {
     pub check_for_updates: bool,
     /// Unix seconds of the last automatic check.
     pub last_update_check: u64,
+    /// AI inline completion (ghost text) in the editor.
+    pub ai_inline_completion: bool,
 }
 
 impl Default for Settings {
@@ -63,6 +65,7 @@ impl Default for Settings {
             terminal_shell: String::new(),
             check_for_updates: true,
             last_update_check: 0,
+            ai_inline_completion: true,
         }
     }
 }

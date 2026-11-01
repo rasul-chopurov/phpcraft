@@ -54,6 +54,7 @@ const DIALOG: Option<&str> = Some("Dialog");
 const LIST: Option<&str> = Some("ListDialog");
 const ARTISAN: Option<&str> = Some("ArtisanDialog");
 const MENU: Option<&str> = Some("Editor && menu");
+const GHOST: Option<&str> = Some("Editor && ghost");
 const KEYMAP: Option<&str> = Some("KeymapDialog");
 
 /// Order matters: later bindings win over earlier ones in the same context.
@@ -203,6 +204,8 @@ const DEFAULTS: &[Default] = &[
     both("up", "dialog::SelectPrev", KEYMAP),
     both("down", "dialog::SelectNext", KEYMAP),
     // Last so they win over the editor bindings while a popup is open.
+    both("tab", "editor::AcceptGhost", GHOST),
+    both("escape", "editor::DismissGhost", GHOST),
     both("up", "editor::MenuUp", MENU),
     both("down", "editor::MenuDown", MENU),
     both("enter", "editor::MenuConfirm", MENU),

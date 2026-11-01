@@ -463,7 +463,7 @@ const PAGES: &[(SettingsPage, &str, &str, &str)] = &[
     (SettingsPage::Appearance, "Appearance & Behavior", "Appearance", "theme color dark light"),
     (SettingsPage::System, "Appearance & Behavior", "System Settings", "auto save autosave delay project tree single click select opened updates"),
     (SettingsPage::Keymap, "", "Keymap", "shortcuts keys bindings"),
-    (SettingsPage::Editor, "Editor", "Font", "font size family editor"),
+    (SettingsPage::Editor, "Editor", "Font & AI Completion", "font size family editor ai inline completion ghost"),
     (SettingsPage::VersionControl, "Version Control", "Git & Local History", "git history versions sync gist backup"),
     (SettingsPage::Laravel, "Languages & Frameworks", "Laravel", "laravel php artisan models"),
     (SettingsPage::Terminal, "Tools", "Terminal", "terminal shell zsh bash"),
@@ -608,6 +608,13 @@ impl SettingsDialog {
                 .child(row("Font").child(div().flex_1().child(self.font.clone())))
                 .child(row("Size").child(div().w(px(90.)).child(self.font_size.clone())))
                 .child(div().text_size(px(12.)).text_color(theme::muted()).child("Used by the editor and the terminal."))
+                .child(row("AI completion").child(toggle(
+                    "ai-inline",
+                    "Suggest code inline as you type (Tab accepts, Esc dismisses)",
+                    s.ai_inline_completion,
+                    |s| s.ai_inline_completion ^= true,
+                )))
+                .child(div().text_size(px(12.)).text_color(theme::muted()).child("Uses the Anthropic API key from the AI Assistant panel; the model is completion_model in agent.json."))
                 .into_any_element(),
             SettingsPage::Keymap => body
                 .child(div().text_color(theme::muted()).child(format!("Custom shortcuts are stored in {}", keymap::user_path().display())))

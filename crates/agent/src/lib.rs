@@ -5,6 +5,7 @@
 //! user's approval through [`AgentEvent::Approve`].
 
 pub mod acp;
+pub mod complete;
 mod sse;
 mod tools;
 
@@ -31,11 +32,13 @@ pub struct AgentConfig {
     pub effort: String,
     /// `"anthropic"` (API key) or the name of an ACP agent such as `"OpenCode"`.
     pub provider: String,
+    /// Model for inline (ghost text) completions in the editor.
+    pub completion_model: String,
 }
 
 impl Default for AgentConfig {
     fn default() -> Self {
-        Self { api_key: String::new(), model: DEFAULT_MODEL.into(), effort: "high".into(), provider: "anthropic".into() }
+        Self { api_key: String::new(), model: DEFAULT_MODEL.into(), effort: "high".into(), provider: "anthropic".into(), completion_model: DEFAULT_MODEL.into() }
     }
 }
 
