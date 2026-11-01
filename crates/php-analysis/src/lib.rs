@@ -28,7 +28,7 @@ pub use docs::{Documentation, documentation, parameter_info};
 pub use intentions::{Intention, intentions, remove_unused_variable};
 pub use inspect::{Builtins, Problem, Severity, inspect};
 pub use refactor::{extract_method, inline_variable, introduce_variable};
-pub use hierarchy::{implementations, related_tests, super_declaration, type_hierarchy};
+pub use hierarchy::{InheritanceMark, inheritance_marks, implementations, related_tests, super_declaration, type_hierarchy};
 pub use generate::{generate_accessors, generate_constructor, generate_phpdoc, implement_methods, overridable_methods, override_method};
 pub use usages::{Symbol, symbol_at, usages_in};
 pub use imports::{

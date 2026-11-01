@@ -1,8 +1,9 @@
-//! ▶ marks in the gutter of test files: clicking one runs that test (or the whole class).
+//! Gutter marks left of the line numbers: ▶ in test files runs that test (or the class);
+//! ↑ / ↓ on methods that override or are overridden jump through the hierarchy.
 
-use gpui::Context;
+use gpui::{Context, Window};
 
-use super::EditorView;
+use super::{EditorView, GoToImplementation, GoToSuperMethod};
 
 impl EditorView {
     /// Lines with a ▶ (tests and test classes), cached per buffer version.
@@ -30,5 +31,38 @@ impl EditorView {
             self.save_now(cx);
             self.workspace.update(cx, |ws, cx| ws.run_config(config, cx)).ok();
         }
+    }
+
+    /// Methods with an inheritance mark: (line, name byte offset, overrides, overridden).
+    pub(super) fn inheritance_lines(&mut self) -> Vec<(usize, usize, bool, bool)> {
+        let version = self.buffer.version();
+        if self.inheritance.as_ref().is_none_or(|(v, _)| *v != version) {
+            let marks = match self.path() {
+                Some(path) if self.buffer.is_php() && !self.plain && self.intel.is_ready() => {
+                    self.intel.with_doc(&path, &self.buffer.text(), |doc, index| php_analysis::inheritance_marks(doc, index)).unwrap_or_default()
+                }
+                _ => Vec::new(),
+            };
+            let lines = marks
+                .into_iter()
+                .map(|m| (self.buffer.char_to_line_col(self.buffer.byte_to_char(m.range.start)).0, m.range.start, m.overrides, m.overridden))
+                .collect();
+            let version = if self.intel.is_ready() { version } else { u64::MAX };
+            self.inheritance = Some((version, lines));
+        }
+        self.inheritance.as_ref().map(|(_, l)| l.clone()).unwrap_or_default()
+    }
+
+    /// A click on ↑ / ↓: the overridden method, or the overriding ones.
+    pub(super) fn follow_inheritance(&mut self, line: usize, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some((_, at, overrides, _)) = self.inheritance_lines().into_iter().find(|(l, ..)| *l == line) else { return false };
+        let caret = self.buffer.byte_to_char(at);
+        self.buffer.move_to(caret, false);
+        if overrides {
+            self.go_to_super_method(&GoToSuperMethod, window, cx);
+        } else {
+            self.go_to_implementation(&GoToImplementation, window, cx);
+        }
+        true
     }
 }

@@ -206,6 +206,8 @@ pub struct EditorView {
     external_problems: Option<(u64, Vec<php_analysis::Problem>)>,
     /// Lines with a ▶ run mark (test files), for a buffer version.
     test_marks: Option<(u64, Vec<usize>)>,
+    /// Methods with ↑ / ↓ inheritance marks, for a buffer version.
+    inheritance: Option<(u64, Vec<(usize, usize, bool, bool)>)>,
     /// Breakpoints in this file: (line anchor, condition).
     breakpoints: Vec<(usize, Option<String>)>,
     /// Where the debugger is stopped in this file (0-based line).
@@ -243,6 +245,7 @@ impl EditorView {
             problems: None,
             external_problems: None,
             test_marks: None,
+            inheritance: None,
             breakpoints: Vec::new(),
             execution_line: None,
             buffer,
@@ -558,7 +561,8 @@ impl EditorView {
         }
         let (_, Some((row, ..))) = self.row_at(position)? else { return None };
         let line = row.line;
-        (row.first && self.test_marks.as_ref().is_some_and(|(_, l)| l.contains(&line))).then_some(line)
+        let marked = self.test_marks.as_ref().is_some_and(|(_, l)| l.contains(&line)) || self.inheritance.as_ref().is_some_and(|(_, l)| l.iter().any(|(m, ..)| *m == line));
+        (row.first && marked).then_some(line)
     }
 
     fn blame_offset(&self) -> Pixels {
@@ -568,7 +572,8 @@ impl EditorView {
     /// A click on a line number (toggles a breakpoint): its buffer line.
     fn line_number_at(&self, position: Point<Pixels>) -> Option<usize> {
         let layout = self.layout.as_ref()?;
-        let numbers_start = layout.bounds.left() + self.blame_offset() + if self.test_marks.as_ref().is_some_and(|(_, l)| !l.is_empty()) { px(RUN_MARK_WIDTH + GUTTER_PADDING) } else { px(GUTTER_PADDING / 2.) };
+        let has_marks = self.test_marks.as_ref().is_some_and(|(_, l)| !l.is_empty()) || self.inheritance.as_ref().is_some_and(|(_, l)| !l.is_empty());
+        let numbers_start = layout.bounds.left() + self.blame_offset() + if has_marks { px(RUN_MARK_WIDTH + GUTTER_PADDING) } else { px(GUTTER_PADDING / 2.) };
         if self.plain || !self.buffer.is_php() || position.x < numbers_start || position.x >= layout.fold_x {
             return None;
         }
@@ -640,7 +645,9 @@ impl EditorView {
             return;
         }
         if let Some(line) = self.run_mark_at(event.position) {
-            self.run_test_on_line(line, cx);
+            if !self.follow_inheritance(line, window, cx) {
+                self.run_test_on_line(line, cx);
+            }
             cx.stop_propagation();
             return;
         }
@@ -1270,7 +1277,8 @@ impl Element for EditorElement {
             let blame_width = if view.blame.is_some() { digit_width * BLAME_CHARS as f32 } else { px(0.) };
             let fold_width = if view.plain { px(0.) } else { digit_width * 1.8 };
             // A column for ▶ run marks in test files.
-            let has_tests = !view.plain && !view.test_lines().is_empty();
+            let inheritance = if view.plain { Vec::new() } else { view.inheritance_lines() };
+            let has_tests = !view.plain && (!view.test_lines().is_empty() || !inheritance.is_empty());
             let run_width = if has_tests { px(RUN_MARK_WIDTH) } else { px(0.) };
             let gutter_width = if view.plain { px(0.) } else { blame_width + run_width + digit_width * digits as f32 + fold_width + px(GUTTER_PADDING * 2.) };
             let markers = view.git_markers();
@@ -1536,6 +1544,17 @@ impl Element for EditorElement {
                         let d = line_height * 0.55;
                         let x = bounds.left() + gutter_width - fold_width - px(GUTTER_PADDING) - digit_width * digits as f32 + px(2.);
                         gutter_quads.push(gpui::PaintQuad { corner_radii: gpui::Corners::all(d / 2.), ..fill(Bounds::new(point(x, y + (line_height - d) / 2.), size(d, d)), theme::error()) });
+                    }
+                    // ↑ overrides, ↓ is overridden (↕ both); same column as ▶.
+                    if let Some((_, _, up, down)) = inheritance.iter().find(|(l, ..)| *l == line) {
+                        let label: SharedString = match (up, down) {
+                            (true, true) => "↕".into(),
+                            (true, false) => "↑".into(),
+                            _ => "↓".into(),
+                        };
+                        let len = label.len();
+                        let mark = window.text_system().shape_line(label, px(theme::editor_font_size() - 2.), &[run(len, if *up { theme::accent() } else { theme::success() })], None);
+                        fold_marks.push((mark, point(bounds.left() + blame_width + px(GUTTER_PADDING), y)));
                     }
                     // ▶ runs the test on this line; it sits left of the line number.
                     if test_lines.contains(&line) {

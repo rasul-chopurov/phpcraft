@@ -123,6 +123,34 @@ pub fn type_hierarchy(doc: &Document, index: &Index, offset: usize) -> Vec<(usiz
     rows
 }
 
+/// A method's place in the hierarchy, for the gutter: it overrides (or implements) an
+/// inherited method, and/or subclasses override it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InheritanceMark {
+    /// Byte range of the method name in this file.
+    pub range: std::ops::Range<usize>,
+    pub overrides: bool,
+    pub overridden: bool,
+}
+
+/// Marks for the methods declared in `doc`.
+pub fn inheritance_marks(doc: &Document, index: &Index) -> Vec<InheritanceMark> {
+    let mut marks = Vec::new();
+    for class in &doc.symbols.classes {
+        let ancestors: Vec<Arc<ClassInfo>> = index.ancestors(&class.fqn).into_iter().filter(|a| a.fqn != class.fqn).collect();
+        let subs = subclasses(index, &class.fqn);
+        for member in class.members.iter().filter(|m| m.kind == MemberKind::Method && !m.virtual_member) {
+            let same = |m: &Member| m.kind == MemberKind::Method && m.name.eq_ignore_ascii_case(&member.name);
+            let overrides = member.name != "__construct" && ancestors.iter().any(|a| a.members.iter().any(same));
+            let overridden = subs.iter().any(|c| c.members.iter().any(same));
+            if overrides || overridden {
+                marks.push(InheritanceMark { range: member.range.clone(), overrides, overridden });
+            }
+        }
+    }
+    marks
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -158,5 +186,9 @@ mod tests {
         assert_eq!(related_tests(&circle, &index, CIRCLE.find("Circle").unwrap() + 1)[0].0, "Tests\\CircleTest");
         let tree = type_hierarchy(&circle, &index, CIRCLE.find("Circle").unwrap() + 1);
         assert_eq!(tree.iter().map(|(d, n, _)| (*d, n.as_str())).collect::<Vec<_>>(), [(0, "App\\Shape"), (1, "App\\Circle")]);
+        let marks = inheritance_marks(&circle, &index);
+        assert_eq!((marks[0].overrides, marks[0].overridden), (true, false));
+        let marks = inheritance_marks(&shape, &index);
+        assert_eq!((marks[0].overrides, marks[0].overridden), (false, true));
     }
 }
