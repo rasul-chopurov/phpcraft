@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 
 use php_analysis::Document;
@@ -372,7 +371,7 @@ pub fn project_models(index: &Index, root: &Path) -> Vec<Arc<ClassInfo>> {
 
 /// Columns and relations reported by `php artisan model:show --json` (needs a database).
 fn model_show(root: &Path, fqn: &str) -> Option<(Vec<(String, String, bool, Option<String>)>, Vec<(String, String)>)> {
-    let output = Command::new(crate::php_binary()).args(["artisan", "model:show", fqn, "--json"]).current_dir(root).output().ok()?;
+    let output = process::command(crate::php_binary()).args(["artisan", "model:show", fqn, "--json"]).current_dir(root).output().ok()?;
     if !output.status.success() {
         return None;
     }

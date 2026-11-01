@@ -252,7 +252,7 @@ fn run(root: &Path, source: &DataSource, password: &str, input: serde_json::Valu
     input["user"] = source.user.clone().into();
     input["password"] = password.into();
     let code = PDO_RUNNER.replace("MAX_ROWS", &crate::database::MAX_ROWS.to_string());
-    let mut child = std::process::Command::new(crate::php_binary())
+    let mut child = process::command(crate::php_binary())
         .arg("-r")
         .arg(code)
         .current_dir(root)

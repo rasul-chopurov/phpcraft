@@ -1,7 +1,6 @@
 //! Registered routes via `php artisan route:list --json` (for Route Search).
 
 use std::path::Path;
-use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteInfo {
@@ -33,7 +32,7 @@ impl RouteInfo {
 
 /// Blocking; call off the UI thread.
 pub fn list_routes(root: &Path) -> Result<Vec<RouteInfo>, String> {
-    let output = Command::new(crate::php_binary())
+    let output = process::command(crate::php_binary())
         .args(["artisan", "route:list", "--json"])
         .current_dir(root)
         .output()

@@ -45,7 +45,7 @@ pub fn command(root: &Path, source: &DataSource, password: &str, out: &Path) -> 
     match source.driver {
         Driver::Mysql | Driver::Mariadb => {
             let tool = find_tool(&["mysqldump", "mariadb-dump"]).ok_or_else(|| missing("mysqldump"))?;
-            let mut cmd = std::process::Command::new(tool);
+            let mut cmd = process::command(tool);
             cmd.env("MYSQL_PWD", password).arg("--single-transaction").arg("--routines").arg("--triggers").arg(format!("--result-file={}", out.display()));
             match source.connection {
                 ConnectionType::UnixSocket => cmd.arg(format!("--socket={}", source.path)),
@@ -62,7 +62,7 @@ pub fn command(root: &Path, source: &DataSource, password: &str, out: &Path) -> 
         }
         Driver::Pgsql => {
             let tool = find_tool(&["pg_dump"]).ok_or_else(|| missing("pg_dump"))?;
-            let mut cmd = std::process::Command::new(tool);
+            let mut cmd = process::command(tool);
             cmd.env("PGPASSWORD", password).arg("--no-owner").arg("--file").arg(out);
             let host = if source.connection == ConnectionType::UnixSocket { source.path.clone() } else { source.host.clone() };
             cmd.arg("--host").arg(host).arg("--port").arg(source.port.to_string());
@@ -78,7 +78,7 @@ pub fn command(root: &Path, source: &DataSource, password: &str, out: &Path) -> 
             let tool = find_tool(&["sqlite3"]).ok_or_else(|| missing("sqlite3"))?;
             let db = Path::new(&source.path);
             let db = if db.is_absolute() { db.to_path_buf() } else { root.join(db) };
-            let mut cmd = std::process::Command::new(tool);
+            let mut cmd = process::command(tool);
             cmd.arg(db).arg(format!(".output {}", out.display())).arg(".dump");
             Ok(cmd)
         }

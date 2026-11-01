@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde::{Deserialize, Serialize};
 
@@ -38,7 +38,7 @@ fn save_state(state: &SyncState) {
 
 /// `gh api` with an optional JSON body on stdin.
 fn gh_api(args: &[&str], body: Option<&serde_json::Value>) -> Result<serde_json::Value, String> {
-    let mut command = Command::new("gh");
+    let mut command = process::command("gh");
     command.arg("api").args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
     if body.is_some() {
         command.args(["--input", "-"]).stdin(Stdio::piped());

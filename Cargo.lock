@@ -24,6 +24,7 @@ dependencies = [
 name = "agent"
 version = "0.0.4-alpha"
 dependencies = [
+ "process",
  "search",
  "serde",
  "serde_json",
@@ -2099,6 +2100,7 @@ dependencies = [
 name = "git"
 version = "0.0.4-alpha"
 dependencies = [
+ "process",
  "similar",
 ]
 
@@ -3034,6 +3036,7 @@ dependencies = [
  "php-analysis",
  "php-index",
  "php-syntax",
+ "process",
  "serde",
  "serde_json",
  "tree-sitter",
@@ -3925,6 +3928,7 @@ dependencies = [
  "php-analysis",
  "php-index",
  "php-syntax",
+ "process",
  "project",
  "pulldown-cmark",
  "search",
@@ -4123,6 +4127,10 @@ checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "process"
+version = "0.0.4-alpha"
 
 [[package]]
 name = "profiling"

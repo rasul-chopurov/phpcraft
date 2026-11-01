@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+process.workspace = true
 php-index.workspace = true
 php-analysis.workspace = true
 php-syntax.workspace = true

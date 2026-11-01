@@ -162,7 +162,7 @@ pub fn key_path(server: &Server) -> Option<String> {
 /// Runs an sftp batch against `server`.
 pub fn run(server: &Server, password: &str, batch: &str) -> Result<String, String> {
     use std::io::Write;
-    let mut command = std::process::Command::new("sftp");
+    let mut command = process::command("sftp");
     command.args(["-b", "-", "-P", &server.port.to_string(), "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10"]);
     if let Some(key) = key_path(server) {
         command.arg("-i").arg(key);

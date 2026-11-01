@@ -33,7 +33,7 @@ pub fn php_version() -> Option<String> {
     static VERSION: OnceLock<Option<String>> = OnceLock::new();
     VERSION
         .get_or_init(|| {
-            let output = std::process::Command::new("php").args(["-r", "echo PHP_VERSION;"]).output().ok()?;
+            let output = process::command("php").args(["-r", "echo PHP_VERSION;"]).output().ok()?;
             output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string()).filter(|v| !v.is_empty())
         })
         .clone()

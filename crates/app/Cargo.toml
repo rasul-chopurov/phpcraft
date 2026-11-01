@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+process.workspace = true
 anyhow.workspace = true
 gpui.workspace = true
 editor.workspace = true

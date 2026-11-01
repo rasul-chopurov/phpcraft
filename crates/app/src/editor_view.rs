@@ -426,13 +426,28 @@ impl EditorView {
     }
 
     /// Reloads the HEAD version used for gutter change markers.
+    /// Reloads the HEAD version (gutter change markers) and blame in the background, so opening
+    /// a file doesn't wait for `git`.
     pub fn refresh_git_base(&mut self, cx: &mut Context<Self>) {
-        self.git_base = self.buffer.path().and_then(|p| self.intel.git_base(p));
-        self.git_markers = None;
-        if self.blame.is_some() {
-            self.blame = self.buffer.path().and_then(|p| self.intel.git_blame(p));
-        }
-        cx.notify();
+        let Some(path) = self.buffer.path().map(std::path::Path::to_path_buf) else { return };
+        let intel = self.intel.clone();
+        let with_blame = self.blame.is_some();
+        cx.spawn(async move |this, cx| {
+            let (base, blame) = cx
+                .background_executor()
+                .spawn(async move { (intel.git_base(&path), with_blame.then(|| intel.git_blame(&path)).flatten()) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.git_base = base;
+                this.git_markers = None;
+                if this.blame.is_some() {
+                    this.blame = blame;
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn toggle_blame(&mut self, _: &ToggleBlame, _: &mut Window, cx: &mut Context<Self>) {

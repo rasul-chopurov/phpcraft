@@ -3,7 +3,6 @@
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use similar::{ChangeTag, DiffOp, TextDiff};
 
@@ -113,13 +112,13 @@ pub enum LineChange {
 
 impl Repo {
     /// The repository containing `path`, if any.
+    /// Looks for `.git` (a folder, or a file in worktrees and submodules) instead of running
+    /// `git rev-parse`: opening a project shouldn't wait for a process to start.
     pub fn discover(path: &Path) -> Option<Self> {
-        let output = Command::new("git").args(["rev-parse", "--show-toplevel"]).current_dir(path).output().ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Some(Self { root: PathBuf::from(root) })
+        let root = path.ancestors().find(|dir| dir.join(".git").exists())?;
+        // A canonicalized Windows path (`\\?\C:\…`) as a plain one, the form `git` itself reports.
+        let plain = root.to_str().and_then(|s| s.strip_prefix(r"\\?\")).filter(|s| s.as_bytes().get(1) == Some(&b':'));
+        Some(Self { root: plain.map_or_else(|| root.to_path_buf(), PathBuf::from) })
     }
 
     pub fn root(&self) -> &Path {
@@ -133,7 +132,7 @@ impl Repo {
     }
 
     fn git(&self, args: &[&str]) -> Result<String, String> {
-        let output = Command::new("git")
+        let output = process::command("git")
             .args(args)
             .current_dir(&self.root)
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -150,7 +149,7 @@ impl Repo {
 
     /// Runs git and returns stdout+stderr (for push/pull, whose progress goes to stderr).
     fn git_verbose(&self, args: &[&str]) -> Result<String, String> {
-        let output = Command::new("git")
+        let output = process::command("git")
             .args(args)
             .current_dir(&self.root)
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -400,7 +399,7 @@ impl Repo {
 
     /// `git clone <url> <dir>` (blocking).
     pub fn clone_into(url: &str, dir: &Path) -> Result<String, String> {
-        let output = Command::new("git")
+        let output = process::command("git")
             .args(["clone", url])
             .arg(dir)
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -685,6 +684,7 @@ pub fn inline_changes(old: &str, new: &str) -> (Vec<Range<usize>>, Vec<Range<usi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     fn run(dir: &Path, args: &[&str]) {
         let status = Command::new("git").args(args).current_dir(dir).output().unwrap();

@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
@@ -117,7 +117,7 @@ impl AcpSession {
     /// Starts the agent, initializes the protocol and opens a session in `root`.
     pub fn start(agent: &AcpAgent, root: &Path) -> Result<Self, String> {
         let program = which(agent.program).ok_or_else(|| format!("{} is not installed ({} not found on PATH)", agent.name, agent.program))?;
-        let mut child = Command::new(&program)
+        let mut child = process::command(&program)
             .args(agent.args)
             .current_dir(root)
             .stdin(Stdio::piped())

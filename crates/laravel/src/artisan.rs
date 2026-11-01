@@ -1,7 +1,6 @@
 //! Artisan integration: list commands and run them.
 
 use std::path::Path;
-use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArtisanArgument {
@@ -39,7 +38,7 @@ const GLOBAL_OPTIONS: &[&str] = &[
 
 /// Commands from `php artisan list --format=json`. Blocking; call off the UI thread.
 pub fn list_commands(root: &Path) -> Result<Vec<ArtisanCommand>, String> {
-    let output = Command::new(crate::php_binary())
+    let output = process::command(crate::php_binary())
         .args(["artisan", "list", "--format=json"])
         .current_dir(root)
         .output()
@@ -182,7 +181,7 @@ pub fn run(root: &Path, line: &str) -> (String, bool) {
     if args.first().is_some_and(|a| a == "artisan") {
         args.remove(0);
     }
-    let output = Command::new(crate::php_binary())
+    let output = process::command(crate::php_binary())
         .arg("artisan")
         .args(&args)
         .arg("--no-interaction")

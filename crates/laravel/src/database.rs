@@ -2,7 +2,6 @@
 //! "New Eloquent Model from Database Table".
 
 use std::path::Path;
-use std::process::Command;
 
 use crate::make::{Field, IdType, ModelSpec, Relation, RelationKind, studly, table_name};
 
@@ -16,7 +15,7 @@ pub struct DbColumn {
 }
 
 fn artisan_json(root: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
-    let output = Command::new(crate::php_binary())
+    let output = process::command(crate::php_binary())
         .arg("artisan")
         .args(args)
         .arg("--json")
@@ -316,7 +315,7 @@ try {
 fn run_php(root: &Path, args: &[&str], stdin: &str) -> Result<serde_json::Value, String> {
     use std::io::Write;
     let code = RUNNER.replace("MAX_ROWS", &MAX_ROWS.to_string());
-    let mut child = std::process::Command::new(crate::php_binary())
+    let mut child = process::command(crate::php_binary())
         .arg("-r")
         .arg(code)
         .args(args)

@@ -150,9 +150,9 @@ fn run_inner(root: &Path, name: &str, input: &Value, events: &mpsc::Sender<Agent
         "run_command" => {
             let command = str_arg(input, "command")?;
             let output = if cfg!(windows) {
-                std::process::Command::new("cmd").args(["/C", command]).current_dir(root).output()
+                process::command("cmd").args(["/C", command]).current_dir(root).output()
             } else {
-                std::process::Command::new("/bin/sh").args(["-c", command]).current_dir(root).output()
+                process::command("/bin/sh").args(["-c", command]).current_dir(root).output()
             }
             .map_err(|e| e.to_string())?;
             let _ = events.send(AgentEvent::FilesChanged(Vec::new()));
