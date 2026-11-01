@@ -41,6 +41,8 @@ pub struct Workspace {
     modal_subscription: Option<gpui::Subscription>,
     /// Left offset of a title bar dropdown; `None` centres the modal.
     modal_anchor: Option<f32>,
+    /// Anchor the dropdown above the status bar instead of below the title bar.
+    modal_at_bottom: bool,
     terminals: terminal_panel::TerminalState,
     agent: agent_panel::AgentState,
     output: Option<tools::Output>,
@@ -102,6 +104,7 @@ impl Workspace {
             modal: None,
             modal_subscription: None,
             modal_anchor: None,
+            modal_at_bottom: false,
             terminals: Default::default(),
             agent: Default::default(),
             output: None,
@@ -476,7 +479,17 @@ impl Workspace {
                     .items_center()
                     .gap_3()
                     .children(self.render_branch_widget(cx))
-                    .child(SharedString::from(self.project.name())),
+                    .child(SharedString::from(self.project.name()))
+                    .child(
+                        div()
+                            .id("status-terminal")
+                            .px_1()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
+                            .child("› Terminal")
+                            .on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(&terminal_panel::ToggleTerminal, window, cx))),
+                    ),
             )
             .child(
                 div()

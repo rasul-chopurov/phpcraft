@@ -414,6 +414,7 @@ impl Workspace {
         ));
         self.modal = Some(AnyView::from(dialog));
         self.modal_anchor = None;
+        self.modal_at_bottom = false;
         self.laravel_menu_open = false;
         self.prefs_menu_open = false;
         cx.notify();
@@ -983,7 +984,14 @@ impl Workspace {
                     .absolute()
                     .inset_0()
                     .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _, window, cx| this.dismiss_modal(window, cx)))
-                    .child(div().absolute().top(px(30.)).left(px(left)).child(modal))
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(left))
+                            .when(self.modal_at_bottom, |d| d.bottom(px(28.)))
+                            .when(!self.modal_at_bottom, |d| d.top(px(30.)))
+                            .child(modal),
+                    )
                     .into_any_element(),
             );
         }

@@ -617,6 +617,12 @@ impl Workspace {
                     )
                     .child(div().flex_1().text_color(theme::muted()).child(format!("Changes {included}/{}", self.git.status.len())))
                     .child(small("git-refresh", "⟳").on_click(cx.listener(|this, _, _, cx| this.refresh_git(cx))))
+                    .child(small("git-diff-all", "⇄ Diff").on_click(cx.listener(|this, _, window, cx| {
+                        // All changes in one diff tab; ←/→ walks the files.
+                        if let Some(first) = this.git.status.first().map(|f| f.path.clone()) {
+                            this.show_file_diff(&first, window, cx);
+                        }
+                    })))
                     .child(small("git-rollback", "⟲ Rollback").on_click(cx.listener(|this, _, window, cx| this.confirm_rollback(window, cx)))),
             )
             .child(
@@ -682,7 +688,12 @@ impl Workspace {
                 .cursor_pointer()
                 .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
                 .child(format!("⎇ {branch}{sync}"))
-                .on_click(cx.listener(|this, _, w, cx| this.open_branches(&OpenBranches, w, cx))),
+                .on_click(cx.listener(|this, _, w, cx| {
+                    // From the status bar: open the branch popup above it.
+                    this.open_branches_dropdown(w, cx);
+                    this.modal_at_bottom = true;
+                    this.modal_anchor = Some(8.);
+                })),
         )
     }
 }
