@@ -3,28 +3,18 @@
 //! be edited and submitted. Everything goes through PHP's PDO.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
-use gpui::{AppContext, ClipboardItem, Context, Entity, Focusable, SharedString, Window, actions, div, prelude::*, px};
-use laravel::database::{DbColumn, QueryResult};
-use laravel::datasource::{self, CellEdit, DataSource, Driver};
+use gpui::{AppContext, Context, Entity, SharedString, Window, actions, div, prelude::*, px};
+use laravel::database::DbColumn;
+use laravel::datasource::{self, DataSource, Driver};
 
 use super::Workspace;
 use crate::dialogs::DataSourceDialog;
-use crate::editor_view::EditorView;
 use crate::text_field::{FieldEvent, TextField};
+use crate::icons::{Icon, icon};
 use crate::theme;
 
 actions!(workspace, [RunSql]);
-
-/// The table the grid shows, so cells can be edited.
-#[derive(Clone)]
-struct GridTable {
-    source: String,
-    table: String,
-    /// Primary key column names; editing needs at least one.
-    keys: Vec<String>,
-}
 
 #[derive(Default)]
 pub(super) struct DbState {
@@ -35,16 +25,27 @@ pub(super) struct DbState {
     collapsed: std::collections::HashSet<String>,
     columns: HashMap<(String, String), Option<Vec<(DbColumn, bool)>>>,
     filter: Option<Entity<TextField>>,
-    console: Option<Entity<EditorView>>,
-    result: Option<Result<Arc<QueryResult>, String>>,
-    grid: Option<GridTable>,
-    /// Pending cell edits: (row, column) -> new value (`None` = NULL).
-    edits: HashMap<(usize, usize), Option<String>>,
-    editing: Option<(usize, usize, Entity<TextField>)>,
+    loaded: bool,
     add_menu: bool,
-    running: bool,
     status: Option<String>,
     _subscription: Option<gpui::Subscription>,
+}
+
+/// `20261101-1530` for dump file names.
+fn chrono_like_stamp() -> String {
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm), UTC.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}{month:02}{day:02}-{:02}{:02}", rem / 3600, rem % 3600 / 60)
 }
 
 fn secrets_path() -> std::path::PathBuf {
@@ -82,14 +83,10 @@ impl Workspace {
     }
 
     pub(super) fn ensure_db(&mut self, cx: &mut Context<Self>) {
-        if self.db.console.is_some() {
+        if self.db.loaded {
             return;
         }
-        let intel = self.intel.clone();
-        let workspace = cx.entity().downgrade();
-        let console = cx.new(|cx| EditorView::plain(intel, workspace, cx));
-        console.update(cx, |editor, cx| editor.replace_all_text("SELECT 1", cx));
-        self.db.console = Some(console);
+        self.db.loaded = true;
         let filter = cx.new(|cx| TextField::new("Filter tables", cx));
         self.db._subscription = Some(cx.subscribe(&filter, |_, _, _: &FieldEvent, cx| cx.notify()));
         self.db.filter = Some(filter);
@@ -97,6 +94,34 @@ impl Workspace {
         self.db.selected = self.db.sources.first().map(|s| s.id.clone());
         for id in self.db.sources.iter().map(|s| s.id.clone()).collect::<Vec<_>>() {
             self.load_tables(&id, cx);
+        }
+    }
+
+    /// Data sources and the selected one (for the `.sql` file bar).
+    pub(super) fn db_sources(&self) -> (&[DataSource], Option<&str>) {
+        (&self.db.sources, self.db.selected.as_deref())
+    }
+
+    pub(super) fn select_source(&mut self, id: String, cx: &mut Context<Self>) {
+        self.db.selected = Some(id);
+        cx.notify();
+    }
+
+    /// Runs `sql` on the selected data source in a new console tab.
+    pub(super) fn run_in_console(&mut self, sql: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.ensure_db(cx);
+        let Some(source) = self.db.selected.clone().and_then(|id| self.source(&id)) else {
+            self.output = Some(super::tools::Output { title: "SQL".into(), text: "Add a data source in the Database window first.".into(), running: false, ok: false });
+            cx.notify();
+            return;
+        };
+        let password = load_password(self.project.root(), &source.id);
+        self.open_console_tab(source, password, window, cx);
+        if let Some(view) = self.tables.last().cloned() {
+            view.update(cx, |view, cx| {
+                view.set_console_text(&sql, cx);
+                view.run(cx);
+            });
         }
     }
 
@@ -201,39 +226,38 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Double-click on a table: its first rows, editable when it has a primary key.
-    fn open_table_data(&mut self, id: String, table: String, cx: &mut Context<Self>) {
-        let Some(source) = self.source(&id) else { return };
-        self.db.selected = Some(id.clone());
-        let driver = match source.driver {
-            Driver::Mysql | Driver::Mariadb => "mysql",
-            Driver::Pgsql => "pgsql",
-            Driver::Sqlite => "sqlite",
+
+    /// Export to SQL: asks where to save, then runs mysqldump / pg_dump / sqlite3 in the background.
+    fn export_selected(&mut self, cx: &mut Context<Self>) {
+        let Some(source) = self.db.selected.clone().and_then(|id| self.source(&id)) else {
+            self.db.status = Some("Select a data source to export.".into());
+            cx.notify();
+            return;
         };
-        let sql = laravel::database::select_sql(driver, &table, "", 200);
-        if let Some(console) = &self.db.console {
-            console.update(cx, |editor, cx| editor.replace_all_text(&sql, cx));
-        }
         let root = self.project.root().to_path_buf();
-        let password = load_password(&root, &id);
-        let keys_table = table.clone();
-        let keys_source = source.clone();
-        let keys_root = root.clone();
-        let keys_password = password.clone();
-        self.run_query_on(source, password, sql, Some((id, table)), cx);
-        // Primary keys decide whether the grid can be edited.
+        let password = load_password(&root, &source.id);
+        let stamp = chrono_like_stamp();
+        let base = if source.database.is_empty() { source.name.trim_start_matches('@').to_string() } else { source.database.clone() };
+        let suggested = format!("{base}-{stamp}.sql");
+        let target = cx.prompt_for_new_path(&root.join("database"), Some(&suggested));
         cx.spawn(async move |this, cx| {
-            let columns = cx.background_spawn(async move { datasource::columns(&keys_root, &keys_source, &keys_password, &keys_table) }).await;
+            let Ok(Ok(Some(out))) = target.await else { return };
             let _ = this.update(cx, |this, cx| {
-                if let (Ok(columns), Some(grid)) = (columns, this.db.grid.as_mut()) {
-                    grid.keys = columns.into_iter().filter(|(_, pk)| *pk).map(|(c, _)| c.name).collect();
-                }
+                this.db.status = Some(format!("Exporting {} …", source.name));
+                cx.notify();
+            });
+            let shown = out.clone();
+            let result = cx.background_spawn(async move { laravel::dump::export(&root, &source, &password, &out) }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.db.status = Some(match result {
+                    Ok(bytes) => format!("Exported {:.1} MB to {}", bytes as f64 / 1_048_576., shown.display()),
+                    Err(err) => format!("Export failed: {err}"),
+                });
                 cx.notify();
             });
         })
         .detach();
     }
-
 
     fn open_console_in_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(source) = self.db.selected.clone().and_then(|id| self.source(&id)) else {
@@ -242,189 +266,54 @@ impl Workspace {
             return;
         };
         let password = load_password(self.project.root(), &source.id);
-        let sql = self.db.console.as_ref().map(|c| c.read(cx).buffer.text()).unwrap_or_default();
+        let starter = if source.driver == Driver::Redis { "KEYS *" } else { "SELECT 1" };
         self.open_console_tab(source, password, window, cx);
-        if let Some(view) = self.tables.last().cloned()
-            && !sql.trim().is_empty()
-        {
-            view.update(cx, |view, cx| view.set_console_text(&sql, cx));
+        if let Some(view) = self.tables.last().cloned() {
+            view.update(cx, |view, cx| view.set_console_text(starter, cx));
         }
     }
 
-    pub(super) fn run_sql(&mut self, _: &RunSql, _: &mut Window, cx: &mut Context<Self>) {
-        self.execute_sql(cx);
-    }
-
-    fn execute_sql(&mut self, cx: &mut Context<Self>) {
-        let Some(console) = &self.db.console else { return };
-        let Some(source) = self.db.selected.clone().and_then(|id| self.source(&id)) else {
-            self.db.result = Some(Err("Add a data source first (+).".into()));
-            cx.notify();
-            return;
-        };
-        let editor = console.read(cx);
-        let selected = editor.buffer.selected_text();
-        let sql = if selected.trim().is_empty() { editor.buffer.text() } else { selected };
-        let sql = sql.trim().trim_end_matches(';').to_string();
-        if sql.is_empty() {
-            return;
-        }
-        let password = load_password(self.project.root(), &source.id);
-        self.run_query_on(source, password, sql, None, cx);
-    }
-
-    fn run_query_on(&mut self, source: DataSource, password: String, sql: String, table: Option<(String, String)>, cx: &mut Context<Self>) {
-        if self.db.running {
-            return;
-        }
-        self.db.running = true;
-        self.db.edits.clear();
-        self.db.editing = None;
-        self.db.grid = table.map(|(source, table)| GridTable { source, table, keys: Vec::new() });
-        let root = self.project.root().to_path_buf();
-        cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move { datasource::query(&root, &source, &password, &sql) }).await;
-            let _ = this.update(cx, |this, cx| {
-                this.db.running = false;
-                this.db.result = Some(result.map(Arc::new));
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
-    }
-
-    fn start_edit(&mut self, row: usize, col: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Ok(result)) = &self.db.result else { return };
-        if self.db.grid.as_ref().is_none_or(|g| g.keys.is_empty()) {
-            self.db.status = Some("This result can't be edited: open a table that has a primary key.".into());
-            cx.notify();
-            return;
-        }
-        let current = self.db.edits.get(&(row, col)).cloned().unwrap_or_else(|| result.rows[row][col].clone());
-        let field = cx.new(|cx| {
-            let mut f = TextField::new("NULL", cx);
-            f.set_text(current.unwrap_or_default(), cx);
-            f
-        });
-        window.focus(&field.focus_handle(cx));
-        self.db.editing = Some((row, col, field));
-        cx.notify();
-    }
-
-    fn finish_edit(&mut self, null: bool, cx: &mut Context<Self>) {
-        let Some((row, col, field)) = self.db.editing.take() else { return };
-        let value = if null { None } else { Some(field.read(cx).text().to_string()) };
-        let original = self.db.result.as_ref().and_then(|r| r.as_ref().ok()).map(|r| r.rows[row][col].clone());
-        if original.as_ref() == Some(&value) {
-            self.db.edits.remove(&(row, col));
-        } else {
-            self.db.edits.insert((row, col), value);
-        }
-        cx.notify();
-    }
-
-    /// Saves pending edits in one transaction (PhpStorm's Submit).
-    fn submit_edits(&mut self, cx: &mut Context<Self>) {
-        let (Some(grid), Some(Ok(result))) = (self.db.grid.clone(), self.db.result.clone()) else { return };
-        let Some(source) = self.source(&grid.source) else { return };
-        let key_columns: Vec<(String, usize)> =
-            grid.keys.iter().filter_map(|k| result.columns.iter().position(|c| c == k).map(|i| (k.clone(), i))).collect();
-        if key_columns.len() != grid.keys.len() {
-            self.db.status = Some("The primary key columns must be part of the result.".into());
-            cx.notify();
-            return;
-        }
-        let edits: Vec<CellEdit> = self
-            .db
-            .edits
-            .iter()
-            .map(|((row, col), value)| CellEdit {
-                column: result.columns[*col].clone(),
-                value: value.clone(),
-                key: key_columns.iter().map(|(k, i)| (k.clone(), result.rows[*row][*i].clone())).collect(),
-            })
-            .collect();
-        let root = self.project.root().to_path_buf();
-        let password = load_password(&root, &source.id);
-        let table = grid.table.clone();
-        let reload_source = source.clone();
-        cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move { datasource::apply_edits(&root, &source, &password, &table, &edits) }).await;
-            let _ = this.update(cx, |this, cx| {
-                match result {
-                    Ok(n) => {
-                        this.db.status = Some(format!("{n} row(s) updated"));
-                        this.open_table_data(reload_source.id.clone(), grid.table.clone(), cx);
-                    }
-                    Err(err) => this.db.status = Some(err),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn copy_result(&self, cx: &mut Context<Self>) {
-        let Some(Ok(result)) = &self.db.result else { return };
-        let mut tsv = result.columns.join("\t");
-        for row in &result.rows {
-            tsv.push('\n');
-            tsv.push_str(&row.iter().map(|c| c.clone().unwrap_or_else(|| "NULL".into())).collect::<Vec<_>>().join("\t"));
-        }
-        cx.write_to_clipboard(ClipboardItem::new_string(tsv));
+    /// ⌘↵ outside a console: open one in the editor.
+    pub(super) fn run_sql(&mut self, _: &RunSql, window: &mut Window, cx: &mut Context<Self>) {
+        self.ensure_db(cx);
+        self.open_console_in_editor(window, cx);
     }
 
     pub(super) fn render_database(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let icon_button = |id: &'static str, label: &'static str, tip: &'static str| {
+        let icon_button = |id: &'static str, glyph: Icon, tip: &'static str| {
             div()
                 .id(id)
-                .px_1p5()
-                .h(px(22.))
+                .size(px(24.))
                 .flex()
                 .items_center()
+                .justify_center()
                 .rounded_md()
                 .cursor_pointer()
-                .text_color(theme::ui_text())
                 .hover(|d| d.bg(theme::hover()))
-                .child(label)
+                .child(icon(glyph, 15., theme::muted()))
                 .tooltip(super::layout::tooltip(tip))
-        };
-        let small = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .px_2()
-                .h(px(22.))
-                .flex()
-                .items_center()
-                .rounded_md()
-                .cursor_pointer()
-                .border_1()
-                .border_color(theme::border_strong())
-                .text_color(theme::ui_text())
-                .hover(|d| d.bg(theme::hover()))
-                .child(label)
         };
         let toolbar = div()
             .flex()
             .items_center()
-            .gap_1()
+            .gap_0p5()
             .px_2()
             .py_1()
-            .child(icon_button("db-add", "+", "New data source").on_click(cx.listener(|this, _, _, cx| {
+            .child(icon_button("db-add", Icon::plus, "New data source").on_click(cx.listener(|this, _, _, cx| {
                 this.db.add_menu = !this.db.add_menu;
                 cx.notify();
             })))
-            .child(icon_button("db-edit", "✎", "Data source properties").on_click(cx.listener(|this, _, window, cx| {
+            .child(icon_button("db-edit", Icon::settings, "Data source properties").on_click(cx.listener(|this, _, window, cx| {
                 if let Some(source) = this.db.selected.clone().and_then(|id| this.source(&id)) {
                     let password = load_password(this.project.root(), &source.id);
                     this.open_source_dialog(source, password, window, cx);
                 }
             })))
-            .child(icon_button("db-remove", "−", "Remove data source").on_click(cx.listener(|this, _, _, cx| this.remove_selected_source(cx))))
-            .child(icon_button("db-refresh", "⟳", "Refresh").on_click(cx.listener(|this, _, _, cx| this.refresh_db(cx))))
+            .child(icon_button("db-remove", Icon::minus, "Remove data source").on_click(cx.listener(|this, _, _, cx| this.remove_selected_source(cx))))
+            .child(icon_button("db-refresh", Icon::refresh, "Refresh").on_click(cx.listener(|this, _, _, cx| this.refresh_db(cx))))
+            .child(icon_button("db-export", Icon::download, "Export to SQL (mysqldump / pg_dump / sqlite3)").on_click(cx.listener(|this, _, _, cx| this.export_selected(cx))))
             .child(div().flex_1())
-            .child(icon_button("db-console", "▶", "Run console (⌘↵)").on_click(cx.listener(|this, _, _, cx| this.execute_sql(cx))));
+            .child(icon_button("db-console", Icon::play, "Open a console in the editor (⌘↵ runs)").on_click(cx.listener(|this, _, window, cx| this.open_console_in_editor(window, cx))));
         let add_menu = self.db.add_menu.then(|| {
             let item = |id: &'static str, label: &'static str| {
                 div().id(id).px_3().h(px(24.)).flex().items_center().rounded_md().cursor_pointer().text_color(theme::ui_text()).hover(|d| d.bg(theme::selection())).child(label)
@@ -500,6 +389,7 @@ impl Workspace {
                     // PhpStorm's levels: data source › schema › "tables N" › tables.
                     let schema = match source.driver {
                         Driver::Sqlite => "main".to_string(),
+                        Driver::Redis => format!("db{}", if source.database.is_empty() { "0" } else { &source.database }),
                         _ if source.database.is_empty() => "default".to_string(),
                         _ => source.database.clone(),
                     };
@@ -535,7 +425,7 @@ impl Workspace {
                     if self.db.collapsed.contains(&schema_key) {
                         continue;
                     }
-                    tree.push(folder_row(tables_key.clone(), 42., "▭", "tables".into(), Some(tables.len()), cx));
+                    tree.push(folder_row(tables_key.clone(), 42., "▭", if source.driver == Driver::Redis { "keys".into() } else { "tables".into() }, Some(tables.len()), cx));
                     if self.db.collapsed.contains(&tables_key) {
                         continue;
                     }
@@ -608,105 +498,6 @@ impl Workspace {
                     .into_any_element(),
             );
         }
-        let editable = self.db.grid.as_ref().is_some_and(|g| !g.keys.is_empty());
-        let result = match &self.db.result {
-            None => div().p_2().text_size(px(12.)).text_color(theme::muted()).child("Double-click a table, or run a query.").into_any_element(),
-            Some(Err(err)) => div().p_2().text_size(px(12.)).text_color(theme::error()).child(SharedString::from(err.clone())).into_any_element(),
-            Some(Ok(result)) => {
-                let width = px(150.);
-                let header = div().flex().bg(theme::panel_bg()).border_b_1().border_color(theme::border()).children(result.columns.iter().map(|c| {
-                    let key = self.db.grid.as_ref().is_some_and(|g| g.keys.contains(c));
-                    div().w(width).flex_none().px_2().py_1().overflow_hidden().whitespace_nowrap().text_color(theme::ui_text()).child(SharedString::from(format!("{}{c}", if key { "🔑 " } else { "" })))
-                }));
-                let rows = result.rows.iter().enumerate().map(|(r, row)| {
-                    div().flex().border_b_1().border_color(theme::border()).children(row.iter().enumerate().map(|(c, cell)| {
-                        if let Some((er, ec, field)) = &self.db.editing
-                            && (*er, *ec) == (r, c)
-                        {
-                            return div()
-                                .w(width * 2.)
-                                .flex_none()
-                                .flex()
-                                .gap_1()
-                                .p(px(1.))
-                                .key_context("DbCellEdit")
-                                .on_action(cx.listener(|this, _: &crate::dialogs::Confirm, _, cx| this.finish_edit(false, cx)))
-                                .on_action(cx.listener(|this, _: &crate::dialogs::Cancel, _, cx| {
-                                    this.db.editing = None;
-                                    cx.notify();
-                                }))
-                                .child(div().flex_1().child(field.clone()))
-                                .child(div().id("db-null").px_1().cursor_pointer().text_color(theme::muted()).child("NULL").on_click(cx.listener(|this, _, _, cx| this.finish_edit(true, cx))))
-                                .child(div().id("db-ok").px_1().cursor_pointer().text_color(theme::accent()).child("✓").on_click(cx.listener(|this, _, _, cx| this.finish_edit(false, cx))))
-                                .into_any_element();
-                        }
-                        let pending = self.db.edits.get(&(r, c));
-                        let value = pending.cloned().unwrap_or_else(|| cell.clone());
-                        let (text, null) = match &value {
-                            Some(text) => (text.chars().take(60).collect::<String>().replace('\n', " "), false),
-                            None => ("NULL".to_string(), true),
-                        };
-                        div()
-                            .id(("db-cell", r * 10_000 + c))
-                            .w(width)
-                            .flex_none()
-                            .px_2()
-                            .py(px(2.))
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .when(pending.is_some(), |d| d.bg(theme::accent().opacity(0.25)))
-                            .text_color(if null { theme::muted() } else { theme::text() })
-                            .when(editable, |d| d.cursor_pointer().hover(|d| d.bg(theme::hover())))
-                            .child(SharedString::from(text))
-                            .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
-                                if event.click_count() >= 2 {
-                                    this.start_edit(r, c, window, cx);
-                                }
-                            }))
-                            .into_any_element()
-                    }))
-                });
-                let pending = self.db.edits.len();
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .px_2()
-                            .py_1()
-                            .text_size(px(11.))
-                            .text_color(theme::muted())
-                            .child(div().flex_1().child(if result.columns.is_empty() {
-                                format!("{} row(s) affected · {:.0} ms", result.affected, result.millis)
-                            } else if result.total > result.rows.len() {
-                                format!("{} rows (showing {}) · {:.0} ms", result.total, result.rows.len(), result.millis)
-                            } else {
-                                format!("{} rows · {:.0} ms{}", result.total, result.millis, if editable { " · double-click a cell to edit" } else { "" })
-                            }))
-                            .when(pending > 0, |d| {
-                                d.child(small("db-revert", "Revert").on_click(cx.listener(|this, _, _, cx| {
-                                    this.db.edits.clear();
-                                    cx.notify();
-                                })))
-                                .child(small("db-submit", "Submit").bg(theme::accent()).text_color(gpui::white()).on_click(cx.listener(|this, _, _, cx| this.submit_edits(cx))))
-                            }),
-                    )
-                    .child(
-                        div()
-                            .id("db-grid")
-                            .overflow_x_scroll()
-                            .font_family(theme::editor_font())
-                            .text_size(px(12.))
-                            .child(div().flex().flex_col().min_w(width * result.columns.len().max(1) as f32).child(header).children(rows)),
-                    )
-                    .into_any_element()
-            }
-        };
-        let running = self.db.running;
-        let console_target = self.db.selected.clone().and_then(|id| self.source(&id)).map(|s| s.name).unwrap_or_else(|| "no data source".into());
         div()
             .flex_1()
             .min_h(px(0.))
@@ -716,34 +507,15 @@ impl Workspace {
             .child(toolbar)
             .children(add_menu)
             .children(self.db.filter.clone().map(|f| div().px_2().pb_1().flex().child(f)))
-            .child(div().id("db-tree").h(px(320.)).flex_none().overflow_y_scroll().border_b_1().border_color(theme::border()).children(tree))
-            .child(
-                div()
-                    .key_context("DbConsole")
-                    .on_action(cx.listener(Self::run_sql))
-                    .p_2()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().text_size(px(11.)).text_color(theme::muted()).child(format!("Console · {console_target}")))
-                    .child(div().h(px(90.)).rounded_md().border_1().border_color(theme::border_strong()).overflow_hidden().children(self.db.console.clone()))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(div().flex_1().text_size(px(11.)).text_color(theme::muted()).child(crate::keymap::display("secondary-enter") + " runs the query (or the selection)"))
-                            .child(small("db-console-tab", "Open in Editor").on_click(cx.listener(|this, _, window, cx| this.open_console_in_editor(window, cx))))
-                            .child(small("db-copy", "Copy TSV").on_click(cx.listener(|this, _, _, cx| this.copy_result(cx))))
-                            .child(small("db-run", if running { "Running…" } else { "▶ Run" }).on_click(cx.listener(|this, _, _, cx| this.execute_sql(cx)))),
-                    ),
-            )
+            .child(div().id("db-tree").flex_1().min_h(px(0.)).overflow_y_scroll().children(tree))
             .when_some(self.db.status.clone(), |d, status| {
                 d.child(
                     div()
                         .id("db-status")
                         .px_2()
                         .py_1()
+                        .border_t_1()
+                        .border_color(theme::border())
                         .text_size(px(12.))
                         .text_color(theme::muted())
                         .child(status)
@@ -753,6 +525,15 @@ impl Workspace {
                         })),
                 )
             })
-            .child(div().id("db-result").flex_1().min_h(px(0.)).overflow_y_scroll().child(result))
+            .child(
+                div()
+                    .px_2()
+                    .py_1()
+                    .border_t_1()
+                    .border_color(theme::border())
+                    .text_size(px(11.))
+                    .text_color(theme::muted())
+                    .child("Double-click a table to open it · ▶ opens a console"),
+            )
     }
 }

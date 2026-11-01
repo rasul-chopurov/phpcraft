@@ -43,11 +43,7 @@ pub struct TableView {
 }
 
 fn laravel_driver(driver: Driver) -> &'static str {
-    match driver {
-        Driver::Mysql | Driver::Mariadb => "mysql",
-        Driver::Pgsql => "pgsql",
-        Driver::Sqlite => "sqlite",
-    }
+    driver.grammar()
 }
 
 impl TableView {
@@ -114,6 +110,11 @@ impl TableView {
         }
     }
 
+    /// Runs the console's query now.
+    pub fn run(&mut self, cx: &mut Context<Self>) {
+        self.reload(cx);
+    }
+
     pub fn set_console_text(&mut self, text: &str, cx: &mut Context<Self>) {
         if let Some(console) = &self.console {
             console.update(cx, |editor, cx| editor.replace_all_text(text, cx));
@@ -172,7 +173,15 @@ impl TableView {
         if !order.is_empty() {
             sql.push_str(&format!(" ORDER BY {order}"));
         }
-        sql.push_str(&format!(" LIMIT {PAGE} OFFSET {}", self.offset));
+        if self.source.driver == Driver::Sqlsrv {
+            // SQL Server pages with OFFSET … FETCH, which needs an ORDER BY.
+            if order.is_empty() {
+                sql.push_str(" ORDER BY (SELECT NULL)");
+            }
+            sql.push_str(&format!(" OFFSET {} ROWS FETCH NEXT {PAGE} ROWS ONLY", self.offset));
+        } else {
+            sql.push_str(&format!(" LIMIT {PAGE} OFFSET {}", self.offset));
+        }
         sql
     }
 

@@ -7,6 +7,8 @@ pub mod columns;
 pub mod dashboard;
 pub mod database;
 pub mod datasource;
+pub mod dump;
+pub mod redis;
 pub mod framework;
 pub mod generators;
 pub mod frontend;

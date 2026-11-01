@@ -8,6 +8,7 @@ mod agent_panel;
 mod db_panel;
 mod remote_panel;
 mod http_panel;
+mod sql_panel;
 mod laravel_panel;
 mod panes;
 mod git_window;
@@ -997,6 +998,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::run_sql))
             .on_action(cx.listener(Self::upload_to_server))
             .on_action(cx.listener(Self::run_http_request))
+            .on_action(cx.listener(Self::run_sql_file))
             .on_action(cx.listener(Self::download_from_server))
             .on_action(cx.listener(Self::new_agent_chat))
             .on_action(cx.listener(Self::new_terminal))
@@ -1054,6 +1056,7 @@ impl Render for Workspace {
                                     .when(focused > 0, |d| d.border_l_1().border_color(theme::border_strong()))
                                     .child(self.render_tabs(cx))
                                     .children(self.render_http_bar(cx))
+                                    .children(self.render_sql_bar(cx))
                                     .child(editor)
                                     .into_any_element();
                                 let mut row: Vec<gpui::AnyElement> = (0..self.pane_count()).filter(|i| *i != focused).map(|i| (i, self.render_other_pane(i, cx))).collect::<Vec<_>>().into_iter().map(|(_, e)| e).collect();

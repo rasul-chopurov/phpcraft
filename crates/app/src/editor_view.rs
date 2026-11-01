@@ -711,6 +711,9 @@ impl Render for EditorView {
         if self.buffer.path().is_some_and(crate::http_client::is_http_file) {
             key_context.add("HttpFile");
         }
+        if self.buffer.path().is_some_and(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("sql"))) {
+            key_context.add("SqlFile");
+        }
         if self.menu_open() {
             key_context.add("menu");
         } else if self.ghost().is_some() {

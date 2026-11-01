@@ -59,6 +59,9 @@ impl Workspace {
 
     /// The bar above an `.http` file: run button, request count and environments.
     pub(super) fn render_http_bar(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        if self.table_active.is_some() || self.diff_active {
+            return None;
+        }
         let path = self.active_http_file(cx)?;
         let text = self.tabs.get(self.active)?.read(cx).buffer.text();
         let count = http_client::requests(&text).len();

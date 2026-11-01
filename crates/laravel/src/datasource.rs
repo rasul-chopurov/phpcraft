@@ -15,10 +15,24 @@ pub enum Driver {
     Mariadb,
     Pgsql,
     Sqlite,
+    /// SQL Server (PDO's `sqlsrv` driver).
+    Sqlsrv,
+    /// Redis: keys are listed like tables; the console runs commands.
+    Redis,
 }
 
 impl Driver {
-    pub const ALL: [Driver; 4] = [Driver::Mysql, Driver::Mariadb, Driver::Pgsql, Driver::Sqlite];
+    pub const ALL: [Driver; 6] = [Driver::Mysql, Driver::Mariadb, Driver::Pgsql, Driver::Sqlite, Driver::Sqlsrv, Driver::Redis];
+
+    /// The name Laravel's query grammar uses (identifier quoting).
+    pub fn grammar(self) -> &'static str {
+        match self {
+            Driver::Mysql | Driver::Mariadb | Driver::Redis => "mysql",
+            Driver::Pgsql => "pgsql",
+            Driver::Sqlite => "sqlite",
+            Driver::Sqlsrv => "sqlsrv",
+        }
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -26,6 +40,8 @@ impl Driver {
             Driver::Mariadb => "MariaDB",
             Driver::Pgsql => "PostgreSQL",
             Driver::Sqlite => "SQLite",
+            Driver::Sqlsrv => "SQL Server",
+            Driver::Redis => "Redis",
         }
     }
 
@@ -34,6 +50,8 @@ impl Driver {
             Driver::Mysql | Driver::Mariadb => 3306,
             Driver::Pgsql => 5432,
             Driver::Sqlite => 0,
+            Driver::Sqlsrv => 1433,
+            Driver::Redis => 6379,
         }
     }
 
@@ -43,6 +61,7 @@ impl Driver {
             "mariadb" => Driver::Mariadb,
             "pgsql" => Driver::Pgsql,
             "sqlite" => Driver::Sqlite,
+            "sqlsrv" => Driver::Sqlsrv,
             _ => return None,
         })
     }
@@ -100,7 +119,12 @@ impl DataSource {
             name: if driver == Driver::Sqlite { "SQLite".into() } else { "@127.0.0.1".into() },
             driver,
             port: driver.default_port(),
-            user: if driver == Driver::Pgsql { "postgres".into() } else { "root".into() },
+            user: match driver {
+                Driver::Pgsql => "postgres".into(),
+                Driver::Sqlsrv => "sa".into(),
+                Driver::Redis => String::new(),
+                _ => "root".into(),
+            },
             ..Default::default()
         }
     }
@@ -129,6 +153,11 @@ impl DataSource {
                 ConnectionType::UnixSocket => format!("pgsql:host={}{db}", self.path),
                 _ => format!("pgsql:host={};port={}{db}", self.host, self.port),
             },
+            Driver::Sqlsrv => {
+                let db = if self.database.is_empty() { String::new() } else { format!(";Database={}", self.database) };
+                format!("sqlsrv:Server={},{}{db}", self.host, self.port)
+            }
+            Driver::Redis => format!("redis://{}:{}/{}", self.host, self.port, if self.database.is_empty() { "0" } else { &self.database }),
         }
     }
 }
@@ -164,6 +193,7 @@ try {
             'mysql' => 'SHOW FULL TABLES',
             'pgsql' => "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() ORDER BY table_name",
             'sqlite' => "SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name",
+            'sqlsrv' => "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE IN ('BASE TABLE','VIEW') ORDER BY TABLE_NAME",
         };
         $tables = array_map(fn ($r) => $r[0], $pdo->query($sql)->fetchAll(PDO::FETCH_NUM));
         echo json_encode(['tables' => $tables]);
@@ -178,6 +208,10 @@ try {
             $s = $pdo->prepare("SELECT c.column_name, c.data_type, c.is_nullable, c.column_default, (SELECT COUNT(*) FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage k ON tc.constraint_name = k.constraint_name AND tc.table_schema = k.table_schema WHERE tc.constraint_type = 'PRIMARY KEY' AND k.table_name = c.table_name AND k.column_name = c.column_name AND tc.table_schema = c.table_schema) AS pk FROM information_schema.columns c WHERE c.table_schema = current_schema() AND c.table_name = ? ORDER BY c.ordinal_position");
             $s->execute([$t]);
             $cols = array_map(fn ($r) => ['name' => $r['column_name'], 'type' => $r['data_type'], 'nullable' => $r['is_nullable'] === 'YES', 'default' => $r['column_default'], 'pk' => $r['pk'] > 0], $s->fetchAll(PDO::FETCH_ASSOC));
+        } elseif ($driver === 'sqlsrv') {
+            $s = $pdo->prepare("SELECT c.COLUMN_NAME, c.DATA_TYPE, c.IS_NULLABLE, c.COLUMN_DEFAULT, (SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE k ON tc.CONSTRAINT_NAME = k.CONSTRAINT_NAME WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY' AND k.TABLE_NAME = c.TABLE_NAME AND k.COLUMN_NAME = c.COLUMN_NAME) AS PK FROM INFORMATION_SCHEMA.COLUMNS c WHERE c.TABLE_NAME = ? ORDER BY c.ORDINAL_POSITION");
+            $s->execute([$t]);
+            $cols = array_map(fn ($r) => ['name' => $r['COLUMN_NAME'], 'type' => $r['DATA_TYPE'], 'nullable' => $r['IS_NULLABLE'] === 'YES', 'default' => $r['COLUMN_DEFAULT'], 'pk' => $r['PK'] > 0], $s->fetchAll(PDO::FETCH_ASSOC));
         } else {
             $rows = $pdo->query('PRAGMA table_info("' . str_replace('"', '""', $t) . '")')->fetchAll(PDO::FETCH_ASSOC);
             $cols = array_map(fn ($r) => ['name' => $r['name'], 'type' => $r['type'], 'nullable' => !$r['notnull'], 'default' => $r['dflt_value'], 'pk' => $r['pk'] > 0], $rows);
@@ -239,18 +273,37 @@ fn run(root: &Path, source: &DataSource, password: &str, input: serde_json::Valu
 }
 
 /// "Test Connection": the server version on success.
+fn redis(source: &DataSource, password: &str) -> Result<crate::redis::Connection, String> {
+    crate::redis::Connection::open(&source.host, source.port, password, &source.user, &source.database)
+}
+
 pub fn test(root: &Path, source: &DataSource, password: &str) -> Result<String, String> {
+    if source.driver == Driver::Redis {
+        let info = redis(source, password)?.command(&["INFO", "server"])?;
+        let version = match info {
+            crate::redis::Reply::Bulk(Some(text)) => text.lines().find_map(|l| l.strip_prefix("redis_version:")).unwrap_or("").to_string(),
+            _ => String::new(),
+        };
+        return Ok(format!("redis {version}"));
+    }
     let value = run(root, source, password, serde_json::json!({"op": "test"}))?;
     Ok(format!("{} {}", value["driver"].as_str().unwrap_or(""), value["version"].as_str().unwrap_or("")))
 }
 
 pub fn tables(root: &Path, source: &DataSource, password: &str) -> Result<Vec<String>, String> {
+    if source.driver == Driver::Redis {
+        return redis(source, password)?.keys();
+    }
     let value = run(root, source, password, serde_json::json!({"op": "tables"}))?;
     Ok(value["tables"].as_array().map(|t| t.iter().filter_map(|t| t.as_str().map(str::to_string)).collect()).unwrap_or_default())
 }
 
 /// Columns with primary-key flags.
 pub fn columns(root: &Path, source: &DataSource, password: &str, table: &str) -> Result<Vec<(DbColumn, bool)>, String> {
+    if source.driver == Driver::Redis {
+        // Redis values have no schema (and no primary key: the grid is read-only).
+        return Ok(Vec::new());
+    }
     let value = run(root, source, password, serde_json::json!({"op": "columns", "table": table}))?;
     Ok(value["columns"]
         .as_array()
@@ -278,6 +331,16 @@ pub fn columns(root: &Path, source: &DataSource, password: &str, table: &str) ->
 }
 
 pub fn query(root: &Path, source: &DataSource, password: &str, sql: &str) -> Result<QueryResult, String> {
+    if source.driver == Driver::Redis {
+        let mut connection = redis(source, password)?;
+        // The data view asks for `SELECT * FROM `key` …`: show the key's value.
+        if let Some(rest) = sql.trim().strip_prefix("SELECT * FROM `")
+            && let Some(end) = rest.find("` ").or_else(|| rest.strip_suffix('`').map(|r| r.len()))
+        {
+            return connection.value(&rest[..end].replace("``", "`"));
+        }
+        return connection.run_line(sql);
+    }
     let value = run(root, source, password, serde_json::json!({"op": "query", "sql": sql}))?;
     Ok(crate::database::parse_result(&value))
 }
@@ -294,11 +357,7 @@ pub struct CellEdit {
 
 /// Builds the parameterised UPDATE for an edit.
 pub fn update_statement(driver: Driver, table: &str, edit: &CellEdit) -> (String, Vec<Option<String>>) {
-    let laravel = match driver {
-        Driver::Mysql | Driver::Mariadb => "mysql",
-        Driver::Pgsql => "pgsql",
-        Driver::Sqlite => "sqlite",
-    };
+    let laravel = driver.grammar();
     let q = |name: &str| crate::database::quote_ident(laravel, name);
     let condition = edit.key.iter().map(|(k, v)| if v.is_some() { format!("{} = ?", q(k)) } else { format!("{} IS NULL", q(k)) }).collect::<Vec<_>>().join(" AND ");
     let sql = format!("UPDATE {} SET {} = ? WHERE {condition}", q(table), q(&edit.column));
@@ -315,11 +374,7 @@ pub struct Statement {
 }
 
 fn quoter(driver: Driver) -> impl Fn(&str) -> String {
-    let laravel = match driver {
-        Driver::Mysql | Driver::Mariadb => "mysql",
-        Driver::Pgsql => "pgsql",
-        Driver::Sqlite => "sqlite",
-    };
+    let laravel = driver.grammar();
     move |name: &str| crate::database::quote_ident(laravel, name)
 }
 
@@ -352,6 +407,9 @@ pub fn insert_statement(driver: Driver, table: &str, values: &[(String, Option<S
 
 /// Runs statements in one transaction; returns affected rows.
 pub fn execute(root: &Path, source: &DataSource, password: &str, statements: &[Statement]) -> Result<usize, String> {
+    if source.driver == Driver::Redis {
+        return Err("Redis values are changed with commands in the console (SET, HSET, …).".into());
+    }
     let statements: Vec<serde_json::Value> = statements.iter().map(|s| serde_json::json!({"sql": s.sql, "params": s.params})).collect();
     let value = run(root, source, password, serde_json::json!({"op": "execute", "statements": statements}))?;
     Ok(value["affected"].as_u64().unwrap_or(0) as usize)
