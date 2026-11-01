@@ -28,6 +28,7 @@ mod terminal_view;
 mod text_field;
 mod theme;
 mod welcome;
+mod window_state;
 mod workspace;
 
 use gpui::{
@@ -44,9 +45,9 @@ pub fn open_project_window(root: &std::path::Path, cx: &mut App) -> anyhow::Resu
     // Fail before opening a window when the folder can't be opened.
     Project::open(root)?;
     let root = root.to_path_buf();
-    let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
+    let bounds = window_state::restore(&root, cx).unwrap_or_else(|| WindowBounds::Windowed(Bounds::centered(None, size(px(1280.), px(800.)), cx)));
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        window_bounds: Some(bounds),
         titlebar: Some(TitlebarOptions { title: Some("PhpCraft".into()), ..Default::default() }),
         ..Default::default()
     };

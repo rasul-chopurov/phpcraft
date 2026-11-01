@@ -258,6 +258,10 @@ impl Workspace {
         self.focus_active(window, cx);
     }
 
+    pub fn project_root(&self) -> &Path {
+        self.project.root()
+    }
+
     pub fn project_name(&self) -> String {
         self.project.name()
     }

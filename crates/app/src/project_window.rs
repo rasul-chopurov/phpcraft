@@ -29,6 +29,9 @@ pub fn new_workspace(root: &Path, window: &mut Window, cx: &mut gpui::App) -> an
 
 impl ProjectWindow {
     pub fn new(workspace: Entity<Workspace>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        // The window's size and position are remembered under its first project.
+        let root = workspace.read(cx).project_root().to_path_buf();
+        cx.observe_window_bounds(window, move |_, window, _| crate::window_state::save(&root, window)).detach();
         let mut this = Self { tabs: Vec::new(), active: 0 };
         this.push(workspace, window, cx);
         this
