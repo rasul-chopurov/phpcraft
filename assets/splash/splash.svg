@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 760" width="1280" height="760">
+  <!-- Baku at night in PhpCraft's icon colours: the Flame Towers on the hill, the walls of
+       İçərişəhər and Qız qalası (Maiden Tower) on the Caspian shore. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b0b10"/>
+      <stop offset="0.42" stop-color="#1b1748"/>
+      <stop offset="0.66" stop-color="#3b2a9a"/>
+      <stop offset="0.76" stop-color="#6a5cff"/>
+    </linearGradient>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2380"/>
+      <stop offset="0.35" stop-color="#14123a"/>
+      <stop offset="1" stop-color="#07070c"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="1" x2="0.3" y2="0">
+      <stop offset="0" stop-color="#6a5cff"/>
+      <stop offset="0.5" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#141033"/>
+      <stop offset="1" stop-color="#2e2675"/>
+    </linearGradient>
+    <linearGradient id="stone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2160"/>
+      <stop offset="1" stop-color="#120f2e"/>
+    </linearGradient>
+    <radialGradient id="glowViolet" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#8b5cf6" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#8b5cf6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowTeal" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="moon" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ecfeff"/>
+      <stop offset="0.55" stop-color="#a5f3fc" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#34d399" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0b0b10" stop-opacity="0.9"/>
+      <stop offset="0.5" stop-color="#0b0b10" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#0b0b10" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="760" fill="url(#sky)"/>
+
+  <!-- stars -->
+  <g fill="#e0e7ff" opacity="0.85">
+    <circle cx="560" cy="70" r="1.3"/><circle cx="640" cy="140" r="1"/><circle cx="720" cy="48" r="1.6"/>
+    <circle cx="800" cy="170" r="1"/><circle cx="880" cy="90" r="1.3"/><circle cx="960" cy="36" r="1"/>
+    <circle cx="1030" cy="130" r="1.4"/><circle cx="1210" cy="70" r="1.1"/><circle cx="1250" cy="190" r="1"/>
+    <circle cx="600" cy="230" r="1"/><circle cx="1170" cy="250" r="1"/><circle cx="760" cy="260" r="1.2"/>
+  </g>
+
+  <!-- moon -->
+  <circle cx="1130" cy="150" r="80" fill="url(#glowTeal)"/>
+  <circle cx="1130" cy="150" r="28" fill="url(#moon)"/>
+
+  <!-- city glow on the horizon -->
+  <ellipse cx="860" cy="520" rx="520" ry="90" fill="url(#glowViolet)"/>
+
+  <!-- distant hills -->
+  <path d="M0 520 C 160 488, 300 506, 450 492 C 590 478, 690 452, 800 456 C 930 462, 1060 440, 1280 452 L1280 560 L0 560 Z" fill="#221a5c" opacity="0.9"/>
+
+  <!-- the hill under the towers -->
+  <path d="M600 560 C 670 500, 740 452, 830 440 C 920 430, 1000 446, 1060 476 C 1110 500, 1150 530, 1180 560 Z" fill="#161236"/>
+
+  <!-- Flame Towers -->
+  <g>
+    <circle cx="860" cy="330" r="200" fill="url(#glowViolet)" opacity="0.8"/>
+    <path d="M748 452 C 736 382, 758 312, 800 270 C 810 312, 828 334, 840 354 C 840 396, 830 432, 826 452 Z" fill="url(#glass)" stroke="url(#edge)" stroke-width="5"/>
+    <path d="M830 452 C 816 360, 832 268, 874 196 C 900 248, 926 300, 922 382 C 920 412, 912 438, 908 452 Z" fill="url(#glass)" stroke="url(#edge)" stroke-width="6"/>
+    <path d="M912 452 C 908 402, 920 340, 964 298 C 976 332, 992 360, 988 402 C 986 428, 980 442, 976 452 Z" fill="url(#glass)" stroke="url(#edge)" stroke-width="5"/>
+    <!-- floor lines -->
+    <g stroke="#67e8f9" stroke-width="1.2" opacity="0.4">
+      <path d="M846 282 L914 282"/><path d="M840 322 L920 322"/><path d="M836 362 L922 362"/><path d="M834 402 L920 402"/>
+      <path d="M772 342 L836 342"/><path d="M766 392 L834 392"/><path d="M930 362 L986 362"/><path d="M924 402 L986 402"/>
+    </g>
+  </g>
+
+  <!-- İçərişəhər: old city walls with battlements along the shore -->
+  <g fill="url(#stone)">
+    <path d="M560 556 L560 512 L1040 512 L1040 556 Z"/>
+    <path d="M560 512 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 h14 v-10 h12 v10 Z"/>
+    <!-- round wall towers -->
+    <path d="M600 556 L600 494 Q618 486 636 494 L636 556 Z"/>
+    <path d="M760 556 L760 494 Q778 486 796 494 L796 556 Z"/>
+    <path d="M940 556 L940 494 Q958 486 976 494 L976 556 Z"/>
+    <!-- gate arch -->
+    <path d="M676 556 L676 532 Q690 518 704 532 L704 556 Z" fill="#0b0b10"/>
+    <!-- mosque minaret and dome inside the walls -->
+    <rect x="840" y="470" width="10" height="44"/>
+    <path d="M836 470 L845 452 L854 470 Z"/>
+    <path d="M866 512 Q890 478 914 512 Z"/>
+  </g>
+  <!-- windows lit in the old city -->
+  <g fill="#22d3ee" opacity="0.7">
+    <rect x="612" y="520" width="4" height="6"/><rect x="772" y="520" width="4" height="6"/><rect x="952" y="520" width="4" height="6"/>
+    <rect x="720" y="530" width="3" height="5"/><rect x="820" y="528" width="3" height="5"/><rect x="1000" y="530" width="3" height="5"/>
+  </g>
+
+  <!-- Qız qalası (Maiden Tower): a tall, slightly tapering cylinder with its buttress fin -->
+  <g>
+    <path d="M1072 556 L1078 392 Q1110 380 1142 392 L1148 556 Z" fill="url(#stone)" stroke="#8b5cf6" stroke-width="2" stroke-opacity="0.6"/>
+    <path d="M1142 420 L1172 446 L1170 556 L1146 556 Z" fill="#1a1545" stroke="#8b5cf6" stroke-width="2" stroke-opacity="0.6"/>
+    <path d="M1074 392 L1146 392 L1146 380 L1074 380 Z" fill="#2a2160"/>
+    <g stroke="#3b82f6" stroke-width="1.4" opacity="0.5">
+      <path d="M1076 430 L1144 430"/><path d="M1075 470 L1145 470"/><path d="M1074 510 L1146 510"/>
+    </g>
+    <rect x="1104" y="440" width="5" height="12" fill="#22d3ee" opacity="0.8"/>
+  </g>
+
+  <!-- the Caspian -->
+  <rect y="556" width="1280" height="204" fill="url(#sea)"/>
+  <!-- reflections -->
+  <g opacity="0.6">
+    <rect x="800" y="572" width="140" height="3" rx="1.5" fill="#22d3ee"/>
+    <rect x="786" y="592" width="170" height="2.5" rx="1.2" fill="#8b5cf6"/>
+    <rect x="824" y="612" width="100" height="2.5" rx="1.2" fill="#22d3ee"/>
+    <rect x="812" y="636" width="120" height="2" rx="1" fill="#6a5cff"/>
+    <rect x="846" y="662" width="56" height="2" rx="1" fill="#34d399"/>
+    <rect x="1080" y="580" width="70" height="2" rx="1" fill="#a5f3fc"/>
+    <rect x="1092" y="602" width="44" height="2" rx="1" fill="#a5f3fc"/>
+    <rect x="1102" y="624" width="24" height="2" rx="1" fill="#a5f3fc"/>
+  </g>
+  <g stroke="#6a5cff" stroke-width="1.5" opacity="0.25">
+    <path d="M60 600 L300 600"/><path d="M180 640 L520 640"/><path d="M40 690 L380 690"/><path d="M420 600 L700 600"/>
+  </g>
+
+  <!-- mosaic tiles on the left -->
+  <g fill="#6a5cff">
+    <rect x="0" y="0" width="128" height="128" opacity="0.10"/>
+    <rect x="128" y="128" width="128" height="128" opacity="0.07"/>
+    <rect x="0" y="256" width="128" height="128" opacity="0.09"/>
+    <rect x="256" y="256" width="128" height="128" opacity="0.05"/>
+    <rect x="128" y="384" width="128" height="128" opacity="0.08"/>
+    <rect x="384" y="128" width="128" height="128" opacity="0.04"/>
+    <rect x="0" y="512" width="128" height="128" opacity="0.07"/>
+    <rect x="256" y="512" width="128" height="128" opacity="0.05"/>
+  </g>
+  <rect width="760" height="760" fill="url(#fade)"/>
+</svg>

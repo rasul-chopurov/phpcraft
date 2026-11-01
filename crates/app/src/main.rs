@@ -18,6 +18,7 @@ mod project_info;
 mod project_window;
 mod run_configs;
 mod settings_import;
+mod splash;
 mod structure;
 mod table_view;
 mod templates;
@@ -98,22 +99,24 @@ fn main() {
         keymap::apply(cx);
         cx.on_action(|_: &Quit, cx| cx.quit());
         menus::set(cx);
-        match &root {
-            Some(root) => {
-                if let Err(err) = open_project_window(std::path::Path::new(root), cx) {
-                    eprintln!("failed to open window: {err:#}");
-                    cx.quit();
-                }
-            }
-            None => welcome::open(cx),
-        }
-        // Closing the last project brings the welcome window back.
-        cx.on_window_closed(|cx| {
-            if cx.windows().is_empty() {
-                welcome::open(cx);
-            }
-        })
-        .detach();
         cx.activate(true);
+        splash::show(cx, move |cx| {
+            match &root {
+                Some(root) => {
+                    if let Err(err) = open_project_window(std::path::Path::new(root), cx) {
+                        eprintln!("failed to open window: {err:#}");
+                        cx.quit();
+                    }
+                }
+                None => welcome::open(cx),
+            }
+            // Closing the last project brings the welcome window back.
+            cx.on_window_closed(|cx| {
+                if cx.windows().is_empty() {
+                    welcome::open(cx);
+                }
+            })
+            .detach();
+        });
     });
 }
