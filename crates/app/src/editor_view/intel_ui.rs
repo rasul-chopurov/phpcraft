@@ -319,7 +319,17 @@ impl EditorView {
         if self.buffer.is_php()
             && let Some(path) = &path
         {
-            let found = self.intel.with_doc(path, &text, |doc, _| php_analysis::intentions(doc, offset)).unwrap_or_default();
+            let laravel = self.intel.is_laravel();
+            let found = self
+                .intel
+                .with_doc(path, &text, |doc, _| {
+                    let mut all = php_analysis::intentions(doc, offset);
+                    if laravel {
+                        all.extend(laravel::intentions::intentions(doc, offset));
+                    }
+                    all
+                })
+                .unwrap_or_default();
             for intention in found {
                 items.push(MenuItem::new(intention.label, "", "💡", MenuAction::Edits(intention.edits.into_iter().map(|e| (e.range, e.text)).collect())));
             }
