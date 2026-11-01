@@ -3,6 +3,7 @@
 mod bookmarks;
 mod find_bar;
 mod folding;
+mod generate;
 mod rows;
 mod ghost;
 mod intel_ui;
@@ -92,6 +93,7 @@ actions!(
         HighlightUsages,
         ClearUsageHighlights,
         RenameSymbol,
+        Generate,
         ExtendSelection,
         ShrinkSelection,
         JoinLines,
@@ -1016,6 +1018,7 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::highlight_usages))
             .on_action(cx.listener(Self::clear_usage_highlights))
             .on_action(cx.listener(Self::rename_symbol))
+            .on_action(cx.listener(Self::generate))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))

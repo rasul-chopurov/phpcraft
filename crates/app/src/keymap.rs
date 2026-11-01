@@ -121,6 +121,7 @@ const DEFAULTS: &[Default] = &[
     // Usages.
     both("alt-f7", "editor::FindUsages", ED),
     both("shift-f6", "editor::RenameSymbol", ED),
+    per("cmd-n", "alt-insert", "editor::Generate", ED),
     both("secondary-shift-f7", "editor::HighlightUsages", ED),
     both("escape", "editor::ClearUsageHighlights", Some("Editor && usages")),
     // Bookmarks.

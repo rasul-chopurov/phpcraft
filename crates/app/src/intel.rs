@@ -204,6 +204,13 @@ impl Intel {
         }
     }
 
+    /// Runs `f` on the parsed file and the index (Code ▸ Generate and other one-off analyses).
+    pub fn with_doc<T>(&self, path: &Path, source: &str, f: impl FnOnce(&Document, &php_index::Index) -> T) -> Option<T> {
+        let index = self.index.read().unwrap();
+        let doc = Document::parse(path, source)?;
+        Some(f(&doc, &index))
+    }
+
     /// The symbol under `offset`, for Find Usages.
     pub fn symbol_at(&self, path: &Path, source: &str, offset: usize) -> Option<php_analysis::Symbol> {
         let index = self.index.read().unwrap();

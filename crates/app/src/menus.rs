@@ -149,6 +149,7 @@ pub fn set(cx: &mut App) {
             &[
                 Some(("Code Completion", "editor::ShowCompletions")),
                 Some(("Show Intention Actions", "editor::ShowIntentions")),
+                Some(("Generate…", "editor::Generate")),
                 Some(("Optimize Imports", "editor::OptimizeImports")),
                 Some(("Comment with Line Comment", "editor::ToggleComment")),
                 None,

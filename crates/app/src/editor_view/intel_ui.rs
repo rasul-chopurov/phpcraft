@@ -33,6 +33,8 @@ pub enum MenuAction {
     OptimizeImports,
     Paste(String),
     Mnemonic(char),
+    Generate(super::generate::GenerateKind),
+    OverrideMethod(String),
     Nothing,
 }
 
@@ -448,6 +450,8 @@ impl EditorView {
             MenuAction::OptimizeImports => self.run_optimize_imports(cx),
             MenuAction::Paste(text) => self.paste_text(&text, cx),
             MenuAction::Mnemonic(c) => self.set_bookmark_mnemonic(c, cx),
+            MenuAction::Generate(kind) => self.run_generate(kind, window, cx),
+            MenuAction::OverrideMethod(name) => self.override_method(&name, cx),
             MenuAction::Nothing => {}
         }
         cx.notify();

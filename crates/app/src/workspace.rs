@@ -31,7 +31,7 @@ pub enum WorkspaceEvent {
 
 impl gpui::EventEmitter<WorkspaceEvent> for Workspace {}
 pub(crate) use agent_panel::{load_config as load_agent_config, save_config as save_agent_config};
-pub use tools::{OpenKeymap, OpenLaravelSettings, SyncPull, SyncPush};
+pub use tools::{OpenKeymap, OpenLaravelSettings, OpenMake, SyncPull, SyncPush};
 mod navigation;
 mod tools;
 
