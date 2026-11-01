@@ -656,7 +656,11 @@ impl Workspace {
                 .rounded_md()
                 .cursor_pointer()
                 .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
-                .child(format!("⎇ {branch}{sync}"))
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(crate::icons::icon(crate::icons::Icon::branch, 12., theme::muted()))
+                .child(format!("{branch}{sync}"))
                 .on_click(cx.listener(|this, _, w, cx| {
                     // From the status bar: open the branch popup above it.
                     this.open_branches_dropdown(w, cx);

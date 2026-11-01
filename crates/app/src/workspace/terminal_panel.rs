@@ -249,19 +249,17 @@ impl Workspace {
             .child(
                 button("run-config")
                     .child(SharedString::from(selected.map(|c| c.name).unwrap_or_else(|| "Current File".into())))
-                    .child(div().text_color(theme::muted()).child("▾"))
+                    .child(crate::icons::icon(crate::icons::Icon::chevron_down, 11., theme::muted()))
                     .on_click(cx.listener(|this, _, window, cx| this.run_popup(&RunPopup, window, cx))),
             )
             .child(
                 button("run-start")
-                    .text_color(theme::success())
-                    .child("▶")
+                    .child(crate::icons::icon(crate::icons::Icon::play, 13., theme::success()))
                     .on_click(cx.listener(|this, _, window, cx| this.run_last(&RunLast, window, cx))),
             )
             .child(
                 button("run-stop")
-                    .text_color(if running { theme::error() } else { theme::muted() })
-                    .child("■")
+                    .child(crate::icons::icon(crate::icons::Icon::stop, 13., if running { theme::error() } else { theme::muted() }))
                     .on_click(cx.listener(|this, _, window, cx| this.stop_run(&StopRun, window, cx))),
             )
     }

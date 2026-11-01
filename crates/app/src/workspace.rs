@@ -407,18 +407,13 @@ impl Workspace {
                 .text_color(theme::ui_text())
                 .when(selected, |d| d.bg(theme::active_row()))
                 .when(!selected, |d| d.hover(|d| d.bg(theme::hover())))
-                .child(
-                    div()
-                        .w(px(10.))
-                        .flex_none()
-                        .text_size(px(9.))
-                        .text_color(theme::muted())
-                        .child(match (row.entry.is_dir, row.expanded) {
-                            (true, true) => "▼",
-                            (true, false) => "▶",
-                            _ => "",
-                        }),
-                )
+                .child(div().w(px(12.)).flex_none().flex().justify_center().when(row.entry.is_dir, |d| {
+                    d.child(crate::icons::icon(
+                        if row.expanded { crate::icons::Icon::chevron_down } else { crate::icons::Icon::chevron_right },
+                        11.,
+                        theme::muted(),
+                    ))
+                }))
                 .child(div().w(px(16.)).flex_none().flex().justify_center().child(icon))
                 .child(div().overflow_hidden().whitespace_nowrap().child(SharedString::from(row.entry.name.clone())))
                 .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
@@ -536,7 +531,11 @@ impl Workspace {
                             .rounded_sm()
                             .cursor_pointer()
                             .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
-                            .child("› Terminal")
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(crate::icons::icon(crate::icons::Icon::terminal, 12., theme::muted()))
+                            .child("Terminal")
                             .on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(&terminal_panel::ToggleTerminal, window, cx))),
                     ),
             )
@@ -551,8 +550,12 @@ impl Workspace {
                             String::new()
                         };
                         div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
                             .text_color(theme::accent())
-                            .child(format!("⟳ {label}{more}"))
+                            .child(crate::icons::icon(crate::icons::Icon::refresh, 12., theme::accent()))
+                            .child(format!("{label}{more}"))
                     }))
                     .when(self.tasks.is_empty(), |d| {
                         d.child(SharedString::from(self.index_status()))
@@ -572,7 +575,11 @@ impl Workspace {
                             .rounded_sm()
                             .cursor_pointer()
                             .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
-                            .child("⟳ Reindex")
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(crate::icons::icon(crate::icons::Icon::refresh, 12., theme::muted()))
+                            .child("Reindex")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 // Rebuild the code index and the cached file list.
                                 this.files_cache = None;

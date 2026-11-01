@@ -10,6 +10,7 @@ use crate::dialogs::{
     ArtisanDialog, ArtisanRunDialog, DialogEvent, HelperCodeDialog, KeymapDialog,
     LaravelSettingsDialog, MakeChooser, MakeDialog, RouteSearchDialog, SettingsDialog, ThemeDialog,
 };
+use crate::icons::{Icon, icon};
 use crate::theme;
 use laravel::make::MakeKind;
 
@@ -762,20 +763,22 @@ impl Workspace {
     }
 
     pub(super) fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let tool = |id: &'static str, label: &'static str, shortcut: &'static str| {
+        let tool = |id: &'static str, glyph: Option<Icon>, label: &'static str, shortcut: &'static str| {
             div()
                 .id(id)
                 .flex()
                 .items_center()
-                .gap_1()
+                .gap_1p5()
                 .px_2()
-                .h(px(22.))
-                .rounded_sm()
+                .h(px(24.))
+                .rounded_md()
                 .cursor_pointer()
                 .hover(|d| d.bg(theme::hover()))
-                .child(label)
-                .child(div().text_color(theme::muted()).child(shortcut))
+                .children(glyph.map(|g| icon(g, 14., theme::muted())))
+                .when(!label.is_empty(), |d| d.child(label))
+                .when(!shortcut.is_empty(), |d| d.child(div().text_color(theme::muted()).child(shortcut)))
         };
+        let chevron = || icon(Icon::chevron_down, 11., theme::muted());
         let laravel = self.intel.is_laravel();
         div()
             .flex()
@@ -803,38 +806,38 @@ impl Workspace {
                     .hover(|d| d.bg(theme::hover()))
                     .child(crate::dialogs::avatar(&name, 18.))
                     .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(SharedString::from(name)))
-                    .child(div().text_color(theme::muted()).child("▾"))
+                    .child(chevron())
                     .on_click(cx.listener(|this, _, window, cx| this.open_projects(&OpenProjects, window, cx)))
             })
             .when_some(self.git.branch.clone(), |d, branch| {
-                d.child(tool("tool-branch", "", "").child(format!("⎇ {branch}")).child(div().text_color(theme::muted()).child("▾")).on_click(cx.listener(
+                d.child(tool("tool-branch", Some(Icon::branch), "", "").child(branch).child(chevron()).on_click(cx.listener(
                     |this, _, window, cx| this.open_branches_dropdown(window, cx),
                 )))
             })
             .child(div().flex_1())
-            .child(tool("tool-search", "⌕ Search", "⇧⇧").on_click(cx.listener(|this, _, window, cx| {
+            .child(tool("tool-search", Some(Icon::search), "Search", "⇧⇧").on_click(cx.listener(|this, _, window, cx| {
                 this.search_everywhere(&super::navigation::SearchEverywhere, window, cx)
             })))
-            .child(tool("tool-git", "Git", "⌘9").on_click(cx.listener(|this, _, window, cx| {
+            .child(tool("tool-git", Some(Icon::commit), "Git", "⌘9").on_click(cx.listener(|this, _, window, cx| {
                 this.toggle_git_log(&super::git_panel::ToggleGitLog, window, cx)
             })))
             .child(self.render_run_widget(cx))
             .child(
-                tool("tool-agent", "✦ AI", "").on_click(cx.listener(|this, _, window, cx| this.toggle_agent(&super::agent_panel::ToggleAgent, window, cx))),
+                tool("tool-agent", Some(Icon::sparkles), "AI", "").on_click(cx.listener(|this, _, window, cx| this.toggle_agent(&super::agent_panel::ToggleAgent, window, cx))),
             )
             .when(laravel, |d| {
                 d.child(
                     div()
                         .flex()
                         .flex_col()
-                        .child(tool("tool-laravel", "◈ Laravel", "▾").on_click(cx.listener(
+                        .child(tool("tool-laravel", Some(Icon::laravel), "Laravel", "").child(chevron()).on_click(cx.listener(
                             |this, _, window, cx| {
                                 this.toggle_laravel_menu(&ToggleLaravelMenu, window, cx)
                             },
                         )))
                         .children(self.render_laravel_menu(cx)),
                 )
-                .child(tool("tool-artisan", "▶ Artisan", "⌃⇧X").on_click(
+                .child(tool("tool-artisan", Some(Icon::terminal), "Artisan", "⌃⇧X").on_click(
                     cx.listener(|this, _, window, cx| this.open_artisan(&OpenArtisan, window, cx)),
                 ))
             })
@@ -842,7 +845,7 @@ impl Workspace {
                 div()
                     .flex()
                     .flex_col()
-                    .child(tool("tool-prefs", "⚙", "").on_click(cx.listener(
+                    .child(tool("tool-prefs", Some(Icon::settings), "", "").on_click(cx.listener(
                         |this, _, window, cx| this.toggle_prefs_menu(&TogglePrefsMenu, window, cx),
                     )))
                     .children(self.render_prefs_menu(cx)),
