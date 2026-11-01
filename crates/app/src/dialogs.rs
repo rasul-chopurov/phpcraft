@@ -5,6 +5,7 @@ mod git;
 mod make;
 mod navigate;
 mod prefs;
+mod datasource;
 mod input;
 mod projects;
 mod run;
@@ -25,6 +26,7 @@ pub use git::{BranchDialog, ConfirmDialog, GitCommand, LocalHistoryDialog};
 pub use make::{MakeChooser, MakeDialog};
 pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
 pub use prefs::{KeymapDialog, SettingsDialog, ThemeDialog};
+pub use datasource::DataSourceDialog;
 pub use input::{FileOp, InputDialog};
 pub use projects::{ProjectDialog, avatar, project_name, tilde};
 pub use run::RunDialog;
@@ -86,6 +88,7 @@ pub enum DialogEvent {
     EditRunConfigurations,
     /// From [`InputDialog`]: `name` is empty for Delete.
     FileOp { op: FileOp, name: String },
+    DataSourceSaved { source: laravel::datasource::DataSource, password: String },
 }
 
 /// The square of a checkbox, without a label.

@@ -551,12 +551,18 @@ impl Workspace {
         if self.on_run_dialog_event(event, window, cx) {
             return;
         }
+        if let DialogEvent::DataSourceSaved { source, password } = event {
+            let (source, password) = (source.clone(), password.clone());
+            self.dismiss_modal(window, cx);
+            self.save_data_source(source, password, cx);
+            return;
+        }
         if let Some((op, name)) = event.file_op() {
             self.apply_file_op(op, &name, window, cx);
             return;
         }
         match event {
-            DialogEvent::Run { .. } | DialogEvent::EditRunConfigurations | DialogEvent::FileOp { .. } => {}
+            DialogEvent::Run { .. } | DialogEvent::EditRunConfigurations | DialogEvent::FileOp { .. } | DialogEvent::DataSourceSaved { .. } => {}
             DialogEvent::Dismiss => self.dismiss_modal(window, cx),
             DialogEvent::CommandsLoaded(list) => self.artisan_commands = Some(list.clone()),
             DialogEvent::Created(paths) => {
