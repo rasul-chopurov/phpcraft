@@ -1,4 +1,5 @@
 mod editor_view;
+mod intel;
 mod theme;
 mod workspace;
 
@@ -9,7 +10,7 @@ use gpui::{
 use project::Project;
 
 use editor_view::*;
-use workspace::{CloseTab, NextTab, PrevTab, Workspace};
+use workspace::{CloseTab, NavigateBack, NextTab, PrevTab, Workspace};
 
 actions!(phpcraft, [Quit]);
 
@@ -47,10 +48,25 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-z", Undo, editor),
         KeyBinding::new("cmd-shift-z", Redo, editor),
         KeyBinding::new("cmd-s", Save, editor),
+        KeyBinding::new("cmd-b", GoToDeclaration, editor),
+        KeyBinding::new("ctrl-space", ShowCompletions, editor),
+        KeyBinding::new("alt-enter", ShowIntentions, editor),
+        KeyBinding::new("ctrl-alt-o", OptimizeImports, editor),
+        KeyBinding::new("cmd-[", NavigateBack, None),
+        KeyBinding::new("cmd-alt-left", NavigateBack, None),
         KeyBinding::new("cmd-w", CloseTab, None),
         KeyBinding::new("ctrl-tab", NextTab, None),
         KeyBinding::new("ctrl-shift-tab", PrevTab, None),
         KeyBinding::new("cmd-q", Quit, None),
+    ]);
+    // Bound last so they win over the plain editor bindings while a popup is open.
+    let menu = Some("Editor && menu");
+    cx.bind_keys([
+        KeyBinding::new("up", MenuUp, menu),
+        KeyBinding::new("down", MenuDown, menu),
+        KeyBinding::new("enter", MenuConfirm, menu),
+        KeyBinding::new("tab", MenuConfirm, menu),
+        KeyBinding::new("escape", MenuCancel, menu),
     ]);
 }
 

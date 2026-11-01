@@ -1,17 +1,27 @@
 //! Code editor view: renders a [`Buffer`] with gutter, highlighting, caret and selection.
 
+mod intel_ui;
+
 use std::ops::Range;
+use std::sync::Arc;
 
 use editor::{Buffer, Selection};
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hsla, LayoutId, MouseButton,
+    EntityInputHandler, FocusHandle, KeyContext, Focusable, GlobalElementId, Hsla, LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ScrollWheelEvent,
     ShapedLine, SharedString, Style, TextRun, UTF16Selection, Window, actions, fill, font, point,
     prelude::*, px, relative, size,
 };
 
+use crate::intel::Intel;
 use crate::theme;
+use crate::workspace::Workspace;
+use intel_ui::Menu;
+pub use intel_ui::{
+    GoToDeclaration, MenuCancel, MenuConfirm, MenuDown, MenuUp, OptimizeImports, ShowCompletions,
+    ShowIntentions,
+};
 
 actions!(
     editor,
@@ -64,18 +74,41 @@ pub struct EditorView {
     focus_handle: FocusHandle,
     scroll_y: Pixels,
     autoscroll: bool,
+    /// Scroll so the caret sits near the middle (after navigation).
+    center_on_caret: bool,
     is_selecting: bool,
     marked_range: Option<Range<usize>>,
     layout: Option<LayoutInfo>,
+    intel: Arc<Intel>,
+    workspace: gpui::WeakEntity<Workspace>,
+    menu: Option<Menu>,
+    /// Byte range underlined while ⌘ is held over a navigable symbol.
+    hover_link: Option<Range<usize>>,
+    /// Unresolved class references for the buffer version they were computed for.
+    diagnostics: Option<(u64, Vec<php_analysis::Unresolved>)>,
+    /// Window position just below the caret, for anchoring popups.
+    caret_point: Option<Point<Pixels>>,
 }
 
 impl EditorView {
-    pub fn new(buffer: Buffer, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        buffer: Buffer,
+        intel: Arc<Intel>,
+        workspace: gpui::WeakEntity<Workspace>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         Self {
+            intel,
+            workspace,
+            menu: None,
+            hover_link: None,
+            diagnostics: None,
+            caret_point: None,
             buffer,
             focus_handle: cx.focus_handle(),
             scroll_y: px(0.),
             autoscroll: false,
+            center_on_caret: false,
             is_selecting: false,
             marked_range: None,
             layout: None,
@@ -91,6 +124,25 @@ impl EditorView {
         cx.notify();
     }
 
+    /// Moves the caret to a byte offset and scrolls it into view.
+    pub fn reveal_byte(&mut self, byte: usize, cx: &mut Context<Self>) {
+        let ix = self.buffer.byte_to_char(byte);
+        self.reveal_char(ix, cx);
+    }
+
+    pub fn reveal_char(&mut self, ix: usize, cx: &mut Context<Self>) {
+        self.buffer.move_to(ix, false);
+        self.close_menu();
+        self.center_on_caret = true;
+        self.changed(cx);
+    }
+
+    /// Caret movement closes popups.
+    fn moved(&mut self, cx: &mut Context<Self>) {
+        self.close_menu();
+        self.changed(cx);
+    }
+
     fn visible_lines(&self) -> isize {
         self.layout
             .as_ref()
@@ -101,83 +153,87 @@ impl EditorView {
 
     fn move_left(&mut self, _: &MoveLeft, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_left(false);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn move_right(&mut self, _: &MoveRight, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_right(false);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn move_up(&mut self, _: &MoveUp, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_vertical(-1, false);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn move_down(&mut self, _: &MoveDown, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_vertical(1, false);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn select_left(&mut self, _: &SelectLeft, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_left(true);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn select_right(&mut self, _: &SelectRight, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_right(true);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn select_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_vertical(-1, true);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn select_down(&mut self, _: &SelectDown, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_vertical(1, true);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn move_home(&mut self, _: &MoveHome, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_home(false);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn move_end(&mut self, _: &MoveEnd, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_end(false);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn select_home(&mut self, _: &SelectHome, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_home(true);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn select_end(&mut self, _: &SelectEnd, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_end(true);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn page_up(&mut self, _: &PageUp, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_vertical(-self.visible_lines(), false);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn page_down(&mut self, _: &PageDown, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_vertical(self.visible_lines(), false);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn doc_start(&mut self, _: &DocStart, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_to(0, false);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn doc_end(&mut self, _: &DocEnd, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.move_to(self.buffer.len_chars(), false);
-        self.changed(cx);
+        self.moved(cx);
     }
     fn backspace(&mut self, _: &Backspace, _: &mut Window, cx: &mut Context<Self>) {
+        let completing = self.menu_is_completion();
         self.buffer.backspace();
         self.changed(cx);
+        if completing {
+            self.refresh_completion(false, cx);
+        }
     }
     fn delete(&mut self, _: &Delete, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.delete();
-        self.changed(cx);
+        self.moved(cx);
     }
     fn newline(&mut self, _: &Newline, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.newline();
-        self.changed(cx);
+        self.moved(cx);
     }
     fn tab(&mut self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.tab();
-        self.changed(cx);
+        self.moved(cx);
     }
     fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.select_all();
@@ -185,11 +241,11 @@ impl EditorView {
     }
     fn undo(&mut self, _: &Undo, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.undo();
-        self.changed(cx);
+        self.moved(cx);
     }
     fn redo(&mut self, _: &Redo, _: &mut Window, cx: &mut Context<Self>) {
         self.buffer.redo();
-        self.changed(cx);
+        self.moved(cx);
     }
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
         if !self.buffer.selection.is_empty() {
@@ -212,6 +268,9 @@ impl EditorView {
     fn save(&mut self, _: &Save, _: &mut Window, cx: &mut Context<Self>) {
         if let Err(err) = self.buffer.save() {
             eprintln!("save failed: {err:#}");
+        }
+        if let Some(path) = self.buffer.path() {
+            self.intel.update_file(path, &self.buffer.text());
         }
         cx.notify();
     }
@@ -237,6 +296,10 @@ impl EditorView {
 
     fn on_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus_handle);
+        self.close_menu();
+        if self.cmd_click(event, window, cx) {
+            return;
+        }
         if let Some(ix) = self.char_for_position(event.position) {
             if event.click_count >= 2 {
                 self.select_word_at(ix);
@@ -267,6 +330,7 @@ impl EditorView {
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        self.update_hover_link(event.position, event.modifiers.platform, cx);
         if self.is_selecting
             && let Some(ix) = self.char_for_position(event.position)
         {
@@ -338,6 +402,7 @@ impl EntityInputHandler for EditorView {
             .unwrap_or(self.buffer.selection.range());
         self.buffer.replace(range, new_text);
         self.changed(cx);
+        self.after_typing(new_text, cx);
     }
 
     fn replace_and_mark_text_in_range(
@@ -400,12 +465,31 @@ impl Focusable for EditorView {
 
 impl Render for EditorView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut key_context = KeyContext::new_with_defaults();
+        key_context.add("Editor");
+        if self.menu_open() {
+            key_context.add("menu");
+        }
+        let cursor = if self.hover_link.is_some() { CursorStyle::PointingHand } else { CursorStyle::IBeam };
         gpui::div()
-            .key_context("Editor")
+            .key_context(key_context)
             .track_focus(&self.focus_handle)
             .size_full()
             .overflow_hidden()
-            .cursor(CursorStyle::IBeam)
+            .cursor(cursor)
+            .on_action(cx.listener(Self::go_to_declaration))
+            .on_action(cx.listener(Self::show_completions))
+            .on_action(cx.listener(Self::show_intentions))
+            .on_action(cx.listener(Self::optimize_imports))
+            .on_action(cx.listener(Self::menu_up))
+            .on_action(cx.listener(Self::menu_down))
+            .on_action(cx.listener(Self::menu_confirm))
+            .on_action(cx.listener(Self::menu_cancel))
+            .on_modifiers_changed(cx.listener(|this, event: &gpui::ModifiersChangedEvent, _, cx| {
+                if !event.modifiers.platform {
+                    this.clear_hover_link(cx);
+                }
+            }))
             .bg(theme::editor_bg())
             .on_action(cx.listener(Self::move_left))
             .on_action(cx.listener(Self::move_right))
@@ -440,6 +524,7 @@ impl Render for EditorView {
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
             .child(EditorElement { view: cx.entity() })
+            .children(self.render_menu(cx))
     }
 }
 
@@ -460,6 +545,7 @@ pub struct EditorPrepaint {
     first_line: usize,
     current_line_y: Option<Pixels>,
     selection: Vec<PaintQuad>,
+    underlines: Vec<PaintQuad>,
     caret: Option<PaintQuad>,
 }
 
@@ -526,6 +612,11 @@ impl Element for EditorElement {
 
             // Keep the caret visible after keyboard edits and movement.
             let (caret_line, caret_col) = view.buffer.char_to_line_col(view.buffer.selection.head);
+            if std::mem::take(&mut view.center_on_caret) {
+                view.autoscroll = false;
+                let caret_top = line_height * caret_line as f32;
+                view.scroll_y = (caret_top - bounds.size.height / 3.).max(px(0.));
+            }
             if std::mem::take(&mut view.autoscroll) {
                 let caret_top = line_height * caret_line as f32;
                 let viewport = bounds.size.height - line_height;
@@ -542,6 +633,10 @@ impl Element for EditorElement {
             let offset_y = bounds.top() - (view.scroll_y - line_height * first_line as f32);
             let selection = view.buffer.selection.range();
             let spans = view.buffer.highlights().to_vec();
+            let problems: Vec<Range<usize>> =
+                view.current_diagnostics().iter().map(|u| u.range.clone()).collect();
+            let link = view.hover_link.clone();
+            let mut underlines = Vec::new();
 
             let mut lines = Vec::new();
             let mut selection_quads = Vec::new();
@@ -610,6 +705,30 @@ impl Element for EditorElement {
                         theme::caret(),
                     ));
                 }
+                let underline = |range: &Range<usize>, color: Hsla, out: &mut Vec<PaintQuad>| {
+                    if range.end <= line_start || range.start > line_end || range.is_empty() {
+                        return;
+                    }
+                    let x0 = shaped.x_for_index(range.start.max(line_start) - line_start);
+                    let x1 = shaped.x_for_index(range.end.min(line_end) - line_start);
+                    out.push(fill(
+                        Bounds::from_corners(
+                            point(text_x + x0, y + line_height - px(3.)),
+                            point(text_x + x1, y + line_height - px(1.5)),
+                        ),
+                        color,
+                    ));
+                };
+                for problem in &problems {
+                    underline(problem, theme::error(), &mut underlines);
+                }
+                if let Some(link) = &link {
+                    underline(link, theme::link(), &mut underlines);
+                }
+                if line == caret_line {
+                    let x = shaped.x_for_index(byte_of_col(&text, caret_col));
+                    view.caret_point = Some(point(text_x + x, y + line_height));
+                }
                 lines.push(PaintLine { number, text, shaped, y });
             }
 
@@ -621,6 +740,7 @@ impl Element for EditorElement {
                 first_line,
                 current_line_y,
                 selection: selection_quads,
+                underlines,
                 caret,
             }
         })
@@ -652,7 +772,7 @@ impl Element for EditorElement {
                 theme::current_line(),
             ));
         }
-        for quad in prepaint.selection.drain(..) {
+        for quad in prepaint.selection.drain(..).chain(prepaint.underlines.drain(..)) {
             window.paint_quad(quad);
         }
         for line in &prepaint.lines {

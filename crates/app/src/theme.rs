@@ -48,6 +48,12 @@ pub fn active_row() -> Hsla {
 pub fn tab_active() -> Hsla {
     rgb(0x4e5254).into()
 }
+pub fn error() -> Hsla {
+    rgb(0xbc3f3c).into()
+}
+pub fn link() -> Hsla {
+    rgb(0x589df6).into()
+}
 pub fn accent() -> Hsla {
     rgb(0x4a88c7).into()
 }

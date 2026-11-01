@@ -39,6 +39,8 @@ struct Edit {
     new: String,
     before: Selection,
     after: Selection,
+    /// Edits sharing a group are undone together.
+    group: u64,
 }
 
 pub struct Buffer {
@@ -50,6 +52,7 @@ pub struct Buffer {
     redo: Vec<Edit>,
     saved_version: u64,
     version: u64,
+    next_group: u64,
     highlights: Option<(u64, Vec<Span>)>,
 }
 
@@ -64,6 +67,7 @@ impl Buffer {
             redo: Vec::new(),
             saved_version: 0,
             version: 0,
+            next_group: 0,
             highlights: None,
         }
     }
@@ -160,6 +164,14 @@ impl Buffer {
         self.rope.utf16_cu_to_char(utf16.min(self.rope.len_utf16_cu()))
     }
 
+    pub fn byte_to_char(&self, byte: usize) -> usize {
+        self.rope.byte_to_char(byte.min(self.rope.len_bytes()))
+    }
+
+    pub fn char_to_byte(&self, char_idx: usize) -> usize {
+        self.rope.char_to_byte(char_idx.min(self.len_chars()))
+    }
+
     pub fn slice(&self, range: Range<usize>) -> String {
         self.rope.slice(range).to_string()
     }
@@ -195,6 +207,11 @@ impl Buffer {
 
     /// Replaces `range` with `text` and puts the caret after the inserted text.
     pub fn replace(&mut self, range: Range<usize>, text: &str) {
+        self.next_group += 1;
+        self.replace_in_group(range, text, self.next_group);
+    }
+
+    fn replace_in_group(&mut self, range: Range<usize>, text: &str, group: u64) {
         let before = self.selection;
         let caret = range.start + text.chars().count();
         let edit = Edit {
@@ -203,10 +220,37 @@ impl Buffer {
             new: text.to_string(),
             before,
             after: Selection::caret(caret),
+            group,
         };
         self.apply(&edit, false);
         self.push_undo(edit);
         self.redo.clear();
+    }
+
+    /// Applies non-overlapping byte-range edits as one undo step, then puts the caret at
+    /// `caret` (a byte offset in the text before the edits, shifted by edits ending before it).
+    pub fn apply_edits(&mut self, mut edits: Vec<(Range<usize>, String)>, caret: usize) {
+        if edits.is_empty() {
+            return;
+        }
+        let shift: isize = edits
+            .iter()
+            .filter(|(range, _)| range.end <= caret)
+            .map(|(range, text)| text.len() as isize - range.len() as isize)
+            .sum();
+        let caret = (caret as isize + shift).max(0) as usize;
+        edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+        self.next_group += 1;
+        let group = self.next_group;
+        for (range, text) in edits {
+            let chars = self.byte_to_char(range.start)..self.byte_to_char(range.end);
+            self.replace_in_group(chars, &text, group);
+        }
+        let caret = self.byte_to_char(caret);
+        self.selection = Selection::caret(caret);
+        if let Some(last) = self.undo.last_mut() {
+            last.after = self.selection;
+        }
     }
 
     pub fn insert(&mut self, text: &str) {
@@ -253,14 +297,18 @@ impl Buffer {
     }
 
     pub fn undo(&mut self) {
-        if let Some(edit) = self.undo.pop() {
+        let Some(group) = self.undo.last().map(|e| e.group) else { return };
+        while self.undo.last().is_some_and(|e| e.group == group) {
+            let edit = self.undo.pop().unwrap();
             self.apply(&edit, true);
             self.redo.push(edit);
         }
     }
 
     pub fn redo(&mut self) {
-        if let Some(edit) = self.redo.pop() {
+        let Some(group) = self.redo.last().map(|e| e.group) else { return };
+        while self.redo.last().is_some_and(|e| e.group == group) {
+            let edit = self.redo.pop().unwrap();
             self.apply(&edit, false);
             self.undo.push(edit);
         }
@@ -288,8 +336,9 @@ impl Buffer {
                 && last.start + last.new.chars().count() == edit.start
                 && !edit.new.contains(char::is_whitespace)
                 && !last.new.contains(char::is_whitespace);
-            if typing {
+            if typing && last.group + 1 == edit.group {
                 last.new.push_str(&edit.new);
+                last.group = edit.group;
                 last.after = edit.after;
                 return;
             }
@@ -403,6 +452,21 @@ mod tests {
         assert_eq!(b.char_to_line_col(b.selection.head), (1, 2));
         b.move_vertical(1, false);
         assert_eq!(b.char_to_line_col(b.selection.head), (2, 5));
+    }
+
+    #[test]
+    fn grouped_edits_undo_together() {
+        let src = "<?php\nnamespace A;\n\nPos";
+        let mut b = Buffer::new(src);
+        let caret = src.len();
+        b.apply_edits(
+            vec![(caret - 3..caret, "Post".into()), (18..18, "\nuse App\\Post;".into())],
+            caret,
+        );
+        assert_eq!(b.text(), "<?php\nnamespace A;\nuse App\\Post;\n\nPost");
+        assert_eq!(b.selection.head, b.len_chars());
+        b.undo();
+        assert_eq!(b.text(), src);
     }
 
     #[test]

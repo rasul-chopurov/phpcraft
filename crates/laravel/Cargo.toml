@@ -1,0 +1,9 @@
+[package]
+name = "laravel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+php-index.workspace = true
+php-analysis.workspace = true

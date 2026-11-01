@@ -1,6 +1,7 @@
 //! Main window: project tree, editor tabs and status bar.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use gpui::{
     Context, Entity, FocusHandle, Focusable, MouseButton, SharedString, Window, actions, div,
@@ -10,9 +11,11 @@ use editor::Buffer;
 use project::{Project, Row};
 
 use crate::editor_view::EditorView;
+use crate::intel::Intel;
+use php_index::Location;
 use crate::theme;
 
-actions!(workspace, [CloseTab, NextTab, PrevTab]);
+actions!(workspace, [CloseTab, NextTab, PrevTab, NavigateBack]);
 
 pub struct Workspace {
     project: Project,
@@ -21,12 +24,24 @@ pub struct Workspace {
     active: usize,
     selected_path: Option<PathBuf>,
     focus_handle: FocusHandle,
+    intel: Arc<Intel>,
+    /// Positions to return to with ⌘[ (file, caret char index).
+    history: Vec<(PathBuf, usize)>,
 }
 
 impl Workspace {
     pub fn new(project: Project, cx: &mut Context<Self>) -> Self {
         let rows = project.rows();
+        let intel = Intel::new(project.root());
+        let scanning = intel.clone();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().spawn(async move { scanning.scan() }).await;
+            this.update(cx, |_, cx| cx.notify()).ok();
+        })
+        .detach();
         Self {
+            intel,
+            history: Vec::new(),
             project,
             rows,
             tabs: Vec::new(),
@@ -69,10 +84,46 @@ impl Workspace {
                 return;
             }
         };
-        let editor = cx.new(|cx| EditorView::new(buffer, cx));
+        let intel = self.intel.clone();
+        let workspace = cx.weak_entity();
+        let editor = cx.new(|cx| EditorView::new(buffer, intel, workspace, cx));
         cx.observe(&editor, |_, _, cx| cx.notify()).detach();
         self.tabs.push(editor);
         self.activate(self.tabs.len() - 1, window, cx);
+    }
+
+    /// Opens `location` (a byte range), remembering `from` for ⌘[.
+    pub fn open_location(
+        &mut self,
+        location: &Location,
+        from: Option<(PathBuf, usize)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(from) = from {
+            self.history.push(from);
+        }
+        self.open_file(&location.path, window, cx);
+        let start = location.range.start;
+        if let Some(tab) = self.active_tab_for(&location.path, cx) {
+            tab.update(cx, |editor, cx| editor.reveal_byte(start, cx));
+        }
+        self.selected_path = Some(location.path.clone());
+    }
+
+    fn active_tab_for(&self, path: &Path, cx: &gpui::App) -> Option<Entity<EditorView>> {
+        self.tabs
+            .iter()
+            .find(|tab| tab.read(cx).buffer.path() == Some(path))
+            .cloned()
+    }
+
+    fn navigate_back(&mut self, _: &NavigateBack, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((path, char_ix)) = self.history.pop() else { return };
+        self.open_file(&path, window, cx);
+        if let Some(tab) = self.active_tab_for(&path, cx) {
+            tab.update(cx, |editor, cx| editor.reveal_char(char_ix, cx));
+        }
     }
 
     fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -235,7 +286,19 @@ impl Workspace {
             .text_size(px(12.))
             .text_color(theme::muted())
             .child(SharedString::from(self.project.root().display().to_string()))
+            .child(SharedString::from(self.index_status()))
             .child(info)
+    }
+}
+
+impl Workspace {
+    fn index_status(&self) -> String {
+        let framework = if self.intel.is_laravel() { "Laravel · " } else { "" };
+        if self.intel.is_ready() {
+            format!("{framework}{} classes indexed", self.intel.class_count())
+        } else {
+            format!("{framework}Indexing…")
+        }
     }
 }
 
@@ -267,6 +330,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::close_tab))
             .on_action(cx.listener(Self::next_tab))
             .on_action(cx.listener(Self::prev_tab))
+            .on_action(cx.listener(Self::navigate_back))
             .size_full()
             .flex()
             .flex_col()

@@ -2882,6 +2882,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "laravel"
+version = "0.1.0"
+dependencies = [
+ "php-analysis",
+ "php-index",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3710,6 +3718,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "php-analysis"
+version = "0.1.0"
+dependencies = [
+ "php-index",
+ "php-syntax",
+ "tree-sitter",
+]
+
+[[package]]
+name = "php-index"
+version = "0.1.0"
+dependencies = [
+ "php-syntax",
+ "tree-sitter",
+]
+
+[[package]]
 name = "php-syntax"
 version = "0.1.0"
 dependencies = [
@@ -3725,6 +3750,9 @@ dependencies = [
  "anyhow",
  "editor",
  "gpui",
+ "laravel",
+ "php-analysis",
+ "php-index",
  "php-syntax",
  "project",
 ]
