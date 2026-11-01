@@ -14,7 +14,7 @@ use project::Project;
 use editor_view::*;
 use workspace::{
     CloseTab, FindInFiles, GoToClass, GoToFile, GoToLine, GoToSymbol, NavigateBack, NextTab, OpenArtisan, OpenMake,
-    OpenRouteSearch, PrevTab, RecentFiles, ReplaceInFiles, SearchEverywhere, Workspace,
+    OpenRouteSearch, PrevTab, RecentFiles, ReplaceInFiles, SearchEverywhere, Workspace, GenerateHelperCode,
 };
 
 actions!(phpcraft, [Quit]);
@@ -69,6 +69,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-shift-a", SearchEverywhere, None),
         KeyBinding::new("cmd-n", OpenMake, None),
         KeyBinding::new("cmd-shift-,", OpenMake, None),
+        KeyBinding::new("cmd-shift-.", GenerateHelperCode, None),
         KeyBinding::new("ctrl-shift-r", OpenRouteSearch, None),
         KeyBinding::new("ctrl-shift-x", OpenArtisan, None),
         KeyBinding::new("cmd-w", CloseTab, None),

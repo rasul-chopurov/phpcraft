@@ -79,6 +79,9 @@ pub struct StringArg {
     pub range: Range<usize>,
     pub callee: Callee,
     pub arg_index: usize,
+    /// Class at the start of a call chain (`User` in `User::where(..)->orderBy('x')`),
+    /// for query builders that don't carry the model type.
+    pub chain_root: Option<String>,
 }
 
 /// Framework-specific handling of string literals (routes, views, config keys...).
@@ -130,7 +133,23 @@ pub fn string_arg_at(doc: &Document, index: &Index, offset: usize) -> Option<Str
         range,
         callee,
         arg_index,
+        chain_root: chain_root(doc, index, call),
     })
+}
+
+/// Walks `a()->b()->c()` back to its first receiver and resolves its class.
+fn chain_root(doc: &Document, index: &Index, call: Node) -> Option<String> {
+    let mut node = call;
+    loop {
+        match node.kind() {
+            "member_call_expression" | "nullsafe_member_call_expression" | "member_access_expression" => {
+                node = node.child_by_field_name("object")?;
+            }
+            "scoped_call_expression" => return types::scope_class(doc, index, node.child_by_field_name("scope")?),
+            "variable_name" | "object_creation_expression" => return types::type_of(doc, index, node, 0),
+            _ => return None,
+        }
+    }
 }
 
 impl StringArg {

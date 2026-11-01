@@ -41,6 +41,8 @@ pub enum DialogEvent {
     /// 0-based line and column.
     GoToLine(usize, usize),
     SettingsSaved,
+    GenerateHelpers,
+    ModelFromTable(String),
     CommandsLoaded(Arc<Vec<ArtisanCommand>>),
 }
 
@@ -756,6 +758,143 @@ impl Render for LaravelSettingsDialog {
                     .border_color(theme::border())
                     .child(button("settings-cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.cancel(&Cancel, window, cx))))
                     .child(button("settings-ok", "OK", true).on_click(cx.listener(|this, _, window, cx| this.confirm(&Confirm, window, cx)))),
+            )
+    }
+}
+
+// --- Generate Helper Code ------------------------------------------------------------
+
+pub struct HelperCodeDialog {
+    root: std::path::PathBuf,
+    settings: laravel::settings::LaravelSettings,
+    open: bool,
+    focus_handle: FocusHandle,
+}
+
+impl EventEmitter<DialogEvent> for HelperCodeDialog {}
+
+impl HelperCodeDialog {
+    pub fn new(root: &Path, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let focus_handle = cx.focus_handle();
+        window.focus(&focus_handle);
+        Self { root: root.to_path_buf(), settings: laravel::settings::LaravelSettings::load(root), open: false, focus_handle }
+    }
+
+    fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
+        let _ = self.settings.save(&self.root);
+        cx.emit(DialogEvent::GenerateHelpers);
+    }
+
+    fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(DialogEvent::Dismiss);
+    }
+}
+
+impl Focusable for HelperCodeDialog {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for HelperCodeDialog {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        use laravel::settings::HelperSource;
+        let helper = &self.settings.helper;
+        let source_label = match helper.source {
+            HelperSource::Migrations => "Migrations",
+            HelperSource::Database => "Database (php artisan model:show)",
+        };
+        let options = self.open.then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .mt_1()
+                .border_1()
+                .border_color(theme::border_strong())
+                .rounded_sm()
+                .children([HelperSource::Migrations, HelperSource::Database].into_iter().map(|source| {
+                    div()
+                        .id(if source == HelperSource::Migrations { "src-migrations" } else { "src-database" })
+                        .px_2()
+                        .h(px(24.))
+                        .flex()
+                        .items_center()
+                        .cursor_pointer()
+                        .hover(|d| d.bg(theme::selection()))
+                        .child(if source == HelperSource::Migrations { "Migrations" } else { "Database (php artisan model:show)" })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.settings.helper.source = source;
+                            this.open = false;
+                            cx.notify();
+                        }))
+                }))
+        });
+        card(520.)
+            .key_context("Dialog")
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(Self::confirm))
+            .on_action(cx.listener(Self::cancel))
+            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child("Generate Helper Code"))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .p_3()
+                    .child(
+                        div()
+                            .flex()
+                            .items_start()
+                            .gap_2()
+                            .child(div().w(px(130.)).pt_1().flex_none().child("Fetch data from:"))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .child(
+                                        div()
+                                            .id("helper-source")
+                                            .h(px(28.))
+                                            .px_2()
+                                            .flex()
+                                            .items_center()
+                                            .justify_between()
+                                            .rounded_sm()
+                                            .border_1()
+                                            .border_color(theme::border_strong())
+                                            .bg(theme::editor_bg())
+                                            .cursor_pointer()
+                                            .child(source_label)
+                                            .child("⌄")
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.open = !this.open;
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .children(options),
+                            ),
+                    )
+                    .child(checkbox("helper-counts", "Add \"*_count\" properties for \"*Many\" relations", helper.relation_counts).on_click(cx.listener(|this, _, _, cx| {
+                        this.settings.helper.relation_counts ^= true;
+                        cx.notify();
+                    })))
+                    .child(checkbox("helper-where", "Add \"where{Column}()\" methods", helper.where_methods).on_click(cx.listener(|this, _, _, cx| {
+                        this.settings.helper.where_methods ^= true;
+                        cx.notify();
+                    })))
+                    .child(div().text_size(px(11.)).text_color(theme::muted()).child(
+                        "Model columns, relations and casts are added to code insight (completion, ⌘+click, types). Models are not modified.",
+                    )),
+            )
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap_2()
+                    .p_3()
+                    .border_t_1()
+                    .border_color(theme::border())
+                    .child(button("helper-cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.cancel(&Cancel, window, cx))))
+                    .child(button("helper-ok", "OK", true).on_click(cx.listener(|this, _, window, cx| this.confirm(&Confirm, window, cx)))),
             )
     }
 }

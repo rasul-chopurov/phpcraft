@@ -13,6 +13,9 @@ pub struct Intel {
     root: PathBuf,
     index: RwLock<Index>,
     laravel: RwLock<Option<Laravel>>,
+    /// Model columns/relations from Generate Helper Code, re-applied after reindexing.
+    helpers: RwLock<Vec<laravel::helper::ModelHelp>>,
+    columns: RwLock<laravel::columns::ColumnProvider>,
     ready: AtomicBool,
 }
 
@@ -22,6 +25,8 @@ impl Intel {
             root: root.to_path_buf(),
             index: RwLock::new(Index::new()),
             laravel: RwLock::new(laravel::is_laravel_project(root).then(|| Laravel::for_project(root))),
+            helpers: RwLock::new(Vec::new()),
+            columns: RwLock::new(Default::default()),
             ready: AtomicBool::new(false),
         })
     }
@@ -36,6 +41,56 @@ impl Intel {
         eprintln!("indexed {} classes in {:.1?}", index.class_count(), started.elapsed());
         *self.index.write().unwrap() = index;
         self.ready.store(true, Ordering::Release);
+        if self.is_laravel() {
+            self.generate_helpers();
+        }
+    }
+
+    /// Generate Helper Code: computes model columns/relations and adds them to the index.
+    /// Returns (models, members). Blocking.
+    pub fn generate_helpers(&self) -> (usize, usize) {
+        let Some(root) = self.laravel_root() else { return (0, 0) };
+        let settings = laravel::settings::LaravelSettings::load(&self.root).helper;
+        let helpers = {
+            let index = self.index.read().unwrap();
+            laravel::helper::model_helpers(&index, &root, &settings)
+        };
+        let members = helpers.iter().map(|h| h.members.len()).sum();
+        let models = helpers.len();
+        *self.columns.write().unwrap() = laravel::columns::ColumnProvider::new(&helpers);
+        *self.helpers.write().unwrap() = helpers;
+        self.apply_helpers(None);
+        (models, members)
+    }
+
+    /// Re-applies helper members, to every model or only those declared in `path`.
+    fn apply_helpers(&self, path: Option<&Path>) {
+        let helpers = self.helpers.read().unwrap();
+        let mut index = self.index.write().unwrap();
+        for help in helpers.iter() {
+            let in_file = path.is_none_or(|p| index.class(&help.fqn).is_some_and(|c| &*c.path == p));
+            if in_file {
+                index.augment(&help.fqn, help.members.clone());
+            }
+        }
+    }
+
+    /// Remove Model PhpDocs: strips `@property`/`@method` docblock lines from project models.
+    /// Returns the files changed.
+    pub fn remove_model_phpdocs(&self) -> Vec<PathBuf> {
+        let Some(root) = self.laravel_root() else { return Vec::new() };
+        let models = laravel::helper::project_models(&self.index.read().unwrap(), &root);
+        let mut changed = Vec::new();
+        for model in models {
+            let Ok(source) = std::fs::read_to_string(&model.path) else { continue };
+            if let Some(updated) = laravel::helper::remove_model_phpdocs(&source)
+                && std::fs::write(&model.path, &updated).is_ok()
+            {
+                self.update_file(&model.path, &updated);
+                changed.push(model.path.to_path_buf());
+            }
+        }
+        changed
     }
 
     pub fn root(&self) -> &Path {
@@ -61,7 +116,9 @@ impl Intel {
 
     fn with_providers<R>(&self, f: impl FnOnce(&[&dyn StringProvider]) -> R) -> R {
         let laravel = self.laravel.read().unwrap();
-        let providers: Vec<&dyn StringProvider> = laravel.iter().map(|l| l as &dyn StringProvider).collect();
+        let columns = self.columns.read().unwrap();
+        let mut providers: Vec<&dyn StringProvider> = laravel.iter().map(|l| l as &dyn StringProvider).collect();
+        providers.push(&*columns);
         f(&providers)
     }
 
@@ -73,6 +130,15 @@ impl Intel {
     pub fn update_file(&self, path: &Path, source: &str) {
         if path.extension().is_some_and(|e| e == "php") {
             self.index.write().unwrap().update_file(path, source);
+            // Migrations change columns; everything else just needs its helpers back.
+            let is_model = self.helpers.read().unwrap().iter().any(|h| {
+                self.index.read().unwrap().class(&h.fqn).is_some_and(|c| &*c.path == path)
+            });
+            if is_model || path.components().any(|c| c.as_os_str() == "migrations") {
+                self.generate_helpers();
+            } else {
+                self.apply_helpers(Some(path));
+            }
         }
     }
 

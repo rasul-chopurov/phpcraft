@@ -289,6 +289,45 @@ impl MakeDialog {
         cx.notify();
     }
 
+    /// Fills the dialog from an existing table (New Eloquent Model from Database Table).
+    pub fn prefill(&mut self, model: &str, spec: &ModelSpec, cx: &mut Context<Self>) {
+        let model = model.to_string();
+        self.name.update(cx, |f, cx| f.set_text(model, cx));
+        if let Some(table) = spec.table.clone() {
+            self.table.update(cx, |f, cx| f.set_text(table, cx));
+        }
+        self.id_type = spec.id;
+        self.with_id = spec.with_id;
+        self.timestamps = spec.timestamps;
+        self.soft_deletes = spec.soft_deletes;
+        self.columns.clear();
+        for field in &spec.fields {
+            self.add_column(cx);
+            let row = self.columns.last_mut().unwrap();
+            row.ty = COLUMN_TYPES.iter().position(|t| *t == field.column).unwrap_or(0);
+            row.nullable = field.nullable;
+            row.unique = field.unique;
+            row.index = field.index;
+            let (name, default) = (row.name.clone(), row.default.clone());
+            let (field_name, field_default) = (field.name.clone(), field.default.clone().unwrap_or_default());
+            name.update(cx, |f, cx| f.set_text(field_name, cx));
+            default.update(cx, |f, cx| f.set_text(field_default, cx));
+        }
+        self.relations.clear();
+        for relation in &spec.relations {
+            self.add_relation(cx);
+            let row = self.relations.last_mut().unwrap();
+            row.kind = RelationKind::ALL.iter().position(|k| *k == relation.kind).unwrap_or(0);
+            let model = row.model.clone();
+            let target = relation.target.clone();
+            model.update(cx, |f, cx| f.set_text(target, cx));
+        }
+        // The table already exists.
+        self.extras.remove(&Extra::Migration);
+        self.sync_placeholders(cx);
+        cx.notify();
+    }
+
     fn add_relation(&mut self, cx: &mut Context<Self>) {
         let model = self.new_field("Model", cx);
         let extra = self.new_field("through / morph name", cx);

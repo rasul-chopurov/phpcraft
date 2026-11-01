@@ -56,7 +56,7 @@ fn class_loc(index: &Index, fqn: Option<String>) -> Option<Location> {
 fn member_loc(index: &Index, class: Option<String>, name: &str, kinds: &[MemberKind]) -> Option<Location> {
     let (owner, member) = index.find_member(&class?, name, kinds)?;
     Some(Location {
-        path: owner.path.to_path_buf(),
+        path: member.source.as_deref().unwrap_or(&owner.path).to_path_buf(),
         range: member.range,
     })
 }

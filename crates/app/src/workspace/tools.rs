@@ -6,11 +6,14 @@ use std::sync::Arc;
 use gpui::{AnyView, Context, Entity, SharedString, Window, actions, div, prelude::*, px};
 
 use super::Workspace;
-use crate::dialogs::{ArtisanDialog, ArtisanRunDialog, DialogEvent, LaravelSettingsDialog, MakeChooser, MakeDialog, RouteSearchDialog};
+use crate::dialogs::{
+    ArtisanDialog, ArtisanRunDialog, DialogEvent, HelperCodeDialog, LaravelSettingsDialog, MakeChooser, MakeDialog,
+    RouteSearchDialog,
+};
 use laravel::make::MakeKind;
 use crate::theme;
 
-actions!(workspace, [OpenMake, OpenArtisan, CloseOutput, OpenRouteSearch, NewModel, NewPivotTable, ToggleLaravelMenu, OpenLaravelSettings]);
+actions!(workspace, [OpenMake, OpenArtisan, CloseOutput, OpenRouteSearch, NewModel, NewPivotTable, ToggleLaravelMenu, OpenLaravelSettings, GenerateHelperCode, RemoveModelPhpDocs, ModelFromTable, FindUnusedViews]);
 
 /// Bottom panel showing Artisan output and generation results.
 pub(super) struct Output {
@@ -54,6 +57,142 @@ impl Workspace {
         let root = self.project.root().to_path_buf();
         let dialog = cx.new(|cx| LaravelSettingsDialog::new(&root, window, cx));
         self.show_modal(dialog, window, cx);
+    }
+
+    pub(super) fn generate_helper_code(&mut self, _: &GenerateHelperCode, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let dialog = cx.new(|cx| HelperCodeDialog::new(&root, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// New Eloquent Model from Database Table: list tables, then prefill the model dialog.
+    pub(super) fn model_from_table(&mut self, _: &ModelFromTable, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.artisan_root();
+        self.output = Some(Output { title: "php artisan db:show".into(), text: String::new(), running: true, ok: true });
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = cx.background_executor().spawn(async move { laravel::database::list_tables(&root) }).await;
+            this.update_in(cx, |this, window, cx| match result {
+                Ok(tables) => {
+                    this.output = None;
+                    let items = tables
+                        .into_iter()
+                        .map(|table| crate::dialogs::NavItem {
+                            label: table.clone(),
+                            detail: laravel::database::model_name(&table),
+                            icon: "▦",
+                            target: crate::dialogs::NavTarget::Table(table),
+                        })
+                        .collect();
+                    this.open_list(crate::dialogs::NavMode::Tables, items, window, cx);
+                }
+                Err(err) => {
+                    this.output = Some(Output { title: "php artisan db:show".into(), text: err, running: false, ok: false });
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn open_model_for_table(&mut self, table: String, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.artisan_root();
+        let project_root = self.project.root().to_path_buf();
+        let models = self.intel.models();
+        self.dismiss_modal(window, cx);
+        cx.spawn_in(window, async move |this, cx| {
+            let fetch_table = table.clone();
+            let result = cx.background_executor().spawn(async move { laravel::database::table_columns(&root, &fetch_table) }).await;
+            this.update_in(cx, |this, window, cx| match result {
+                Ok(columns) => {
+                    let (model, spec) = laravel::database::spec_from_table(&table, &columns);
+                    let dialog = cx.new(|cx| {
+                        let mut dialog = MakeDialog::new(&project_root, MakeKind::Model, models, window, cx);
+                        dialog.prefill(&model, &spec, cx);
+                        dialog
+                    });
+                    this.show_modal(dialog, window, cx);
+                }
+                Err(err) => {
+                    this.output = Some(Output { title: format!("php artisan db:table {table}"), text: err, running: false, ok: false });
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(super) fn find_unused_views(&mut self, _: &FindUnusedViews, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(root) = self.intel.laravel_root() else { return };
+        let views = laravel::Laravel::for_project(self.project.root()).unused_views();
+        if views.is_empty() {
+            self.output = Some(Output { title: "Find Unused Views".into(), text: "No unused views found.".into(), running: false, ok: true });
+            cx.notify();
+            return;
+        }
+        let items = views
+            .into_iter()
+            .map(|(name, path)| crate::dialogs::NavItem {
+                label: name,
+                detail: path.strip_prefix(&root).unwrap_or(&path).display().to_string(),
+                icon: "▤",
+                target: crate::dialogs::NavTarget::Location(php_index::Location { path, range: 0..0 }),
+            })
+            .collect();
+        self.open_list(crate::dialogs::NavMode::UnusedViews, items, window, cx);
+    }
+
+    /// Opens a single-list navigation dialog with the given items.
+    fn open_list(&mut self, mode: crate::dialogs::NavMode, items: Vec<crate::dialogs::NavItem>, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let sources = crate::dialogs::NavSources {
+            classes: Default::default(),
+            symbols: Default::default(),
+            actions: Default::default(),
+            recent: items,
+            files: None,
+        };
+        let dialog = cx.new(|cx| crate::dialogs::NavigateDialog::new(&root, mode, sources, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// Recomputes helper code in the background and reports the result.
+    pub(super) fn run_helpers(&mut self, cx: &mut Context<Self>) {
+        let intel = self.intel.clone();
+        cx.spawn(async move |this, cx| {
+            let (models, members) = cx.background_executor().spawn(async move { intel.generate_helpers() }).await;
+            this.update(cx, |this, cx| {
+                this.output = Some(Output {
+                    title: "Generate Helper Code".into(),
+                    text: format!("Helper code generated for {models} model(s): {members} properties and methods."),
+                    running: false,
+                    ok: true,
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(super) fn remove_model_phpdocs(&mut self, _: &RemoveModelPhpDocs, _: &mut Window, cx: &mut Context<Self>) {
+        let changed = self.intel.remove_model_phpdocs();
+        let root = self.project.root().to_path_buf();
+        let list = changed
+            .iter()
+            .map(|p| format!("  - {}", p.strip_prefix(&root).unwrap_or(p).display()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.reload_tabs(&changed, cx);
+        self.output = Some(Output {
+            title: "Remove Model PhpDocs".into(),
+            text: if changed.is_empty() { "No model phpdocs to remove.".into() } else { format!("Cleaned {} model(s):\n{list}", changed.len()) },
+            running: false,
+            ok: true,
+        });
+        cx.notify();
     }
 
     /// Where Artisan runs: the configured Laravel directory.
@@ -101,6 +240,9 @@ impl Workspace {
             DialogEvent::Created(paths) => {
                 self.dismiss_modal(window, cx);
                 self.files_created(paths, window, cx);
+                if laravel::settings::LaravelSettings::load(self.project.root()).model.generate_helper_after {
+                    self.run_helpers(cx);
+                }
                 let root = self.project.root().to_path_buf();
                 let list = paths
                     .iter()
@@ -116,6 +258,11 @@ impl Workspace {
             }
             DialogEvent::OpenMakeKind(kind) => self.open_make_kind(*kind, window, cx),
             DialogEvent::FilesListed(files) => self.files_cache = Some(files.clone()),
+            DialogEvent::ModelFromTable(table) => self.open_model_for_table(table.clone(), window, cx),
+            DialogEvent::GenerateHelpers => {
+                self.dismiss_modal(window, cx);
+                self.run_helpers(cx);
+            }
             DialogEvent::SettingsSaved => {
                 self.dismiss_modal(window, cx);
                 self.intel.reload_settings();
@@ -270,7 +417,7 @@ impl Workspace {
         let entries: &[Option<(&'static str, &'static str, Option<Handler>)>] = &[
             Some(("Code Generation", "⇧⌘,", Some(|w, win, cx| w.open_make(&OpenMake, win, cx)))),
             Some(("New Eloquent Model", "", Some(|w, win, cx| w.new_model(&NewModel, win, cx)))),
-            Some(("New Eloquent Model from Database Table", "soon", None)),
+            Some(("New Eloquent Model from Database Table", "", Some(|w, win, cx| w.model_from_table(&ModelFromTable, win, cx)))),
             Some(("New Class", "", Some(|w, win, cx| w.open_make(&OpenMake, win, cx)))),
             Some(("New Pivot Table", "", Some(|w, win, cx| w.new_pivot_table(&NewPivotTable, win, cx)))),
             None,
@@ -278,8 +425,9 @@ impl Workspace {
             None,
             Some(("Run Artisan Command", "⌃⇧X", Some(|w, win, cx| w.open_artisan(&OpenArtisan, win, cx)))),
             None,
-            Some(("Generate Helper Code", "soon", None)),
-            Some(("Find Unused Views", "soon", None)),
+            Some(("Generate Helper Code", "⇧⌘.", Some(|w, win, cx| w.generate_helper_code(&GenerateHelperCode, win, cx)))),
+            Some(("Remove Model PhpDocs…", "", Some(|w, win, cx| w.remove_model_phpdocs(&RemoveModelPhpDocs, win, cx)))),
+            Some(("Find Unused Views", "", Some(|w, win, cx| w.find_unused_views(&FindUnusedViews, win, cx)))),
             None,
             Some(("Laravel Settings…", "", Some(|w, win, cx| w.open_laravel_settings(&OpenLaravelSettings, win, cx)))),
         ];

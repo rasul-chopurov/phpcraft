@@ -2903,8 +2903,10 @@ version = "0.1.0"
 dependencies = [
  "php-analysis",
  "php-index",
+ "php-syntax",
  "serde",
  "serde_json",
+ "tree-sitter",
 ]
 
 [[package]]

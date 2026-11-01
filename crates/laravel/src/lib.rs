@@ -3,6 +3,9 @@
 
 mod array_keys;
 pub mod artisan;
+pub mod columns;
+pub mod database;
+pub mod helper;
 pub mod make;
 pub mod routes;
 pub mod settings;
@@ -143,6 +146,38 @@ impl Laravel {
             .collect();
         names.sort();
         names
+    }
+
+    /// Views not referenced anywhere in app/, routes/, resources/views or Modules/
+    /// (by name string, `<x-component>` tag or Livewire tag). Framework views
+    /// (`errors.*`, `vendor.*`) are never reported.
+    pub fn unused_views(&self) -> Vec<(String, PathBuf)> {
+        let mut haystack = String::new();
+        for dir in ["app", "routes", "resources/views", "Modules", "config"] {
+            let mut files = Vec::new();
+            walk(&self.root.join(dir), &mut files);
+            for file in files.iter().filter(|p| p.extension().is_some_and(|e| e == "php")) {
+                if let Ok(text) = fs::read_to_string(file) {
+                    haystack.push_str(&text);
+                    haystack.push('\n');
+                }
+            }
+        }
+        self.view_names()
+            .into_iter()
+            .filter(|name| !name.starts_with("errors.") && !name.starts_with("vendor."))
+            .filter(|name| {
+                let quoted = haystack.contains(&format!("'{name}'")) || haystack.contains(&format!("\"{name}\""));
+                let as_tag = |prefix: &str, tag: &str| {
+                    name.strip_prefix(prefix).is_some_and(|rest| {
+                        let rest = rest.strip_suffix(".index").unwrap_or(rest);
+                        [">", " ", "/", "\n"].iter().any(|end| haystack.contains(&format!("{tag}{rest}{end}")))
+                    })
+                };
+                !(quoted || as_tag("components.", "<x-") || as_tag("livewire.", "<livewire:") || as_tag("livewire.", "@livewire('"))
+            })
+            .filter_map(|name| self.view_file(&name).map(|path| (name, path)))
+            .collect()
     }
 
     /// `<x-forms.input>` -> anonymous component view or class component.
@@ -501,3 +536,28 @@ fn tag_at(source: &str, offset: usize) -> Option<(Tag, String)> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod unused_tests {
+    use std::fs;
+
+    #[test]
+    fn finds_unused_views() {
+        let root = std::env::temp_dir().join(format!("phpcraft-unused-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for (path, text) in [
+            ("routes/web.php", "<?php Route::get('/', fn () => view('welcome'));"),
+            ("resources/views/welcome.blade.php", "@extends('layouts.app') <x-alert type=\"x\"/>"),
+            ("resources/views/layouts/app.blade.php", ""),
+            ("resources/views/components/alert.blade.php", ""),
+            ("resources/views/old/page.blade.php", ""),
+            ("resources/views/errors/404.blade.php", ""),
+        ] {
+            fs::create_dir_all(root.join(path).parent().unwrap()).unwrap();
+            fs::write(root.join(path), text).unwrap();
+        }
+        let unused: Vec<String> = super::Laravel::new(&root).unused_views().into_iter().map(|(n, _)| n).collect();
+        assert_eq!(unused, ["old.page"]);
+        fs::remove_dir_all(&root).unwrap();
+    }
+}

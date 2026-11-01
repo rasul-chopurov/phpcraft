@@ -31,6 +31,8 @@ pub struct Index {
     by_file: HashMap<PathBuf, (Vec<String>, Vec<String>)>,
     /// Framework-provided mixins (e.g. Eloquent models forward to the query builder).
     extra_mixins: HashMap<String, Vec<String>>,
+    /// Classes as parsed, before `augment` added members.
+    unaugmented: HashMap<String, Arc<ClassInfo>>,
 }
 
 fn key(fqn: &str) -> String {
@@ -109,6 +111,7 @@ impl Index {
                 .entry(class.name.to_ascii_lowercase())
                 .or_default()
                 .push(class.fqn.clone());
+            self.unaugmented.remove(&k);
             self.classes.insert(k, Arc::new(class));
         }
         for function in symbols.functions {
@@ -116,6 +119,17 @@ impl Index {
             entry.1.push(k.clone());
             self.functions.insert(k, Arc::new(function));
         }
+    }
+
+    /// Adds members (e.g. model columns and relations from Generate Helper Code) to an
+    /// indexed class. Replaces members previously added this way; re-apply after reindexing.
+    pub fn augment(&mut self, fqn: &str, members: Vec<Member>) {
+        let k = key(fqn);
+        let Some(current) = self.classes.get(&k).cloned() else { return };
+        let base = self.unaugmented.entry(k.clone()).or_insert(current);
+        let mut class = (**base).clone();
+        class.members.extend(members);
+        self.classes.insert(k, Arc::new(class));
     }
 
     /// Makes members of `mixin` reachable from `class` (and its subclasses).

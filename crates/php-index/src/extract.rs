@@ -38,6 +38,9 @@ pub struct Member {
     pub detail: String,
     /// Declared through a phpdoc tag (`@property`, `@method`) rather than code.
     pub virtual_member: bool,
+    /// File holding the declaration when it isn't the class's own file
+    /// (e.g. a model column declared in a migration).
+    pub source: Option<Arc<Path>>,
 }
 
 #[derive(Debug, Clone)]
@@ -283,6 +286,7 @@ fn collect_member(item: Node, source: &str, ctx: &NameContext, class_fqn: &str, 
                 type_fqn: return_type(item, source, ctx, class_fqn, doc.as_deref()),
                 detail: signature(item, source),
                 virtual_member: false,
+                    source: None,
             });
             // Constructor-promoted properties.
             if let Some(params) = item.child_by_field_name("parameters") {
@@ -301,6 +305,7 @@ fn collect_member(item: Node, source: &str, ctx: &NameContext, class_fqn: &str, 
                         type_fqn: type_text.and_then(|t| class_type(t, ctx, class_fqn)),
                         detail: type_text.unwrap_or_default().to_string(),
                         virtual_member: false,
+                    source: None,
                     });
                 }
             }
@@ -324,6 +329,7 @@ fn collect_member(item: Node, source: &str, ctx: &NameContext, class_fqn: &str, 
                     type_fqn: type_text.as_deref().and_then(|t| class_type(t, ctx, class_fqn)),
                     detail: type_text.clone().unwrap_or_default(),
                     virtual_member: false,
+                    source: None,
                 });
             }
         }
@@ -343,6 +349,7 @@ fn collect_member(item: Node, source: &str, ctx: &NameContext, class_fqn: &str, 
                         type_fqn: None,
                         detail: String::new(),
                         virtual_member: false,
+                    source: None,
                     });
                 }
             }
@@ -357,6 +364,7 @@ fn collect_member(item: Node, source: &str, ctx: &NameContext, class_fqn: &str, 
                     type_fqn: Some(class_fqn.to_string()),
                     detail: String::new(),
                     virtual_member: false,
+                    source: None,
                 });
             }
         }
@@ -498,6 +506,7 @@ fn doc_class_tags(doc: &str, doc_start: usize, ctx: &NameContext, class_fqn: &st
                     type_fqn: class_type(ty, ctx, class_fqn),
                     detail: ty.to_string(),
                     virtual_member: true,
+                    source: None,
                 });
             }
             "@method" => {
@@ -520,6 +529,7 @@ fn doc_class_tags(doc: &str, doc_start: usize, ctx: &NameContext, class_fqn: &st
                     type_fqn: ty.and_then(|t| class_type(t, ctx, class_fqn)),
                     detail: rest[paren..].to_string(),
                     virtual_member: true,
+                    source: None,
                 });
             }
             "@see" => {

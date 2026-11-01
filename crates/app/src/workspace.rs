@@ -17,7 +17,7 @@ use crate::editor_view::EditorView;
 use crate::intel::Intel;
 use php_index::Location;
 pub use navigation::{FindInFiles, GoToClass, GoToFile, GoToLine, GoToSymbol, RecentFiles, ReplaceInFiles, SearchEverywhere};
-pub use tools::{OpenArtisan, OpenMake, OpenRouteSearch};
+pub use tools::{GenerateHelperCode, OpenArtisan, OpenMake, OpenRouteSearch};
 use crate::theme;
 
 actions!(workspace, [CloseTab, NextTab, PrevTab, NavigateBack]);
@@ -369,6 +369,10 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::new_pivot_table))
             .on_action(cx.listener(Self::toggle_laravel_menu))
             .on_action(cx.listener(Self::open_laravel_settings))
+            .on_action(cx.listener(Self::generate_helper_code))
+            .on_action(cx.listener(Self::remove_model_phpdocs))
+            .on_action(cx.listener(Self::model_from_table))
+            .on_action(cx.listener(Self::find_unused_views))
             .on_action(cx.listener(Self::find_in_files))
             .on_action(cx.listener(Self::replace_in_files))
             .on_action(cx.listener(Self::search_everywhere))

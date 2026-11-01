@@ -24,9 +24,16 @@ pub enum NavMode {
     Symbols,
     Actions,
     Recent,
+    UnusedViews,
+    Tables,
 }
 
 impl NavMode {
+    /// Modes showing one list of `sources.recent` without tabs.
+    fn is_single(self) -> bool {
+        matches!(self, Self::Recent | Self::UnusedViews | Self::Tables)
+    }
+
     const TABS: [NavMode; 5] = [Self::All, Self::Classes, Self::Files, Self::Symbols, Self::Actions];
 
     fn label(self) -> &'static str {
@@ -37,6 +44,8 @@ impl NavMode {
             Self::Symbols => "Symbols",
             Self::Actions => "Actions",
             Self::Recent => "Recent Files",
+            Self::UnusedViews => "Unused Views",
+            Self::Tables => "Database Tables",
         }
     }
 }
@@ -44,6 +53,8 @@ impl NavMode {
 pub enum NavTarget {
     Location(Location),
     Action(Box<dyn Action>),
+    /// A database table to build a model from.
+    Table(String),
 }
 
 impl Clone for NavTarget {
@@ -51,6 +62,7 @@ impl Clone for NavTarget {
         match self {
             Self::Location(l) => Self::Location(l.clone()),
             Self::Action(a) => Self::Action(a.boxed_clone()),
+            Self::Table(t) => Self::Table(t.clone()),
         }
     }
 }
@@ -114,7 +126,7 @@ impl NavigateDialog {
             cx.notify();
         });
         window.focus(&query.focus_handle(cx));
-        if sources.files.is_none() {
+        if sources.files.is_none() && !mode.is_single() {
             let root = root.to_path_buf();
             cx.spawn(async move |this, cx| {
                 let listed_root = root.clone();
@@ -155,7 +167,7 @@ impl NavigateDialog {
             NavMode::Files => section(&files, LIMIT).collect(),
             NavMode::Symbols => section(&self.sources.symbols, LIMIT).collect(),
             NavMode::Actions => section(&self.sources.actions, LIMIT).collect(),
-            NavMode::Recent => section(&self.sources.recent, LIMIT).collect(),
+            NavMode::Recent | NavMode::UnusedViews | NavMode::Tables => section(&self.sources.recent, 500).collect(),
             NavMode::All => {
                 if query.trim().is_empty() {
                     let mut rows = vec![Row::Header("Recent Files")];
@@ -222,6 +234,7 @@ impl NavigateDialog {
         match item.target {
             NavTarget::Location(location) => cx.emit(DialogEvent::OpenLocation(location)),
             NavTarget::Action(action) => cx.emit(DialogEvent::RunAction(action)),
+            NavTarget::Table(table) => cx.emit(DialogEvent::ModelFromTable(table)),
         }
     }
 
@@ -273,7 +286,7 @@ impl Render for NavigateDialog {
         let rows = self.rows(cx);
         let item_count = rows.iter().filter(|r| matches!(r, Row::Item(..))).count();
         let selected = self.selected.min(item_count.saturating_sub(1));
-        let tabs = if self.mode == NavMode::Recent { vec![NavMode::Recent] } else { NavMode::TABS.to_vec() };
+        let tabs = if self.mode.is_single() { vec![self.mode] } else { NavMode::TABS.to_vec() };
         let tabs = tabs.into_iter().map(|mode| {
             div()
                 .id(SharedString::from(mode.label()))
@@ -344,7 +357,7 @@ impl Render for NavigateDialog {
                     .text_size(px(12.))
                     .children(tabs)
                     .child(div().flex_1())
-                    .when(self.mode != NavMode::Recent, |d| d.child(div().text_color(theme::muted()).child("Tab to switch"))),
+                    .when(!self.mode.is_single(), |d| d.child(div().text_color(theme::muted()).child("Tab to switch"))),
             )
             .child(div().p_2().child(self.query.clone()))
             .when(loading, |d| d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child("Indexing files…")))
