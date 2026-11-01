@@ -163,6 +163,16 @@ impl EditorView {
         self.changed(cx);
     }
 
+    /// Replaces the whole text (Local History revert), as one undoable edit.
+    pub fn replace_all_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        let end = self.buffer.text().len();
+        let caret = self.buffer.char_to_byte(self.buffer.selection.head).min(text.len());
+        self.buffer.apply_edits(vec![(0..end, text.to_string())], 0);
+        let caret = self.buffer.byte_to_char(caret);
+        self.buffer.move_to(caret, false);
+        self.changed(cx);
+    }
+
     /// Reloads the buffer from disk after an external change, unless it has unsaved edits.
     pub fn reload_if_clean(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
         if self.buffer.is_dirty() {
@@ -316,9 +326,12 @@ impl EditorView {
         }
         if let Err(err) = self.buffer.save() {
             eprintln!("save failed: {err:#}");
+            return;
         }
         if let Some(path) = self.buffer.path() {
-            self.intel.update_file(path, &self.buffer.text());
+            let text = self.buffer.text();
+            crate::local_history::record(path, &text, "Save");
+            self.intel.update_file(path, &text);
         }
         cx.notify();
     }

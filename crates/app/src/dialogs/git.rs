@@ -400,3 +400,167 @@ impl Render for ConfirmDialog {
             )
     }
 }
+
+// --- Local History ----------------------------------------------------------------------
+
+pub struct LocalHistoryDialog {
+    path: std::path::PathBuf,
+    current: String,
+    versions: Vec<history::Version>,
+    selected: usize,
+    rows: Vec<git::DiffRow>,
+    focus_handle: FocusHandle,
+}
+
+impl EventEmitter<DialogEvent> for LocalHistoryDialog {}
+
+impl LocalHistoryDialog {
+    pub fn new(path: std::path::PathBuf, current: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let focus_handle = cx.focus_handle();
+        window.focus(&focus_handle);
+        let versions = crate::local_history::versions(&path);
+        let mut dialog = Self { path, current, versions, selected: 0, rows: Vec::new(), focus_handle };
+        dialog.select(0);
+        dialog
+    }
+
+    fn select(&mut self, ix: usize) {
+        self.selected = ix.min(self.versions.len().saturating_sub(1));
+        let old = self.versions.get(self.selected).and_then(crate::local_history::content).unwrap_or_default();
+        self.rows = git::side_by_side(&old, &self.current);
+    }
+
+    fn select_prev(&mut self, _: &SelectPrev, _: &mut Window, cx: &mut Context<Self>) {
+        self.select(self.selected.saturating_sub(1));
+        cx.notify();
+    }
+
+    fn select_next(&mut self, _: &SelectNext, _: &mut Window, cx: &mut Context<Self>) {
+        self.select(self.selected + 1);
+        cx.notify();
+    }
+
+    fn revert(&mut self, cx: &mut Context<Self>) {
+        if let Some(content) = self.versions.get(self.selected).and_then(crate::local_history::content) {
+            cx.emit(DialogEvent::RevertFile { path: self.path.clone(), content });
+        }
+    }
+
+    fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
+        self.revert(cx);
+    }
+
+    fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(DialogEvent::Dismiss);
+    }
+}
+
+impl Focusable for LocalHistoryDialog {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for LocalHistoryDialog {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let list: Vec<_> = self
+            .versions
+            .iter()
+            .enumerate()
+            .map(|(ix, version)| {
+                div()
+                    .id(("history-version", ix))
+                    .flex()
+                    .flex_col()
+                    .px_3()
+                    .py_1()
+                    .cursor_pointer()
+                    .when(ix == self.selected, |d| d.bg(theme::selection()))
+                    .hover(|d| d.bg(theme::hover()))
+                    .child(div().text_color(theme::ui_text()).child(history::ago(version.time)))
+                    .child(div().text_size(px(11.)).text_color(theme::muted()).child(format!("{} · {} bytes", version.label, version.size)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.select(ix);
+                        cx.notify();
+                    }))
+            })
+            .collect();
+        let added = theme::success().opacity(0.18);
+        let removed = theme::error().opacity(0.18);
+        let changed = theme::accent().opacity(0.16);
+        let rows = self.rows.iter().take(MAX_ROWS).enumerate().map(|(ix, row)| {
+            let (left_bg, right_bg) = match row.tag {
+                git::RowTag::Equal => (None, None),
+                git::RowTag::Removed => (Some(removed), None),
+                git::RowTag::Added => (None, Some(added)),
+                git::RowTag::Changed => (Some(changed), Some(changed)),
+            };
+            div()
+                .id(("history-row", ix))
+                .flex()
+                .h(px(19.))
+                .child(side(&row.left, left_bg))
+                .child(div().w(px(1.)).h_full().bg(theme::border()))
+                .child(side(&row.right, right_bg))
+        });
+        let name = self.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        card(1180.)
+            .key_context("ListDialog")
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(Self::confirm))
+            .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(Self::select_prev))
+            .on_action(cx.listener(Self::select_next))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(theme::border())
+                    .child(format!("Local History · {name}"))
+                    .child(div().flex_1())
+                    .when(!self.versions.is_empty(), |d| {
+                        d.child(button("history-revert", "Revert", true).on_click(cx.listener(|this, _, _, cx| this.revert(cx))))
+                    })
+                    .child(button("history-close", "Close", false).on_click(cx.listener(|_, _, _, cx| cx.emit(DialogEvent::Dismiss)))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .h(px(620.))
+                    .child(
+                        div()
+                            .id("history-versions")
+                            .w(px(220.))
+                            .flex_none()
+                            .overflow_y_scroll()
+                            .border_r_1()
+                            .border_color(theme::border())
+                            .text_size(px(13.))
+                            .when(list.is_empty(), |d| d.child(div().p_3().text_color(theme::muted()).child("No versions yet. They are recorded on open and save.")))
+                            .children(list),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .min_w(px(0.))
+                            .child(
+                                div()
+                                    .flex()
+                                    .text_size(px(11.))
+                                    .text_color(theme::muted())
+                                    .border_b_1()
+                                    .border_color(theme::border())
+                                    .child(div().flex_1().px_3().py_1().child("Selected version"))
+                                    .child(div().flex_1().px_3().py_1().child("Current")),
+                            )
+                            .child(div().id("history-diff").flex_1().overflow_y_scroll().font_family(theme::editor_font()).text_size(px(12.)).children(rows)),
+                    ),
+            )
+    }
+}

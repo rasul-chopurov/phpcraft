@@ -35,6 +35,8 @@ pub struct Settings {
     pub open_on_single_click: bool,
     /// Highlight the active editor's file in the project tree.
     pub select_opened_file: bool,
+    /// Versions kept per file in Local History.
+    pub local_history_versions: usize,
 }
 
 impl Default for Settings {
@@ -46,6 +48,7 @@ impl Default for Settings {
             auto_save_delay_ms: 1000,
             open_on_single_click: true,
             select_opened_file: true,
+            local_history_versions: history::DEFAULT_KEEP,
         }
     }
 }

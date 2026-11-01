@@ -3,6 +3,7 @@ mod dialogs;
 mod editor_view;
 mod intel;
 mod keymap;
+mod local_history;
 mod sync;
 mod text_field;
 mod theme;

@@ -460,6 +460,11 @@ impl Workspace {
             DialogEvent::ModelFromTable(table) => {
                 self.open_model_for_table(table.clone(), window, cx)
             }
+            DialogEvent::RevertFile { path, content } => {
+                let (path, content) = (path.clone(), content.clone());
+                self.dismiss_modal(window, cx);
+                self.revert_file(&path, &content, cx);
+            }
             DialogEvent::Git(command) => {
                 let command = command.clone();
                 self.dismiss_modal(window, cx);

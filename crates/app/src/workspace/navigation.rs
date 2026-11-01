@@ -25,7 +25,8 @@ actions!(
         GoToClass,
         GoToSymbol,
         RecentFiles,
-        GoToLine
+        GoToLine,
+        ShowLocalHistory
     ]
 );
 
@@ -85,6 +86,7 @@ impl Workspace {
             action("Go to Class", "⌘O", Box::new(GoToClass)),
             action("Go to Symbol", "⌥⌘O", Box::new(GoToSymbol)),
             action("Recent Files", "⌘E", Box::new(RecentFiles)),
+            action("Local History: Show History", "⌥⇧H", Box::new(ShowLocalHistory)),
             action("Go to Line", "⌘L", Box::new(GoToLine)),
             action("Optimize Imports", "⌃⌥O", Box::new(OptimizeImports)),
             action("Code Generation (Laravel)", "⇧⌘,", Box::new(OpenMake)),
@@ -240,6 +242,25 @@ impl Workspace {
         self.show_modal(dialog, window, cx);
     }
 
+    pub(super) fn show_local_history(&mut self, _: &ShowLocalHistory, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.get(self.active) else { return };
+        let buffer = &tab.read(cx).buffer;
+        let Some(path) = buffer.path().map(|p| p.to_path_buf()) else { return };
+        let current = buffer.text();
+        let dialog = cx.new(|cx| crate::dialogs::LocalHistoryDialog::new(path, current, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    pub(super) fn revert_file(&mut self, path: &std::path::Path, content: &str, cx: &mut Context<Self>) {
+        match self.tabs.iter().find(|t| t.read(cx).buffer.path() == Some(path)).cloned() {
+            Some(tab) => tab.update(cx, |editor, cx| editor.replace_all_text(content, cx)),
+            None => {
+                crate::local_history::record_disk(&[path.to_path_buf()], "Before Revert");
+                let _ = std::fs::write(path, content);
+            }
+        }
+    }
+
     pub(super) fn jump_to_line(&mut self, line: usize, column: usize, cx: &mut Context<Self>) {
         if let Some(tab) = self.tabs.get(self.active) {
             tab.update(cx, |editor, cx| {
@@ -257,6 +278,7 @@ impl Workspace {
         paths: Vec<PathBuf>,
         cx: &mut Context<Self>,
     ) {
+        crate::local_history::record_disk(&paths, "Before Replace in Files");
         let task = self.begin_task("Replacing in files…", cx);
         cx.spawn(async move |this, cx| {
             let changed = paths.clone();

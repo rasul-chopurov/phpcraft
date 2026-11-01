@@ -569,6 +569,15 @@ impl Render for SettingsDialog {
                     ))
                     .child(div().flex().items_start().gap_2().child(label("Theme")).child(div().flex().flex_wrap().gap_1().children(themes)))
                     .child(div().flex().items_center().gap_2().child(label("Editor font")).child(div().flex_1().child(self.font.clone())))
+                    .child(div().flex().items_center().gap_2().child(label("Local History")).child(div().flex().gap_1().children(
+                        [5usize, 10, 20, 50].into_iter().map(|n| {
+                            option_chip(SharedString::from(format!("history-{n}")), &format!("{n} versions"), s.local_history_versions == n)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.settings.local_history_versions = n;
+                                    cx.notify();
+                                }))
+                        }),
+                    )))
                     .child(
                         div()
                             .flex()

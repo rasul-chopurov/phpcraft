@@ -213,6 +213,21 @@ impl Workspace {
             self.save_all(cx);
         }
         let rescan = matches!(command, GitCommand::Checkout(_) | GitCommand::Merge(_) | GitCommand::Pull);
+        // Snapshot what is about to be overwritten into Local History.
+        let root = repo.root().to_path_buf();
+        let at_risk: Vec<std::path::PathBuf> = match &command {
+            GitCommand::Rollback(files) => files.iter().map(|f| root.join(&f.path)).collect(),
+            GitCommand::Checkout(_) | GitCommand::Merge(_) | GitCommand::Pull | GitCommand::CreateBranch { .. } => self
+                .git
+                .status
+                .iter()
+                .map(|f| root.join(&f.path))
+                .chain(self.tabs.iter().filter_map(|t| t.read(cx).buffer.path().map(|p| p.to_path_buf())))
+                .collect(),
+            _ => Vec::new(),
+        };
+        let label = if matches!(command, GitCommand::Rollback(_)) { "Before Rollback" } else { "Before git" };
+        crate::local_history::record_disk(&at_risk, label);
         let task = self.begin_task(format!("git: {title}…"), cx);
         cx.spawn(async move |this, cx| {
             let result = cx

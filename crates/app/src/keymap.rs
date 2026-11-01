@@ -148,6 +148,7 @@ const DEFAULTS: &[Default] = &[
     per("cmd-t", "ctrl-t", "workspace::GitPull", None),
     both("secondary-shift-k", "workspace::GitPush", None),
     both("secondary-enter", "workspace::CommitChanges", None),
+    both("alt-shift-h", "workspace::ShowLocalHistory", None),
     // Preferences.
     both("secondary-,", "workspace::OpenSettings", None),
     both("secondary-k secondary-s", "workspace::OpenKeymap", None),

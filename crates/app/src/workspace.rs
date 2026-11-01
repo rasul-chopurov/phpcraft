@@ -128,7 +128,10 @@ impl Workspace {
             return;
         }
         let buffer = match Buffer::open(path) {
-            Ok(buffer) => buffer,
+            Ok(buffer) => {
+                crate::local_history::record(path, &buffer.text(), "Opened");
+                buffer
+            }
             Err(err) => {
                 eprintln!("cannot open {}: {err:#}", path.display());
                 return;
@@ -511,6 +514,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_themes))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::show_project))
+            .on_action(cx.listener(Self::show_local_history))
             .on_action(cx.listener(Self::sync_push))
             .on_action(cx.listener(Self::sync_pull))
             .on_action(cx.listener(Self::show_commit))

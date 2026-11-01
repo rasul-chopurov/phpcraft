@@ -18,7 +18,7 @@ use laravel::make::MakeKind;
 use laravel::routes::RouteInfo;
 
 pub use find_files::FindInFilesDialog;
-pub use git::{BranchDialog, ConfirmDialog, DiffDialog, GitCommand};
+pub use git::{BranchDialog, ConfirmDialog, DiffDialog, GitCommand, LocalHistoryDialog};
 pub use make::{MakeChooser, MakeDialog};
 pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
 pub use prefs::{KeymapDialog, SettingsDialog, ThemeDialog};
@@ -64,6 +64,8 @@ pub enum DialogEvent {
     GoToLine(usize, usize),
     SettingsSaved,
     Git(GitCommand),
+    /// Local History: put this content back into the file.
+    RevertFile { path: std::path::PathBuf, content: String },
     GenerateHelpers,
     ModelFromTable(String),
     CommandsLoaded(Arc<Vec<ArtisanCommand>>),
