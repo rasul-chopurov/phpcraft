@@ -97,6 +97,8 @@ pub enum Side {
     Left,
     Right,
     Bottom,
+    /// The right half of the bottom area (the lower zone of the right stripe).
+    BottomRight,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +109,7 @@ pub struct Layout {
     pub left: Option<ToolWindow>,
     pub right: Option<ToolWindow>,
     pub bottom: Option<ToolWindow>,
+    pub bottom_right: Option<ToolWindow>,
     pub left_width: f32,
     pub right_width: f32,
     pub bottom_height: f32,
@@ -125,6 +128,7 @@ impl Default for Layout {
             left: Some(ToolWindow::Project),
             right: None,
             bottom: None,
+            bottom_right: None,
             left_width: 280.,
             right_width: 400.,
             bottom_height: 300.,
@@ -165,6 +169,7 @@ impl Layout {
             Side::Left => &mut self.left,
             Side::Right => &mut self.right,
             Side::Bottom => &mut self.bottom,
+            Side::BottomRight => &mut self.bottom_right,
         }
     }
 
@@ -173,11 +178,12 @@ impl Layout {
             Side::Left => self.left,
             Side::Right => self.right,
             Side::Bottom => self.bottom,
+            Side::BottomRight => self.bottom_right,
         }
     }
 
     pub fn is_active(&self, tool: ToolWindow) -> bool {
-        self.left == Some(tool) || self.right == Some(tool) || self.bottom == Some(tool)
+        self.left == Some(tool) || self.right == Some(tool) || self.bottom == Some(tool) || self.bottom_right == Some(tool)
     }
 
     /// Shows a tool on its edge (replacing what was open there).
@@ -187,7 +193,7 @@ impl Layout {
     }
 
     pub fn hide(&mut self, tool: ToolWindow) {
-        for slot in [&mut self.left, &mut self.right, &mut self.bottom] {
+        for slot in [&mut self.left, &mut self.right, &mut self.bottom, &mut self.bottom_right] {
             if *slot == Some(tool) {
                 *slot = None;
             }
@@ -384,7 +390,9 @@ impl Workspace {
             Side::Left => stripe
                 .child(self.drop_zone(Side::Left, "zone-left", cx).flex_1())
                 .child(self.drop_zone(Side::Bottom, "zone-bottom", cx).border_t_1().border_color(theme::border()).pt_1()),
-            _ => stripe.child(self.drop_zone(Side::Right, "zone-right", cx).flex_1()),
+            _ => stripe
+                .child(self.drop_zone(Side::Right, "zone-right", cx).flex_1())
+                .child(self.drop_zone(Side::BottomRight, "zone-bottom-right", cx).border_t_1().border_color(theme::border()).pt_1()),
         }
     }
 
@@ -395,6 +403,7 @@ impl Workspace {
                 Side::Left => "resize-left",
                 Side::Right => "resize-right",
                 Side::Bottom => "resize-bottom",
+                Side::BottomRight => "resize-bottom-right",
             })
             .absolute()
             .occlude()
@@ -403,7 +412,7 @@ impl Workspace {
         match side {
             Side::Left => handle.top_0().bottom_0().right(px(-2.)).w(px(4.)).cursor_col_resize(),
             Side::Right => handle.top_0().bottom_0().left(px(-2.)).w(px(4.)).cursor_col_resize(),
-            Side::Bottom => handle.left_0().right_0().top(px(-2.)).h(px(4.)).cursor_row_resize(),
+            Side::Bottom | Side::BottomRight => handle.left_0().right_0().top(px(-2.)).h(px(4.)).cursor_row_resize(),
         }
     }
 
@@ -415,7 +424,7 @@ impl Workspace {
         match event.drag(cx).0 {
             Side::Left => self.layout.left_width = (to_f32(position.x - bounds.left()) - STRIPE_WIDTH).clamp(160., 900.),
             Side::Right => self.layout.right_width = (to_f32(bounds.right() - position.x) - STRIPE_WIDTH).clamp(220., 1000.),
-            Side::Bottom => self.layout.bottom_height = (to_f32(bounds.bottom() - position.y) - STATUS_HEIGHT).clamp(120., 900.),
+            Side::Bottom | Side::BottomRight => self.layout.bottom_height = (to_f32(bounds.bottom() - position.y) - STATUS_HEIGHT).clamp(120., 900.),
         }
         cx.notify();
     }
@@ -474,7 +483,8 @@ impl Workspace {
             match side {
                 Side::Left => panel.w(px(self.layout.left_width)).h_full().border_r_1(),
                 Side::Right => panel.w(px(self.layout.right_width)).h_full().border_l_1(),
-                Side::Bottom => panel.w_full().h(px(self.layout.bottom_height)).border_t_1(),
+                Side::Bottom => panel.flex_1().min_w(px(0.)).h(px(self.layout.bottom_height)).border_t_1(),
+                Side::BottomRight => panel.flex_1().min_w(px(0.)).h(px(self.layout.bottom_height)).border_t_1().border_l_1(),
             }
             .into_any_element(),
         )

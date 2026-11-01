@@ -1018,7 +1018,14 @@ impl Render for Workspace {
                                 div().flex_1().min_h(px(0.)).flex().children(row)
                             })
                             .children(self.render_output(cx))
-                            .children(self.render_side(layout::Side::Bottom, cx)),
+                            .child(
+                                div()
+                                    .flex()
+                                    .w_full()
+                                    .flex_none()
+                                    .children(self.render_side(layout::Side::Bottom, cx))
+                                    .children(self.render_side(layout::Side::BottomRight, cx)),
+                            ),
                     )
                     .children(self.render_side(layout::Side::Right, cx))
                     .child(self.render_stripe(layout::Side::Right, cx)),
