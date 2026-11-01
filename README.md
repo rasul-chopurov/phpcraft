@@ -71,14 +71,16 @@
 - Local History (⌥⇧H): the last 10 versions of every file, with diff and revert
 - Tool window stripes with tooltips: drag Project, Structure, Commit, Database, AI, Terminal or Git to any edge; resize any panel
 - Structure (⌘7), breadcrumb of the caret's class and method, right-click menus with New ▸ templates (PHP class, Blade, Livewire, Vue, tests…)
-- Database: the Laravel connection's tables and columns, a SQL console (⌘↵) and a result grid — any driver Laravel supports
+- Database: data sources for MySQL, MariaDB, PostgreSQL and SQLite (or Add Application Database from the Laravel config), Test Connection, tables and columns, SQL console (⌘↵), editable result grid with Submit — all through PHP's PDO
+- Laravel window: Dashboard (version, environment, databases, issues with one-click fixes, Start Server, Migrate, Clear Caches), Errors grouped from `storage/logs` with clickable stack traces, Processes
+- Split editor: up to three panes side by side (⌘\\, Open in Right Split)
 - Modules (nwidart/laravel-modules): list with enable/disable
 - Native menu bar, auto save, JSON themes (⌘K ⌘T), editable keymap (⌘K ⌘S), settings (⌘,)
 - macOS, Windows and Linux
 
 **Git**
 - Commit tool window (⌘0): Changes and Unversioned Files groups, multi-line message, Rollback, Amend, Commit / Commit and Push
-- Diffs open as editor tabs ("Commit: File.php") with ↑↓ change and ←→ file navigation
+- Diffs open as editor tabs ("Commit: File.php") with syntax highlighting, red/green old/new lines, word-level changes, ↑↓ change and ←→ file navigation
 - Change markers in the gutter, Annotate with Git Blame (⌥⌘A)
 - Branch popup in the title bar: search, Update Project, Commit, Push, New Branch, Checkout Tag or Revision, Recent / Local / Remote trees grouped by folder, per-branch checkout, merge, rename, delete
 - Git tool window (⌘9): branch tree, log with commit graph and filters (text/hash, branch, user, path), commit details, Console
