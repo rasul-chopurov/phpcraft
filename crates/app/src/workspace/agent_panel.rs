@@ -319,11 +319,22 @@ impl Workspace {
     }
 
     pub(super) fn render_agent_panel(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        if !self.agent.open {
-            return None;
-        }
+
         let small_button = |id: SharedString, label: &'static str| {
-            div().id(id).px_2().h(px(22.)).flex().items_center().rounded_md().cursor_pointer().border_1().border_color(theme::border_strong()).hover(|d| d.bg(theme::hover())).child(label)
+            div()
+                .id(id)
+                .px_2()
+                .h(px(22.))
+                .flex()
+                .items_center()
+                .rounded_md()
+                .cursor_pointer()
+                .border_1()
+                .border_color(theme::border_strong())
+                .bg(theme::panel_bg())
+                .text_color(theme::ui_text())
+                .hover(|d| d.bg(theme::hover()))
+                .child(label)
         };
         let items = self.agent.items.iter().enumerate().map(|(ix, item)| -> gpui::AnyElement {
             match item {
@@ -433,6 +444,30 @@ impl Workspace {
                     .child(label)
                     .on_click(cx.listener(move |this, _, _, cx| this.set_provider(id, cx)))
             });
+        // ACP agents sign in with their own account: run their login in a terminal.
+        let login = KNOWN_AGENTS.iter().find(|a| a.name == config.provider).map(|agent| {
+            let command = agent.login;
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .px_3()
+                .py_1()
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child(div().flex_1().child(format!("{} uses its own account, no API key.", agent.name)))
+                .child(small_button("agent-login".into(), "Sign in…").on_click(cx.listener(move |this, _, window, cx| {
+                    let root = this.project.root().to_path_buf();
+                    let config = crate::run_configs::RunConfig {
+                        name: format!("{} login", command[0]),
+                        kind: crate::run_configs::Kind::Shell { command: command.join(" ") },
+                        env: Default::default(),
+                    };
+                    if let Some(view) = this.add_terminal_at(Some(config), root, cx) {
+                        window.focus(&view.focus_handle(cx));
+                    }
+                })))
+        });
         let provider_bar = div().flex().flex_wrap().gap_1().px_2().py_1().border_b_1().border_color(theme::border()).children(providers);
         let key_setup = self.agent.key_field.clone().map(|field| {
             div()
@@ -461,6 +496,7 @@ impl Workspace {
                 .text_size(px(13.))
                 .child(header)
                 .child(provider_bar)
+                .children(login)
                 .children(key_setup)
                 .child(
                     div()

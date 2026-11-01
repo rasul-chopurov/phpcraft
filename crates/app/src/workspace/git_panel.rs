@@ -24,7 +24,6 @@ pub(super) struct GitState {
     /// Collapsed groups in the Commit window ("changes", "unversioned").
     pub groups_collapsed: HashSet<&'static str>,
     pub amend: bool,
-    pub log_open: bool,
     pub log: Vec<git::Commit>,
     pub log_graph: Vec<git::GraphRow>,
     pub log_selected: Option<usize>,
@@ -60,7 +59,6 @@ impl GitState {
             excluded: HashSet::new(),
             message: cx.new(|cx| crate::editor_view::EditorView::plain(intel, workspace, cx)),
             amend: false,
-            log_open: false,
             log: Vec::new(),
             log_graph: Vec::new(),
             log_selected: None,
@@ -185,8 +183,13 @@ impl Workspace {
     }
 
     pub(super) fn toggle_git_log(&mut self, _: &ToggleGitLog, _: &mut Window, cx: &mut Context<Self>) {
-        self.git.log_open = !self.git.log_open;
-        if self.git.log_open {
+        let open = !self.layout.is_active(super::layout::ToolWindow::Git);
+        if open {
+            self.layout.show(super::layout::ToolWindow::Git);
+        } else {
+            self.layout.hide(super::layout::ToolWindow::Git);
+        }
+        if open {
             self.refresh_log(cx);
         }
         cx.notify();
@@ -344,7 +347,7 @@ impl Workspace {
         }
         self.rows = self.project.rows();
         self.refresh_git(cx);
-        if self.git.log_open {
+        if self.layout.is_active(super::layout::ToolWindow::Git) {
             self.refresh_log(cx);
         }
     }

@@ -3932,6 +3932,7 @@ dependencies = [
  "sys-locale",
  "terminal",
  "trash",
+ "tree-sitter",
 ]
 
 [[package]]

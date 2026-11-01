@@ -53,6 +53,8 @@ pub struct Workspace {
     prefs_menu_open: bool,
     layout: layout::Layout,
     context_menu: Option<context_menu::ContextMenu>,
+    /// Outline of the active file for (path, buffer version).
+    structure: std::cell::RefCell<Option<(PathBuf, u64, std::rc::Rc<Vec<crate::structure::StructItem>>)>>,
     /// The diff tab (one at a time, like PhpStorm's preview diff) and whether it is shown.
     diff: Option<Entity<crate::diff_view::DiffView>>,
     diff_active: bool,
@@ -92,6 +94,7 @@ impl Workspace {
         Self {
             layout: layout::Layout::load(),
             context_menu: None,
+            structure: Default::default(),
             diff: None,
             diff_active: false,
             _diff_subscription: None,
@@ -477,7 +480,7 @@ impl Workspace {
                     .items_center()
                     .gap_3()
                     .children(self.render_branch_widget(cx))
-                    .child(SharedString::from(self.project.name()))
+                    .child(SharedString::from(self.breadcrumb(cx).unwrap_or_else(|| self.project.name())))
                     .child(
                         div()
                             .id("status-terminal")
@@ -571,6 +574,86 @@ impl Workspace {
     }
 }
 
+impl Workspace {
+    /// Structure of the active PHP file, cached per buffer version.
+    fn active_structure(&self, cx: &gpui::App) -> Option<std::rc::Rc<Vec<crate::structure::StructItem>>> {
+        let buffer = &self.tabs.get(self.active)?.read(cx).buffer;
+        let path = buffer.path()?.to_path_buf();
+        if !path.to_string_lossy().ends_with(".php") || path.to_string_lossy().ends_with(".blade.php") {
+            return None;
+        }
+        let version = buffer.version();
+        if let Some((p, v, items)) = self.structure.borrow().as_ref()
+            && *p == path
+            && *v == version
+        {
+            return Some(items.clone());
+        }
+        let items = std::rc::Rc::new(crate::structure::outline(&buffer.text()));
+        *self.structure.borrow_mut() = Some((path, version, items.clone()));
+        Some(items)
+    }
+
+    fn render_structure(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let items = self.active_structure(cx).unwrap_or_default();
+        let caret = self.tabs.get(self.active).map(|t| {
+            let buffer = &t.read(cx).buffer;
+            buffer.char_to_byte(buffer.selection.head)
+        });
+        // The innermost item at or before the caret is highlighted.
+        let current = caret.and_then(|c| items.iter().rposition(|i| i.range.start <= c));
+        let empty = items.is_empty();
+        let rows = items.iter().enumerate().map(|(ix, item)| {
+            let start = item.range.start;
+            div()
+                .id(("structure", ix))
+                .mx_1()
+                .pl(px(8. + 14. * item.depth as f32))
+                .pr_2()
+                .h(px(24.))
+                .flex()
+                .items_center()
+                .gap_1p5()
+                .rounded_md()
+                .cursor_pointer()
+                .text_color(theme::ui_text())
+                .when(Some(ix) == current, |d| d.bg(theme::active_row()))
+                .hover(|d| d.bg(theme::hover()))
+                .child(div().w(px(16.)).flex_none().text_color(theme::syntax(php_syntax::Highlight::Keyword)).child(item.icon))
+                .child(div().overflow_hidden().whitespace_nowrap().child(SharedString::from(item.name.clone())))
+                .child(div().flex_1())
+                .child(div().text_size(px(11.)).text_color(theme::muted()).child(SharedString::from(item.detail.clone())))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if let Some(tab) = this.tabs.get(this.active).cloned() {
+                        tab.update(cx, |editor, cx| editor.reveal_byte(start, cx));
+                        window.focus(&tab.focus_handle(cx));
+                    }
+                }))
+        });
+        div()
+            .id("structure-list")
+            .flex_1()
+            .overflow_y_scroll()
+            .pb_2()
+            .text_size(px(13.))
+            .when(empty, |d| d.child(div().p_3().text_color(theme::muted()).child("Open a PHP file to see its structure.")))
+            .children(rows.collect::<Vec<_>>())
+    }
+
+    /// `app › Models › User.php › User › posts()` for the status bar.
+    fn breadcrumb(&self, cx: &gpui::App) -> Option<String> {
+        let buffer = &self.tabs.get(self.active)?.read(cx).buffer;
+        let path = buffer.path()?;
+        let relative = path.strip_prefix(self.project.root()).unwrap_or(path);
+        let mut parts: Vec<String> = relative.iter().map(|p| p.to_string_lossy().into_owned()).collect();
+        if buffer.is_php() {
+            let offset = buffer.char_to_byte(buffer.selection.head);
+            parts.extend(crate::structure::scope_at(&buffer.text(), offset));
+        }
+        Some(parts.join(" › "))
+    }
+}
+
 impl Focusable for Workspace {
     fn focus_handle(&self, _: &gpui::App) -> FocusHandle {
         self.focus_handle.clone()
@@ -625,6 +708,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_projects))
             .on_action(cx.listener(Self::toggle_terminal))
             .on_action(cx.listener(Self::toggle_agent))
+            .on_action(cx.listener(Self::toggle_structure))
             .on_action(cx.listener(Self::new_agent_chat))
             .on_action(cx.listener(Self::new_terminal))
             .on_action(cx.listener(Self::close_terminal))
@@ -673,8 +757,7 @@ impl Render for Workspace {
                             .child(self.render_tabs(cx))
                             .child(editor)
                             .children(self.render_output(cx))
-                            .children(self.render_git_log(cx))
-                            .children(self.render_terminal_panel(cx)),
+                            .children(self.render_side(layout::Side::Bottom, cx)),
                     )
                     .children(self.render_side(layout::Side::Right, cx))
                     .child(self.render_stripe(layout::Side::Right, cx)),

@@ -354,9 +354,6 @@ impl Workspace {
     }
 
     pub(super) fn render_git_log(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        if !self.git.log_open {
-            return None;
-        }
         let tab = |id: &'static str, label: &'static str, active: bool| {
             div()
                 .id(id)
@@ -391,14 +388,9 @@ impl Workspace {
         };
         Some(
             div()
+                .size_full()
                 .flex()
                 .flex_col()
-                .flex_none()
-                .relative()
-                .h(px(self.layout.bottom_height))
-                .child(self.resize_handle(super::layout::Side::Bottom))
-                .border_t_1()
-                .border_color(theme::border_strong())
                 .bg(theme::editor_bg())
                 .text_size(px(12.))
                 .child(

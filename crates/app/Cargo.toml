@@ -10,6 +10,7 @@ gpui.workspace = true
 editor.workspace = true
 project.workspace = true
 php-syntax.workspace = true
+tree-sitter.workspace = true
 php-index.workspace = true
 php-analysis.workspace = true
 laravel.workspace = true

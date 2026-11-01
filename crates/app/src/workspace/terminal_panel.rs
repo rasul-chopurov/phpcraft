@@ -24,7 +24,6 @@ pub(super) struct TerminalTab {
 pub(super) struct TerminalState {
     tabs: Vec<TerminalTab>,
     active: usize,
-    pub open: bool,
     /// What ⌃R reruns.
     pub last_run: Option<RunConfig>,
 }
@@ -86,7 +85,7 @@ impl Workspace {
                 self.terminals.active = self.terminals.tabs.len() - 1;
             }
         }
-        self.terminals.open = true;
+        self.layout.show(super::layout::ToolWindow::Terminal);
         cx.notify();
         Some(view)
     }
@@ -97,11 +96,11 @@ impl Workspace {
 
     pub(super) fn toggle_terminal(&mut self, _: &ToggleTerminal, window: &mut Window, cx: &mut Context<Self>) {
         let focused = self.active_terminal().is_some_and(|t| t.focus_handle(cx).is_focused(window));
-        if self.terminals.open && focused {
-            self.terminals.open = false;
+        if self.layout.is_active(super::layout::ToolWindow::Terminal) && focused {
+            self.layout.hide(super::layout::ToolWindow::Terminal);
             self.focus_active(window, cx);
         } else {
-            self.terminals.open = true;
+            self.layout.show(super::layout::ToolWindow::Terminal);
             if self.terminals.tabs.is_empty() {
                 self.add_terminal(None, cx);
             }
@@ -124,7 +123,7 @@ impl Workspace {
         }
         self.terminals.active = self.terminals.active.min(self.terminals.tabs.len().saturating_sub(1));
         if self.terminals.tabs.is_empty() {
-            self.terminals.open = false;
+            self.layout.hide(super::layout::ToolWindow::Terminal);
             self.focus_active(window, cx);
         }
         cx.notify();
@@ -243,7 +242,7 @@ impl Workspace {
     }
 
     pub(super) fn render_terminal_panel(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        if !self.terminals.open || self.terminals.tabs.is_empty() {
+        if self.terminals.tabs.is_empty() {
             return None;
         }
         let active = self.terminals.active;
@@ -298,12 +297,9 @@ impl Workspace {
         let view = self.active_terminal()?.clone();
         Some(
             div()
+                .size_full()
                 .flex()
                 .flex_col()
-                .flex_none()
-                .relative()
-                .h(px(self.layout.bottom_height))
-                .child(self.resize_handle(super::layout::Side::Bottom))
                 .border_t_1()
                 .border_color(theme::border_strong())
                 .text_size(px(12.))
@@ -324,7 +320,7 @@ impl Workspace {
                                 .child(tool("term-stop", "■ Stop").on_click(cx.listener(|this, _, window, cx| this.stop_run(&StopRun, window, cx))))
                         })
                         .child(tool("term-hide", "—").on_click(cx.listener(|this, _, window, cx| {
-                            this.terminals.open = false;
+                            this.layout.hide(super::layout::ToolWindow::Terminal);
                             this.focus_active(window, cx);
                             cx.notify();
                         }))),

@@ -19,14 +19,16 @@ pub struct AcpAgent {
     pub name: &'static str,
     pub program: &'static str,
     pub args: &'static [&'static str],
+    /// Command that signs in to the agent's own account (run in a terminal).
+    pub login: &'static [&'static str],
 }
 
 pub const KNOWN_AGENTS: &[AcpAgent] = &[
-    AcpAgent { name: "OpenCode", program: "opencode", args: &["acp"] },
-    AcpAgent { name: "Claude Code", program: "claude-code-acp", args: &[] },
-    AcpAgent { name: "Codex", program: "codex-acp", args: &[] },
+    AcpAgent { name: "OpenCode", program: "opencode", args: &["acp"], login: &["opencode", "auth", "login"] },
+    AcpAgent { name: "Claude Code", program: "claude-code-acp", args: &[], login: &["claude", "/login"] },
+    AcpAgent { name: "Codex", program: "codex-acp", args: &[], login: &["codex", "login"] },
     // Google AI subscription (Gemini CLI signed in with a Google account).
-    AcpAgent { name: "Gemini", program: "gemini", args: &["--experimental-acp"] },
+    AcpAgent { name: "Gemini", program: "gemini", args: &["--experimental-acp"], login: &["gemini"] },
 ];
 
 /// Finds `program` on PATH (and common install folders GUI apps don't inherit).

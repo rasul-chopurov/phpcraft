@@ -10,6 +10,8 @@ use gpui::{
 use serde::{Deserialize, Serialize};
 
 use super::Workspace;
+
+gpui::actions!(workspace, [ToggleStructure]);
 use crate::theme;
 
 pub(super) const STRIPE_WIDTH: f32 = 34.;
@@ -18,6 +20,7 @@ const STATUS_HEIGHT: f32 = 26.;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ToolWindow {
     Project,
+    Structure,
     Commit,
     Ai,
     Terminal,
@@ -25,11 +28,13 @@ pub enum ToolWindow {
 }
 
 impl ToolWindow {
-    const SIDE_TOOLS: [ToolWindow; 3] = [ToolWindow::Project, ToolWindow::Commit, ToolWindow::Ai];
+    pub const ALL: [ToolWindow; 6] =
+        [ToolWindow::Project, ToolWindow::Structure, ToolWindow::Commit, ToolWindow::Ai, ToolWindow::Terminal, ToolWindow::Git];
 
     fn icon(self) -> &'static str {
         match self {
             ToolWindow::Project => "▤",
+            ToolWindow::Structure => "≣",
             ToolWindow::Commit => "✓",
             ToolWindow::Ai => "✦",
             ToolWindow::Terminal => "›_",
@@ -40,6 +45,7 @@ impl ToolWindow {
     pub fn title(self) -> &'static str {
         match self {
             ToolWindow::Project => "Project",
+            ToolWindow::Structure => "Structure",
             ToolWindow::Commit => "Commit",
             ToolWindow::Ai => "AI Assistant",
             ToolWindow::Terminal => "Terminal",
@@ -50,6 +56,7 @@ impl ToolWindow {
     fn shortcut(self) -> &'static str {
         match self {
             ToolWindow::Project => "⌘1",
+            ToolWindow::Structure => "⌘7",
             ToolWindow::Commit => "⌘0",
             ToolWindow::Ai => "⌘⌥I",
             ToolWindow::Terminal => "⌥F12",
@@ -72,6 +79,7 @@ pub struct Layout {
     docks: HashMap<ToolWindow, Side>,
     pub left: Option<ToolWindow>,
     pub right: Option<ToolWindow>,
+    pub bottom: Option<ToolWindow>,
     pub left_width: f32,
     pub right_width: f32,
     pub bottom_height: f32,
@@ -80,9 +88,16 @@ pub struct Layout {
 impl Default for Layout {
     fn default() -> Self {
         Self {
-            docks: HashMap::from([(ToolWindow::Project, Side::Left), (ToolWindow::Commit, Side::Left), (ToolWindow::Ai, Side::Right)]),
+            docks: HashMap::from([
+                (ToolWindow::Project, Side::Left),
+                (ToolWindow::Commit, Side::Left),
+                (ToolWindow::Ai, Side::Right),
+                (ToolWindow::Terminal, Side::Bottom),
+                (ToolWindow::Git, Side::Bottom),
+            ]),
             left: Some(ToolWindow::Project),
             right: None,
+            bottom: None,
             left_width: 280.,
             right_width: 400.,
             bottom_height: 300.,
@@ -97,12 +112,9 @@ impl Layout {
 
     pub fn load() -> Self {
         let mut layout: Self = std::fs::read_to_string(Self::path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        // The AI panel starts closed: it needs setup and a session.
-        if layout.left == Some(ToolWindow::Ai) {
-            layout.left = None;
-        }
-        if layout.right == Some(ToolWindow::Ai) {
-            layout.right = None;
+        // Panels that need a running session start closed.
+        for tool in [ToolWindow::Ai, ToolWindow::Terminal, ToolWindow::Git] {
+            layout.hide(tool);
         }
         layout
     }
@@ -113,44 +125,51 @@ impl Layout {
     }
 
     pub fn side(&self, tool: ToolWindow) -> Side {
-        match tool {
+        let default = match tool {
             ToolWindow::Terminal | ToolWindow::Git => Side::Bottom,
-            _ => self.docks.get(&tool).copied().unwrap_or(Side::Left),
+            ToolWindow::Ai => Side::Right,
+            _ => Side::Left,
+        };
+        self.docks.get(&tool).copied().unwrap_or(default)
+    }
+
+    fn slot(&mut self, side: Side) -> &mut Option<ToolWindow> {
+        match side {
+            Side::Left => &mut self.left,
+            Side::Right => &mut self.right,
+            Side::Bottom => &mut self.bottom,
         }
     }
 
-    fn slot(&mut self, side: Side) -> Option<&mut Option<ToolWindow>> {
+    pub fn active(&self, side: Side) -> Option<ToolWindow> {
         match side {
-            Side::Left => Some(&mut self.left),
-            Side::Right => Some(&mut self.right),
-            Side::Bottom => None,
+            Side::Left => self.left,
+            Side::Right => self.right,
+            Side::Bottom => self.bottom,
         }
     }
 
     pub fn is_active(&self, tool: ToolWindow) -> bool {
-        self.left == Some(tool) || self.right == Some(tool)
+        self.left == Some(tool) || self.right == Some(tool) || self.bottom == Some(tool)
     }
 
-    /// Shows a side tool (replacing what was open on its edge).
+    /// Shows a tool on its edge (replacing what was open there).
     pub fn show(&mut self, tool: ToolWindow) {
         let side = self.side(tool);
-        if let Some(slot) = self.slot(side) {
-            *slot = Some(tool);
-        }
+        *self.slot(side) = Some(tool);
     }
 
     pub fn hide(&mut self, tool: ToolWindow) {
-        if self.left == Some(tool) {
-            self.left = None;
-        }
-        if self.right == Some(tool) {
-            self.right = None;
+        for slot in [&mut self.left, &mut self.right, &mut self.bottom] {
+            if *slot == Some(tool) {
+                *slot = None;
+            }
         }
     }
 
-    /// Moves a side tool to another edge, keeping it open if it was.
+    /// Moves a tool to another edge, keeping it open if it was.
     fn dock(&mut self, tool: ToolWindow, side: Side) {
-        if side == Side::Bottom || self.side(tool) == side {
+        if self.side(tool) == side {
             return;
         }
         let was_open = self.is_active(tool);
@@ -221,11 +240,7 @@ pub(super) fn tooltip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mu
 
 impl Workspace {
     pub(super) fn tool_open(&self, tool: ToolWindow) -> bool {
-        match tool {
-            ToolWindow::Terminal => self.terminals.open,
-            ToolWindow::Git => self.git.log_open,
-            _ => self.layout.is_active(tool),
-        }
+        self.layout.is_active(tool)
     }
 
     /// Opens or closes a tool window (stripe click).
@@ -234,7 +249,7 @@ impl Workspace {
             ToolWindow::Terminal => self.toggle_terminal(&super::terminal_panel::ToggleTerminal, window, cx),
             ToolWindow::Git => self.toggle_git_log(&super::git_panel::ToggleGitLog, window, cx),
             ToolWindow::Ai => self.toggle_agent(&super::agent_panel::ToggleAgent, window, cx),
-            ToolWindow::Project | ToolWindow::Commit => {
+            ToolWindow::Project | ToolWindow::Commit | ToolWindow::Structure => {
                 if self.layout.is_active(tool) {
                     self.layout.hide(tool);
                     self.focus_active(window, cx);
@@ -270,25 +285,36 @@ impl Workspace {
             .when(changes > 0, |d| {
                 d.child(div().absolute().top(px(2.)).right(px(2.)).size(px(6.)).rounded_full().bg(theme::accent()))
             })
-            .tooltip(tooltip(format!("{}  {}{}", tool.title(), tool.shortcut(), if self.layout.side(tool) == Side::Bottom { "" } else { "  ·  drag to the other edge" })))
+            .tooltip(tooltip(format!("{}  {}  ·  drag to another edge", tool.title(), tool.shortcut())))
             .on_click(cx.listener(move |this, _, window, cx| this.toggle_tool(tool, window, cx)));
-        if self.layout.side(tool) != Side::Bottom {
-            button = button.on_drag(DraggedTool(tool), |drag, _, _, cx| cx.new(|_| DragPreview(drag.0)));
-        }
+        button = button.on_drag(DraggedTool(tool), |drag, _, _, cx| cx.new(|_| DragPreview(drag.0)));
         button.into_any_element()
     }
 
-    /// The icon column on one edge; dropping a tool icon here docks it on this edge.
-    pub(super) fn render_stripe(&self, side: Side, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let top: Vec<AnyElement> =
-            ToolWindow::SIDE_TOOLS.iter().filter(|t| self.layout.side(**t) == side).map(|t| self.stripe_button(*t, cx)).collect();
-        let bottom: Vec<AnyElement> = if side == Side::Left {
-            [ToolWindow::Terminal, ToolWindow::Git].iter().map(|t| self.stripe_button(*t, cx)).collect()
-        } else {
-            Vec::new()
-        };
+    fn drop_zone(&self, side: Side, id: &'static str, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+        let buttons: Vec<AnyElement> = ToolWindow::ALL.iter().filter(|t| self.layout.side(**t) == side).map(|t| self.stripe_button(*t, cx)).collect();
         div()
-            .id(if side == Side::Left { "stripe-left" } else { "stripe-right" })
+            .id(id)
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_1()
+            .min_h(px(60.))
+            .w_full()
+            .rounded_md()
+            .drag_over::<DraggedTool>(|style, _, _, _| style.bg(theme::selection()))
+            .on_drop(cx.listener(move |this, dragged: &DraggedTool, _, cx| {
+                this.layout.dock(dragged.0, side);
+                this.layout.save();
+                cx.notify();
+            }))
+            .children(buttons)
+    }
+
+    /// The icon column on one edge. The left column's lower part holds the bottom panels;
+    /// dropping a tool icon on a zone docks it there.
+    pub(super) fn render_stripe(&self, side: Side, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let stripe = div()
             .w(px(STRIPE_WIDTH))
             .flex_none()
             .h_full()
@@ -296,19 +322,17 @@ impl Workspace {
             .flex_col()
             .items_center()
             .justify_between()
-            .py_1()
+            .p_1()
             .bg(theme::panel_bg())
             .when(side == Side::Left, |d| d.border_r_1())
             .when(side == Side::Right, |d| d.border_l_1())
-            .border_color(theme::border())
-            .drag_over::<DraggedTool>(|style, _, _, _| style.bg(theme::selection()))
-            .on_drop(cx.listener(move |this, dragged: &DraggedTool, _, cx| {
-                this.layout.dock(dragged.0, side);
-                this.layout.save();
-                cx.notify();
-            }))
-            .child(div().flex().flex_col().gap_1().children(top))
-            .child(div().flex().flex_col().gap_1().children(bottom))
+            .border_color(theme::border());
+        match side {
+            Side::Left => stripe
+                .child(self.drop_zone(Side::Left, "zone-left", cx).flex_1())
+                .child(self.drop_zone(Side::Bottom, "zone-bottom", cx).border_t_1().border_color(theme::border()).pt_1()),
+            _ => stripe.child(self.drop_zone(Side::Right, "zone-right", cx).flex_1()),
+        }
     }
 
     /// A thin handle on a panel edge; drag it to resize.
@@ -345,56 +369,63 @@ impl Workspace {
 
     /// The open tool window on one edge, with its title bar and resize handle.
     pub(super) fn render_side(&self, side: Side, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let tool = match side {
-            Side::Left => self.layout.left?,
-            Side::Right => self.layout.right?,
-            Side::Bottom => return None,
-        };
+        let tool = self.layout.active(side)?;
         let content: AnyElement = match tool {
             ToolWindow::Project => self.render_project_tree(cx).into_any_element(),
+            ToolWindow::Structure => self.render_structure(cx).into_any_element(),
             ToolWindow::Commit => self.render_commit_panel(cx).into_any_element(),
             ToolWindow::Ai => self.render_agent_panel(cx)?.into_any_element(),
-            _ => return None,
+            ToolWindow::Terminal => self.render_terminal_panel(cx)?.into_any_element(),
+            ToolWindow::Git => self.render_git_log(cx)?.into_any_element(),
         };
-        let width = if side == Side::Left { self.layout.left_width } else { self.layout.right_width };
-        Some(
+        // Terminal and Git draw their own tab bars.
+        let own_header = matches!(tool, ToolWindow::Terminal | ToolWindow::Git);
+        let header = (!own_header).then(|| {
             div()
-                .relative()
-                .w(px(width))
-                .h_full()
-                .flex_none()
                 .flex()
-                .flex_col()
-                .bg(theme::panel_bg())
-                .when(side == Side::Left, |d| d.border_r_1())
-                .when(side == Side::Right, |d| d.border_l_1())
-                .border_color(theme::border())
-                .text_size(px(13.))
+                .flex_none()
+                .items_center()
+                .h(px(30.))
+                .px_3()
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child(div().flex_1().child(tool.title().to_uppercase()))
                 .child(
                     div()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .h(px(30.))
-                        .px_3()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(div().flex_1().child(tool.title().to_uppercase()))
-                        .child(
-                            div()
-                                .id("side-hide")
-                                .px_1()
-                                .rounded_sm()
-                                .cursor_pointer()
-                                .hover(|d| d.bg(theme::hover()))
-                                .child("—")
-                                .tooltip(tooltip("Hide"))
-                                .on_click(cx.listener(move |this, _, window, cx| this.toggle_tool(tool, window, cx))),
-                        ),
+                        .id("side-hide")
+                        .px_1()
+                        .rounded_sm()
+                        .cursor_pointer()
+                        .hover(|d| d.bg(theme::hover()))
+                        .child("—")
+                        .tooltip(tooltip("Hide"))
+                        .on_click(cx.listener(move |this, _, window, cx| this.toggle_tool(tool, window, cx))),
                 )
-                .child(div().flex_1().min_h(px(0.)).flex().flex_col().child(content))
-                .child(self.resize_handle(side))
-                .into_any_element(),
+        });
+        let panel = div()
+            .relative()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .bg(theme::panel_bg())
+            .border_color(theme::border_strong())
+            .text_size(px(13.))
+            .children(header)
+            .child(div().flex_1().min_h(px(0.)).flex().flex_col().child(content))
+            .child(self.resize_handle(side));
+        Some(
+            match side {
+                Side::Left => panel.w(px(self.layout.left_width)).h_full().border_r_1(),
+                Side::Right => panel.w(px(self.layout.right_width)).h_full().border_l_1(),
+                Side::Bottom => panel.w_full().h(px(self.layout.bottom_height)).border_t_1(),
+            }
+            .into_any_element(),
         )
+    }
+}
+
+impl Workspace {
+    pub(super) fn toggle_structure(&mut self, _: &ToggleStructure, window: &mut Window, cx: &mut Context<Self>) {
+        self.toggle_tool(ToolWindow::Structure, window, cx);
     }
 }

@@ -9,6 +9,7 @@ mod local_history;
 mod markdown_preview;
 mod run_configs;
 mod settings_import;
+mod structure;
 mod sync;
 mod terminal_view;
 mod text_field;
