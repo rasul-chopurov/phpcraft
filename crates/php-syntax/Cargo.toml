@@ -1,0 +1,10 @@
+[package]
+name = "php-syntax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tree-sitter.workspace = true
+tree-sitter-php.workspace = true
+streaming-iterator.workspace = true
