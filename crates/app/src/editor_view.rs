@@ -9,6 +9,7 @@ mod hierarchy;
 mod info;
 mod rows;
 mod snippets;
+mod test_marks;
 mod ghost;
 mod intel_ui;
 mod multicaret;
@@ -128,6 +129,8 @@ actions!(
 );
 
 const GUTTER_PADDING: f32 = 12.;
+/// Width of the ▶ run-mark column in test files.
+const RUN_MARK_WIDTH: f32 = 16.;
 const TEXT_PADDING: f32 = 8.;
 /// Width of the git blame column, in digits.
 const BLAME_CHARS: usize = 25;
@@ -199,6 +202,8 @@ pub struct EditorView {
     problems: Option<(u64, Vec<php_analysis::Problem>)>,
     /// PHPStan / Psalm / PHPCS findings for the version that was saved.
     external_problems: Option<(u64, Vec<php_analysis::Problem>)>,
+    /// Lines with a ▶ run mark (test files), for a buffer version.
+    test_marks: Option<(u64, Vec<usize>)>,
 }
 
 impl EditorView {
@@ -231,6 +236,7 @@ impl EditorView {
             info: None,
             problems: None,
             external_problems: None,
+            test_marks: None,
             buffer,
             focus_handle: cx.focus_handle(),
             scroll_y: px(0.),
@@ -527,6 +533,23 @@ impl EditorView {
         Some(row.segments[seg - 1].end - 1)
     }
 
+    /// A click on a ▶ run mark (left edge of the gutter): its buffer line.
+    fn run_mark_at(&self, position: Point<Pixels>) -> Option<usize> {
+        let layout = self.layout.as_ref()?;
+        let left = layout.bounds.left();
+        let start = left + self.blame_offset() + px(GUTTER_PADDING - 2.);
+        if self.plain || position.x < start || position.x > start + px(RUN_MARK_WIDTH + 4.) {
+            return None;
+        }
+        let (_, Some((row, ..))) = self.row_at(position)? else { return None };
+        let line = row.line;
+        (row.first && self.test_marks.as_ref().is_some_and(|(_, l)| l.contains(&line))).then_some(line)
+    }
+
+    fn blame_offset(&self) -> Pixels {
+        if self.blame.is_some() { px(theme::editor_font_size() * 0.6 * BLAME_CHARS as f32) } else { px(0.) }
+    }
+
     /// A click in the fold-arrow column: the buffer line of that row.
     fn fold_arrow_at(&self, position: Point<Pixels>) -> Option<usize> {
         let layout = self.layout.as_ref()?;
@@ -588,6 +611,11 @@ impl EditorView {
         window.focus(&self.focus_handle);
         self.close_menu();
         if self.cmd_click(event, window, cx) {
+            return;
+        }
+        if let Some(line) = self.run_mark_at(event.position) {
+            self.run_test_on_line(line, cx);
+            cx.stop_propagation();
             return;
         }
         if let Some(line) = self.fold_arrow_at(event.position) {
@@ -1209,9 +1237,13 @@ impl Element for EditorElement {
                 .width;
             let blame_width = if view.blame.is_some() { digit_width * BLAME_CHARS as f32 } else { px(0.) };
             let fold_width = if view.plain { px(0.) } else { digit_width * 1.8 };
-            let gutter_width = if view.plain { px(0.) } else { blame_width + digit_width * digits as f32 + fold_width + px(GUTTER_PADDING * 2.) };
+            // A column for ▶ run marks in test files.
+            let has_tests = !view.plain && !view.test_lines().is_empty();
+            let run_width = if has_tests { px(RUN_MARK_WIDTH) } else { px(0.) };
+            let gutter_width = if view.plain { px(0.) } else { blame_width + run_width + digit_width * digits as f32 + fold_width + px(GUTTER_PADDING * 2.) };
             let markers = view.git_markers();
             let bookmark_lines = view.bookmark_lines();
+            let test_lines = view.test_lines();
             let indent_cols = match view.buffer.indent_unit() {
                 "\t" => 4,
                 unit => unit.len().max(1),
@@ -1460,6 +1492,11 @@ impl Element for EditorElement {
                             window.text_system().shape_line(label.into(), px(theme::editor_font_size() - 1.5), &[run(len, theme::muted())], None),
                             y,
                         ));
+                    }
+                    // ▶ runs the test on this line; it sits left of the line number.
+                    if test_lines.contains(&line) {
+                        let mark = window.text_system().shape_line("▶".into(), px(theme::editor_font_size() - 3.), &[run("▶".len(), theme::success())], None);
+                        fold_marks.push((mark, point(bounds.left() + blame_width + px(GUTTER_PADDING), y + px(1.))));
                     }
                     // Fold arrow: ▸ collapsed, ▾ expanded.
                     if let Some(&(open, _)) = candidates.iter().find(|(o, _)| view.buffer.char_to_line_col(*o).0 == line) {

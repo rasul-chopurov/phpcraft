@@ -178,6 +178,31 @@ pub fn command(config: &RunConfig, root: &Path) -> terminal::Command {
     }
 }
 
+/// Lines of a test file that start a test (method `test…` / `#[Test]`, Pest `it(` / `test(`)
+/// or the test class, for the ▶ marks in the gutter.
+pub fn test_lines(file: &Path, text: &str) -> Vec<usize> {
+    let name = file.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    if !name.ends_with("Test") && !file.components().any(|c| c.as_os_str() == "tests") {
+        return Vec::new();
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim_start();
+        let attributed = i > 0 && lines[i - 1].trim() == "#[Test]";
+        let is_test = (t.contains("function test") && t.contains("public"))
+            || (attributed && t.contains("function "))
+            || t.starts_with("it(")
+            || t.starts_with("test(")
+            || (t.starts_with("class ") && t.split_whitespace().nth(1).is_some_and(|c| c.ends_with("Test")))
+            || (t.starts_with("final class ") && t.split_whitespace().nth(2).is_some_and(|c| c.ends_with("Test")));
+        if is_test {
+            found.push(i);
+        }
+    }
+    found
+}
+
 /// The run configuration for the caret position: a test method / Pest test, a test class,
 /// or the PHP script itself.
 pub fn for_context(root: &Path, file: &Path, text: &str, offset: usize) -> Option<RunConfig> {
@@ -273,6 +298,14 @@ mod tests {
         assert_eq!(saved.len(), 1);
         assert_eq!(command(&saved[0], &root).args, ["artisan", "serve", "--port=8080"]);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn test_lines_in_files() {
+        let text = "<?php\nclass UserTest extends TestCase\n{\n    public function test_login(): void {}\n    #[Test]\n    public function logs_out(): void {}\n    private function helper() {}\n}\n";
+        assert_eq!(test_lines(Path::new("tests/UserTest.php"), text), [1, 3, 5]);
+        assert_eq!(test_lines(Path::new("tests/Feature/HomeTest.php"), "<?php\nit('works', function () {});\ntest('x', fn () => 1);\n"), [1, 2]);
+        assert!(test_lines(Path::new("app/User.php"), text).is_empty());
     }
 
     #[test]

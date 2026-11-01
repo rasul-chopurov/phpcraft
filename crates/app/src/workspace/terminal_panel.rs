@@ -246,6 +246,11 @@ impl Workspace {
         self.close_terminal_tab(self.terminals.active, window, cx);
     }
 
+    /// Runs `config` in a Run tab (from the editor's ▶ marks).
+    pub(crate) fn run_config(&mut self, config: RunConfig, cx: &mut Context<Self>) {
+        self.start_run(config, false, cx);
+    }
+
     /// Runs `config` in a Run tab (saving it first when asked).
     pub(super) fn start_run(&mut self, config: RunConfig, save: bool, cx: &mut Context<Self>) {
         if save {
