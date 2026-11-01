@@ -5,11 +5,11 @@ use gpui::{Context, SharedString, Window, actions, div, prelude::*, px};
 
 use super::Workspace;
 use super::tools::Output;
-use crate::http_client;
+use crate::{http_client, http_convert};
 use crate::icons::{Icon, icon};
 use crate::theme;
 
-actions!(workspace, [RunHttpRequest, NewHttpRequest]);
+actions!(workspace, [RunHttpRequest, NewHttpRequest, ConvertCurlToHttp, CopyAsCurl, ImportPostman, ImportOpenApi, ShowHttpHistory]);
 
 impl Workspace {
     /// The active tab's file when it's an `.http` file.
@@ -57,18 +57,108 @@ impl Workspace {
             let result = cx.background_spawn(async move { http_client::send(&sent) }).await;
             let _ = this.update(cx, |this, cx| {
                 this.output = Some(match result {
-                    Ok(response) => Output {
-                        title,
-                        ok: response.status < 400,
-                        text: http_client::format_response(&request, &response),
-                        running: false,
-                    },
+                    Ok(response) => {
+                        // History: the request, and the body saved to a file.
+                        let saved = http_convert::record(this.project.root(), &request, &response);
+                        let mut text = http_client::format_response(&request, &response);
+                        if let Some(file) = saved {
+                            text.push_str(&format!("\n\nResponse saved to {} (Tools ▸ HTTP Client ▸ History)", file.strip_prefix(this.project.root()).unwrap_or(&file).display()));
+                        }
+                        Output { title, ok: response.status < 400, text, running: false }
+                    }
                     Err(err) => Output { title, text: err, running: false, ok: false },
                 });
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// The request at the caret of the active `.http` file, with variables resolved.
+    fn http_request_at_caret(&self, cx: &gpui::App) -> Option<http_client::Request> {
+        let path = self.active_http_file(cx)?;
+        let buffer = &self.tabs.get(self.active)?.read(cx).buffer;
+        let text = buffer.text();
+        let (line, _) = buffer.char_to_line_col(buffer.selection.head);
+        let request = http_client::request_at(&text, line)?;
+        let dir = path.parent().unwrap_or(self.project.root()).to_path_buf();
+        let (_, _, mut vars) = http_client::environment(&dir, self.http_env.as_deref());
+        for (k, v) in http_client::file_variables(&text) {
+            vars.entry(k).or_insert(v);
+        }
+        Some(http_client::resolve(&request, &vars))
+    }
+
+    /// Writes generated requests to `http/<name>.http` (a free name) and opens it.
+    fn write_http_file(&mut self, name: &str, content: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let dir = self.project.root().join("http");
+        let _ = std::fs::create_dir_all(&dir);
+        let stem: String = name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
+        let path = (1..).map(|n| dir.join(if n == 1 { format!("{stem}.http") } else { format!("{stem}-{n}.http") })).find(|p| !p.exists()).unwrap_or_else(|| dir.join("imported.http"));
+        if std::fs::write(&path, content).is_ok() {
+            self.rows = self.project.rows();
+            self.open_file(&path, window, cx);
+        }
+    }
+
+    /// cURL from the clipboard: inserted at the caret of an open `.http` file, or a new file.
+    pub(super) fn convert_curl_to_http(&mut self, _: &ConvertCurlToHttp, window: &mut Window, cx: &mut Context<Self>) {
+        let clipboard = cx.read_from_clipboard().and_then(|c| c.text()).unwrap_or_default();
+        let Some(request) = http_convert::from_curl(&clipboard) else {
+            self.output = Some(Output { title: "HTTP Client".into(), text: "Copy a curl command first (the clipboard has no `curl …`).".into(), running: false, ok: false });
+            return cx.notify();
+        };
+        let http = http_convert::to_http(&request);
+        match (self.active_http_file(cx), self.tabs.get(self.active).cloned()) {
+            (Some(_), Some(tab)) => tab.update(cx, |editor, cx| {
+                editor.buffer.insert(&format!("\n{http}"));
+                cx.notify();
+            }),
+            _ => self.write_http_file("from-curl", &http, window, cx),
+        }
+    }
+
+    pub(super) fn copy_as_curl(&mut self, _: &CopyAsCurl, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(request) = self.http_request_at_caret(cx) else { return };
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(http_convert::to_curl(&request)));
+        self.output = Some(Output { title: "HTTP Client".into(), text: "Copied as cURL.".into(), running: false, ok: true });
+        cx.notify();
+    }
+
+    fn import_requests(&mut self, prompt: &'static str, convert: fn(&str) -> Result<String, String>, cx: &mut Context<Self>, window: &mut Window) {
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some(prompt.into()) });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = paths.await else { return };
+            let Some(path) = paths.into_iter().next() else { return };
+            let result = std::fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|t| convert(&t));
+            let name = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "imported".into());
+            let _ = this.update_in(cx, |this, window, cx| match result {
+                Ok(http) => this.write_http_file(&name, &http, window, cx),
+                Err(e) => {
+                    this.output = Some(Output { title: "HTTP Client import".into(), text: e, running: false, ok: false });
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn import_postman(&mut self, _: &ImportPostman, window: &mut Window, cx: &mut Context<Self>) {
+        self.import_requests("Import Postman Collection", http_convert::from_postman, cx, window);
+    }
+
+    pub(super) fn import_openapi(&mut self, _: &ImportOpenApi, window: &mut Window, cx: &mut Context<Self>) {
+        self.import_requests("Import OpenAPI (JSON)", http_convert::from_openapi, cx, window);
+    }
+
+    pub(super) fn show_http_history(&mut self, _: &ShowHttpHistory, window: &mut Window, cx: &mut Context<Self>) {
+        let path = self.project.root().join(".phpcraft/http/history.http");
+        if path.is_file() {
+            self.open_file(&path, window, cx);
+        } else {
+            self.output = Some(Output { title: "HTTP Client".into(), text: "No requests sent yet.".into(), running: false, ok: true });
+            cx.notify();
+        }
     }
 
     /// The bar above an `.http` file: run button, request count and environments.

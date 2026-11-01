@@ -11,6 +11,7 @@ mod deployment;
 mod diff_view;
 mod editor_view;
 mod http_client;
+mod http_convert;
 mod i18n;
 mod icons;
 mod intel;
