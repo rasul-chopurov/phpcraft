@@ -29,10 +29,11 @@ pub enum ToolWindow {
     Ai,
     Terminal,
     Git,
+    Remote,
 }
 
 impl ToolWindow {
-    pub const ALL: [ToolWindow; 9] = [
+    pub const ALL: [ToolWindow; 10] = [
         ToolWindow::Project,
         ToolWindow::Structure,
         ToolWindow::Modules,
@@ -42,6 +43,7 @@ impl ToolWindow {
         ToolWindow::Terminal,
         ToolWindow::Git,
         ToolWindow::Laravel,
+        ToolWindow::Remote,
     ];
 
     fn icon(self) -> Icon {
@@ -55,6 +57,7 @@ impl ToolWindow {
             ToolWindow::Ai => Icon::sparkles,
             ToolWindow::Terminal => Icon::terminal,
             ToolWindow::Git => Icon::branch,
+            ToolWindow::Remote => Icon::globe,
         }
     }
 
@@ -69,6 +72,7 @@ impl ToolWindow {
             ToolWindow::Ai => "AI Assistant",
             ToolWindow::Terminal => "Terminal",
             ToolWindow::Git => "Git",
+            ToolWindow::Remote => "Remote Hosts",
         }
     }
 
@@ -83,6 +87,7 @@ impl ToolWindow {
             ToolWindow::Ai => "⌘⌥I",
             ToolWindow::Terminal => "⌥F12",
             ToolWindow::Git => "⌘9",
+            ToolWindow::Remote => "",
         }
     }
 }
@@ -149,7 +154,7 @@ impl Layout {
     pub fn side(&self, tool: ToolWindow) -> Side {
         let default = match tool {
             ToolWindow::Terminal | ToolWindow::Git | ToolWindow::Laravel => Side::Bottom,
-            ToolWindow::Ai | ToolWindow::Database => Side::Right,
+            ToolWindow::Ai | ToolWindow::Database | ToolWindow::Remote => Side::Right,
             _ => Side::Left,
         };
         self.docks.get(&tool).copied().unwrap_or(default)
@@ -280,7 +285,10 @@ impl Workspace {
             ToolWindow::Terminal => self.toggle_terminal(&super::terminal_panel::ToggleTerminal, window, cx),
             ToolWindow::Git => self.toggle_git_log(&super::git_panel::ToggleGitLog, window, cx),
             ToolWindow::Ai => self.toggle_agent(&super::agent_panel::ToggleAgent, window, cx),
-            ToolWindow::Project | ToolWindow::Commit | ToolWindow::Structure | ToolWindow::Modules | ToolWindow::Database | ToolWindow::Laravel => {
+            ToolWindow::Project | ToolWindow::Commit | ToolWindow::Structure | ToolWindow::Modules | ToolWindow::Database | ToolWindow::Laravel | ToolWindow::Remote => {
+                if tool == ToolWindow::Remote {
+                    self.ensure_remote(cx);
+                }
                 if tool == ToolWindow::Database {
                     self.ensure_db(cx);
                 }
@@ -425,6 +433,7 @@ impl Workspace {
             ToolWindow::Ai => self.render_agent_panel(cx)?.into_any_element(),
             ToolWindow::Terminal => self.render_terminal_panel(cx)?.into_any_element(),
             ToolWindow::Git => self.render_git_log(cx)?.into_any_element(),
+            ToolWindow::Remote => self.render_remote(cx).into_any_element(),
         };
         // Terminal and Git draw their own tab bars.
         let own_header = matches!(tool, ToolWindow::Terminal | ToolWindow::Git | ToolWindow::Laravel);

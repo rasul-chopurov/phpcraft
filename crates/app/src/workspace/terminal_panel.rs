@@ -29,7 +29,7 @@ pub(super) struct TerminalState {
 }
 
 impl Workspace {
-    fn add_terminal(&mut self, run: Option<RunConfig>, cx: &mut Context<Self>) -> Option<Entity<TerminalView>> {
+    pub(super) fn add_terminal(&mut self, run: Option<RunConfig>, cx: &mut Context<Self>) -> Option<Entity<TerminalView>> {
         let root = self.project.root().to_path_buf();
         self.add_terminal_at(run, root, cx)
     }

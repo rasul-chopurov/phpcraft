@@ -161,6 +161,7 @@ const DEFAULTS: &[Default] = &[
     per("cmd-alt-i", "ctrl-alt-i", "workspace::ToggleAgent", None),
     both("secondary-enter", "workspace::SendAgentMessage", Some("AgentInput")),
     both("secondary-enter", "workspace::RunSql", Some("DbConsole")),
+    per("cmd-alt-shift-x", "ctrl-alt-shift-x", "workspace::UploadToServer", None),
     per("cmd-t", "ctrl-shift-t", "workspace::NewTerminal", Some("Terminal")),
     per("cmd-w", "ctrl-shift-w", "workspace::CloseTerminal", Some("Terminal")),
     per("ctrl-r", "shift-f10", "workspace::RunLast", None),

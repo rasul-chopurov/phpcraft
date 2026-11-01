@@ -6,6 +6,7 @@ mod layout;
 mod context_menu;
 mod agent_panel;
 mod db_panel;
+mod remote_panel;
 mod laravel_panel;
 mod panes;
 mod git_window;
@@ -63,6 +64,7 @@ pub struct Workspace {
     terminals: terminal_panel::TerminalState,
     agent: agent_panel::AgentState,
     db: db_panel::DbState,
+    remote: remote_panel::RemoteState,
     laravel: laravel_panel::LaravelState,
     /// Split editor panes; the focused one's tabs live in `tabs`/`active`.
     panes: Vec<Option<panes::Pane>>,
@@ -138,6 +140,7 @@ impl Workspace {
             terminals: Default::default(),
             agent: Default::default(),
             db: Default::default(),
+            remote: Default::default(),
             laravel: Default::default(),
             panes: vec![None],
             focused_pane: 0,
@@ -927,6 +930,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::unsplit_pane))
             .on_action(cx.listener(Self::focus_next_pane))
             .on_action(cx.listener(Self::run_sql))
+            .on_action(cx.listener(Self::upload_to_server))
+            .on_action(cx.listener(Self::download_from_server))
             .on_action(cx.listener(Self::new_agent_chat))
             .on_action(cx.listener(Self::new_terminal))
             .on_action(cx.listener(Self::close_terminal))

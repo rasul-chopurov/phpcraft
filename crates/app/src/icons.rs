@@ -64,6 +64,8 @@ icons! {
     diff = r#"<path d="M12 3v18"/><path d="M5 8h4M7 6v4M15 16h4"/><rect x="3" y="3" width="18" height="18" rx="2.5"/>"#;
     globe = r#"<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.5 5.4 3.5 8.5s-1 5.9-3.5 8.5c-2.5-2.6-3.5-5.4-3.5-8.5s1-5.9 3.5-8.5z"/>"#;
     split = r#"<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/>"#;
+    upload = r#"<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>"#;
+    download = r#"<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>"#;
     warning = r#"<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.2v.3"/>"#;
 }
 

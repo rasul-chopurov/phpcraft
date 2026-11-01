@@ -1,5 +1,3 @@
-// The Deployment window is wired up in a later step (see the plan).
-#![allow(dead_code)]
 
 //! SFTP deployment (PhpStorm's Deployment): servers saved in `.phpcraft/deployment.json`,
 //! upload/download through the system OpenSSH `sftp` (key or password auth), optional

@@ -159,6 +159,14 @@ pub fn set(cx: &mut App) {
         ),
         menu(
             cx,
+            "Tools",
+            &[
+                Some(("Deployment: Upload to Server", "workspace::UploadToServer")),
+                Some(("Deployment: Download from Server", "workspace::DownloadFromServer")),
+            ],
+        ),
+        menu(
+            cx,
             "Git",
             &[
                 Some(("Commit…", "workspace::ShowCommit")),
