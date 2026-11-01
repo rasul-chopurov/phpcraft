@@ -10,6 +10,7 @@ mod rows;
 mod ghost;
 mod intel_ui;
 mod multicaret;
+mod refactor;
 mod text_ops;
 mod usages;
 
@@ -103,6 +104,9 @@ actions!(
         GoToSuperMethod,
         GoToTest,
         TypeHierarchy,
+        IntroduceVariable,
+        ExtractMethod,
+        InlineVariable,
         ExtendSelection,
         ShrinkSelection,
         JoinLines,
@@ -1042,6 +1046,9 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::go_to_super_method))
             .on_action(cx.listener(Self::go_to_test))
             .on_action(cx.listener(Self::type_hierarchy))
+            .on_action(cx.listener(Self::introduce_variable))
+            .on_action(cx.listener(Self::extract_method))
+            .on_action(cx.listener(Self::inline_variable))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))

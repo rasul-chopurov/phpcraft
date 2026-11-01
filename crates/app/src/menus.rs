@@ -171,6 +171,9 @@ pub fn set(cx: &mut App) {
             "Refactor",
             &[
                 Some(("Rename…", "editor::RenameSymbol")),
+                Some(("Introduce Variable", "editor::IntroduceVariable")),
+                Some(("Extract Method", "editor::ExtractMethod")),
+                Some(("Inline Variable", "editor::InlineVariable")),
             ],
         ),
         menu(
