@@ -19,6 +19,8 @@ pub enum Simple {
     Class,
     ConfigFile,
     Cast,
+    Dto,
+    NovaResource,
     Scope,
     Exception,
     Facade,
@@ -52,6 +54,7 @@ pub fn all() -> Vec<(&'static str, Generator)> {
         ("Create Database Class Factory", Make(MakeKind::Factory)),
         ("Create Database Migration", Make(MakeKind::Migration)),
         ("Create Database Seeder", Make(MakeKind::Seeder)),
+        ("Create DTO", S(Dto)),
         ("Create Eloquent Cast", S(Cast)),
         ("Create Eloquent Scope", S(Scope)),
         ("Create Enum", Make(MakeKind::Enum)),
@@ -76,6 +79,7 @@ pub fn all() -> Vec<(&'static str, Generator)> {
         ("Create Middleware", Make(MakeKind::Middleware)),
         ("Create Model", Make(MakeKind::Model)),
         ("Create Notification", S(Notification)),
+        ("Create Nova Resource", S(NovaResource)),
         ("Create Observer", Make(MakeKind::Observer)),
         ("Create Pivot Table", Make(MakeKind::PivotTable)),
         ("Create Policy", Make(MakeKind::Policy)),
@@ -153,6 +157,22 @@ pub fn plan(kind: Simple, name: &str, root: &Path, module: Option<&str>) -> Vec<
     match kind {
         Simple::Class => vec![class_file(&b, "", name, |ns, c| php(ns, "", &format!("class {c}"), ""))],
         Simple::Service => vec![class_file(&b, "Services", name, |ns, c| php(ns, "", &format!("class {c}"), ""))],
+        Simple::Dto => vec![class_file(&b, "Data", name, |ns, c| {
+            php(
+                ns,
+                "",
+                &format!("final readonly class {c}"),
+                &format!("    public function __construct(\n        //\n    ) {{}}\n\n    public static function fromArray(array $data): self\n    {{\n        return new self(...$data);\n    }}\n"),
+            )
+        })],
+        Simple::NovaResource => vec![class_file(&b, "Nova", name, |ns, c| {
+            php(
+                ns,
+                &uses(&["Laravel\\Nova\\Fields\\ID", "Laravel\\Nova\\Http\\Requests\\NovaRequest"]),
+                &format!("class {c} extends Resource"),
+                &format!("    public static $model = \\App\\Models\\{c}::class;\n\n    public static $title = 'id';\n\n    public static $search = ['id'];\n\n    public function fields(NovaRequest $request): array\n    {{\n        return [\n            ID::make()->sortable(),\n        ];\n    }}\n"),
+            )
+        })],
         Simple::Trait => vec![class_file(&b, "Traits", name, |ns, c| php(ns, "", &format!("trait {c}"), ""))],
         Simple::Exception => vec![class_file(&b, "Exceptions", name, |ns, c| php(ns, &uses(&["Exception"]), &format!("class {c} extends Exception"), ""))],
         Simple::HttpException => vec![class_file(&b, "Exceptions", name, |ns, c| {
@@ -299,6 +319,12 @@ mod tests {
         assert!(files[0].1.contains("namespace Modules\\Shop\\Services;"));
         let files = plan(Simple::View, "admin.users.index", root, None);
         assert_eq!(files[0].0, Path::new("/p/resources/views/admin/users/index.blade.php"));
-        assert_eq!(all().len(), 44);
+        let files = plan(Simple::Dto, "OrderData", root, None);
+        assert_eq!(files[0].0, Path::new("/p/app/Data/OrderData.php"));
+        assert!(files[0].1.contains("final readonly class OrderData") && files[0].1.contains("fromArray"));
+        let files = plan(Simple::NovaResource, "Post", root, None);
+        assert_eq!(files[0].0, Path::new("/p/app/Nova/Post.php"));
+        assert!(files[0].1.contains("use Laravel\\Nova\\Fields\\ID;") && files[0].1.contains("public static $model = \\App\\Models\\Post::class;"), "{}", files[0].1);
+        assert_eq!(all().len(), 46);
     }
 }
