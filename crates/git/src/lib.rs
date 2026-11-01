@@ -55,6 +55,43 @@ pub struct Commit {
     pub subject: String,
     /// Branch/tag names pointing here (`HEAD -> main, origin/main`).
     pub refs: String,
+    pub parents: Vec<String>,
+}
+
+/// Filters for the Git Log (all optional).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LogFilter {
+    /// Matches the message, or a commit hash prefix.
+    pub text: String,
+    pub author: String,
+    /// A branch or ref; empty means all branches.
+    pub branch: String,
+    /// Only commits touching this path.
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitDetails {
+    pub hash: String,
+    pub author: String,
+    pub email: String,
+    pub date: String,
+    pub message: String,
+}
+
+/// Lane segments for one row of the commit graph. Each segment joins a lane position at
+/// one edge of the row to a lane position at the row's middle (top half) or from the middle
+/// to the bottom edge (bottom half). Lanes are colour-indexed by their position.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GraphRow {
+    /// Lane holding the commit's dot.
+    pub column: usize,
+    /// (lane at top edge, lane at middle)
+    pub top: Vec<(usize, usize)>,
+    /// (lane at middle, lane at bottom edge)
+    pub bottom: Vec<(usize, usize)>,
+    /// Number of lanes used by this row (for layout width).
+    pub width: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -268,9 +305,39 @@ impl Repo {
     }
 
     pub fn log(&self, limit: usize) -> Result<Vec<Commit>, String> {
+        self.log_filtered(&LogFilter::default(), limit)
+    }
+
+    /// Commits newest first (topological, all branches unless filtered).
+    pub fn log_filtered(&self, filter: &LogFilter, limit: usize) -> Result<Vec<Commit>, String> {
         let limit = format!("-{limit}");
-        let output = self.git(&["log", &limit, "--date=short", "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%s%x1f%D%x1e"])?;
-        Ok(output
+        let mut args: Vec<String> = vec![
+            "log".into(),
+            limit,
+            "--topo-order".into(),
+            "--date=format:%d.%m.%y, %H:%M".into(),
+            "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%s%x1f%D%x1f%P%x1e".into(),
+        ];
+        let text = filter.text.trim();
+        let is_hash = text.len() >= 4 && text.chars().all(|c| c.is_ascii_hexdigit());
+        if !text.is_empty() && !is_hash {
+            args.extend(["-i".into(), format!("--grep={text}")]);
+        }
+        if !filter.author.trim().is_empty() {
+            args.push(format!("--author={}", filter.author.trim()));
+        }
+        if filter.branch.trim().is_empty() {
+            args.push("--all".into());
+        } else {
+            args.push(filter.branch.trim().to_string());
+        }
+        if !filter.path.trim().is_empty() {
+            args.extend(["--".into(), filter.path.trim().to_string()]);
+        }
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        // A repository without commits has nothing to log.
+        let output = self.git(&refs).unwrap_or_default();
+        let mut commits: Vec<Commit> = output
             .split('\u{1e}')
             .filter_map(|record| {
                 let mut f = record.trim_start_matches('\n').split('\u{1f}');
@@ -281,9 +348,60 @@ impl Repo {
                     date: f.next()?.to_string(),
                     subject: f.next()?.to_string(),
                     refs: f.next().unwrap_or_default().trim().to_string(),
+                    parents: f.next().unwrap_or_default().split_whitespace().map(str::to_string).collect(),
                 })
             })
-            .collect())
+            .collect();
+        if is_hash {
+            commits.retain(|c| c.hash.starts_with(text));
+        }
+        Ok(commits)
+    }
+
+    pub fn commit_details(&self, hash: &str) -> Option<CommitDetails> {
+        let out = self.git(&["show", "-s", "--date=format:%d.%m.%Y %H:%M", "--format=%H%x1f%an%x1f%ae%x1f%ad%x1f%B", hash]).ok()?;
+        let mut f = out.split('\u{1f}');
+        Some(CommitDetails {
+            hash: f.next()?.to_string(),
+            author: f.next()?.to_string(),
+            email: f.next()?.to_string(),
+            date: f.next()?.to_string(),
+            message: f.next().unwrap_or_default().trim().to_string(),
+        })
+    }
+
+    pub fn tags(&self) -> Vec<String> {
+        self.git(&["tag", "--sort=-creatordate"]).map(|o| o.lines().map(str::to_string).collect()).unwrap_or_default()
+    }
+
+    /// Local branches by most recent commit.
+    pub fn recent_branches(&self, limit: usize) -> Vec<String> {
+        self.git(&["for-each-ref", "--sort=-committerdate", &format!("--count={limit}"), "--format=%(refname:short)", "refs/heads"])
+            .map(|o| o.lines().map(str::to_string).collect())
+            .unwrap_or_default()
+    }
+
+    /// Upstream of a local branch (`origin/main`), if tracked.
+    pub fn upstream(&self, branch: &str) -> Option<String> {
+        let out = self.git(&["rev-parse", "--abbrev-ref", &format!("{branch}@{{upstream}}")]).ok()?;
+        Some(out.trim().to_string()).filter(|s| !s.is_empty())
+    }
+
+    /// Detached checkout of a tag or commit.
+    pub fn checkout_revision(&self, revision: &str) -> Result<String, String> {
+        self.git_verbose(&["checkout", "--detach", revision])
+    }
+
+    /// `git clone <url> <dir>` (blocking).
+    pub fn clone_into(url: &str, dir: &Path) -> Result<String, String> {
+        let output = Command::new("git")
+            .args(["clone", url])
+            .arg(dir)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .map_err(|e| format!("failed to run git: {e}"))?;
+        let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        if output.status.success() { Ok(text) } else { Err(text) }
     }
 
     /// Files changed by a commit: (change, path).
@@ -385,6 +503,77 @@ fn format_date(secs: i64) -> String {
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
     format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// Lays commits (newest first, with parents) out in lanes for drawing a graph.
+pub fn graph(commits: &[Commit]) -> Vec<GraphRow> {
+    let mut lanes: Vec<Option<String>> = Vec::new();
+    let mut rows = Vec::with_capacity(commits.len());
+    for commit in commits {
+        let column = match lanes.iter().position(|l| l.as_deref() == Some(commit.hash.as_str())) {
+            Some(i) => i,
+            None => match lanes.iter().position(Option::is_none) {
+                Some(i) => i,
+                None => {
+                    lanes.push(None);
+                    lanes.len() - 1
+                }
+            },
+        };
+        let mut row = GraphRow { column, ..Default::default() };
+        // Top half: lanes waiting for this commit converge on its dot; others pass through.
+        for (i, lane) in lanes.iter().enumerate() {
+            match lane {
+                Some(h) if *h == commit.hash => row.top.push((i, column)),
+                Some(_) => row.top.push((i, i)),
+                None => {}
+            }
+        }
+        for lane in lanes.iter_mut() {
+            if lane.as_deref() == Some(commit.hash.as_str()) {
+                *lane = None;
+            }
+        }
+        // The first parent continues in this column; others join or open lanes.
+        let mut targets = Vec::new();
+        for (n, parent) in commit.parents.iter().enumerate() {
+            if n == 0 {
+                if let Some(existing) = lanes.iter().position(|l| l.as_deref() == Some(parent.as_str())) {
+                    targets.push(existing);
+                } else {
+                    lanes[column] = Some(parent.clone());
+                    targets.push(column);
+                }
+                continue;
+            }
+            match lanes.iter().position(|l| l.as_deref() == Some(parent.as_str())) {
+                Some(existing) => targets.push(existing),
+                None => {
+                    let free = lanes.iter().enumerate().position(|(i, l)| l.is_none() && i != column);
+                    let i = free.unwrap_or_else(|| {
+                        lanes.push(None);
+                        lanes.len() - 1
+                    });
+                    lanes[i] = Some(parent.clone());
+                    targets.push(i);
+                }
+            }
+        }
+        for (i, lane) in lanes.iter().enumerate() {
+            if lane.is_some() && !targets.contains(&i) {
+                row.bottom.push((i, i));
+            }
+        }
+        for target in targets {
+            row.bottom.push((column, target));
+        }
+        while lanes.last().is_some_and(Option::is_none) {
+            lanes.pop();
+        }
+        row.width = lanes.len().max(column + 1).max(row.top.iter().map(|(a, _)| a + 1).max().unwrap_or(0));
+        rows.push(row);
+    }
+    rows
 }
 
 /// Per-line markers for the editor gutter, comparing `base` (e.g. HEAD) to `current`.
@@ -496,6 +685,33 @@ mod tests {
         assert!(status.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&status.stderr));
     }
 
+    fn commit(hash: &str, parents: &[&str]) -> Commit {
+        Commit {
+            hash: hash.into(),
+            short: hash.into(),
+            author: String::new(),
+            date: String::new(),
+            subject: String::new(),
+            refs: String::new(),
+            parents: parents.iter().map(|p| p.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn graph_lanes() {
+        // m merges b into a:  m(a,b) -> a -> base ; b -> base
+        let rows = graph(&[commit("m", &["a", "b"]), commit("a", &["base"]), commit("b", &["base"]), commit("base", &[])]);
+        assert_eq!(rows[0].column, 0);
+        assert_eq!(rows[0].bottom, [(0, 0), (0, 1)], "merge opens a second lane");
+        assert_eq!(rows[1].column, 0);
+        assert_eq!(rows[1].top, [(0, 0), (1, 1)]);
+        assert_eq!(rows[2].column, 1, "b stays in its lane");
+        assert_eq!(rows[2].bottom, [(1, 0)], "b's parent is already expected in lane 0");
+        assert_eq!(rows[3].column, 0);
+        assert_eq!(rows[3].top, [(0, 0)]);
+        assert!(rows[3].bottom.is_empty());
+    }
+
     #[test]
     fn diffs() {
         let changes = line_changes("a\nb\nc\nd\n", "a\nB\nc\nx\ny\n");
@@ -545,6 +761,12 @@ mod tests {
         repo.commit("second, amended", &[], true).unwrap();
         let log = repo.log(10).unwrap();
         assert_eq!(log.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(), ["second, amended", "first"]);
+        assert_eq!(log[0].parents, [log[1].hash.clone()]);
+        let filtered = repo.log_filtered(&LogFilter { text: "FIRST".into(), ..Default::default() }, 10).unwrap();
+        assert_eq!(filtered.len(), 1);
+        let by_hash = repo.log_filtered(&LogFilter { text: log[1].hash[..7].into(), ..Default::default() }, 10).unwrap();
+        assert_eq!(by_hash[0].subject, "first");
+        assert_eq!(repo.commit_details(&log[0].hash).unwrap().author, "Tester");
         assert!(log[0].refs.contains("main"));
         assert_eq!(repo.commit_files(&log[0].hash).unwrap(), [(Change::Modified, "a.php".to_string())]);
 

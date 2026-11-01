@@ -5,6 +5,7 @@ mod git;
 mod make;
 mod navigate;
 mod prefs;
+mod projects;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -18,10 +19,11 @@ use laravel::make::MakeKind;
 use laravel::routes::RouteInfo;
 
 pub use find_files::FindInFilesDialog;
-pub use git::{BranchDialog, ConfirmDialog, DiffDialog, GitCommand, LocalHistoryDialog};
+pub use git::{BranchDialog, ConfirmDialog, GitCommand, LocalHistoryDialog};
 pub use make::{MakeChooser, MakeDialog};
 pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
 pub use prefs::{KeymapDialog, SettingsDialog, ThemeDialog};
+pub use projects::{ProjectDialog, avatar};
 
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
@@ -69,6 +71,10 @@ pub enum DialogEvent {
     GenerateHelpers,
     ModelFromTable(String),
     CommandsLoaded(Arc<Vec<ArtisanCommand>>),
+    /// Project switcher: choose a folder to open in a new window.
+    PickProjectFolder,
+    OpenProject(std::path::PathBuf),
+    CloneRepository { url: String, parent: std::path::PathBuf },
 }
 
 /// The square of a checkbox, without a label.

@@ -33,7 +33,8 @@ actions!(
         TogglePrefsMenu,
         OpenSettings,
         SyncPush,
-        SyncPull
+        SyncPull,
+        OpenProjects
     ]
 );
 
@@ -412,9 +413,72 @@ impl Workspace {
             |this, _, event, window, cx| this.on_dialog_event(event, window, cx),
         ));
         self.modal = Some(AnyView::from(dialog));
+        self.modal_anchor = None;
         self.laravel_menu_open = false;
         self.prefs_menu_open = false;
         cx.notify();
+    }
+
+    /// Shows a dialog as a dropdown under a title bar button at `left`.
+    pub(super) fn show_dropdown<D: gpui::Render + gpui::EventEmitter<DialogEvent>>(
+        &mut self,
+        dialog: Entity<D>,
+        left: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.show_modal(dialog, window, cx);
+        self.modal_anchor = Some(left);
+    }
+
+    pub(super) fn open_projects(&mut self, _: &OpenProjects, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let dialog = cx.new(|cx| crate::dialogs::ProjectDialog::new(&root, window, cx));
+        self.show_dropdown(dialog, 6., window, cx);
+    }
+
+    fn pick_project_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.dismiss_modal(window, cx);
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: false, directories: true, multiple: false, prompt: None });
+        cx.spawn(async move |_, cx| {
+            if let Ok(Ok(Some(paths))) = paths.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let _ = cx.update(|cx| crate::open_project_window(&path, cx));
+            }
+        })
+        .detach();
+    }
+
+    fn clone_repository(&mut self, url: String, parent: std::path::PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.dismiss_modal(window, cx);
+        let name = url.trim_end_matches('/').trim_end_matches(".git").rsplit(['/', ':']).next().unwrap_or("repo").to_string();
+        let target = parent.join(&name);
+        let task = self.begin_task(format!("Cloning {name}"), cx);
+        self.output = Some(Output { title: "Clone".into(), text: format!("git clone {url} {}", target.display()), running: true, ok: true });
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let dir = target.clone();
+            let result = cx.background_spawn(async move {
+                let _ = std::fs::create_dir_all(dir.parent().unwrap_or(&dir));
+                git::Repo::clone_into(&url, &dir)
+            }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.end_task(task, cx);
+                let ok = result.is_ok();
+                this.output = Some(Output {
+                    title: "Clone".into(),
+                    text: result.unwrap_or_else(|e| e),
+                    running: false,
+                    ok,
+                });
+                if ok {
+                    let _ = crate::open_project_window(&target, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     pub(super) fn dismiss_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -465,6 +529,15 @@ impl Workspace {
                 self.dismiss_modal(window, cx);
                 self.revert_file(&path, &content, cx);
             }
+            DialogEvent::PickProjectFolder => self.pick_project_folder(window, cx),
+            DialogEvent::OpenProject(path) => {
+                let path = path.clone();
+                self.dismiss_modal(window, cx);
+                if let Err(err) = crate::open_project_window(&path, cx) {
+                    eprintln!("open project: {err}");
+                }
+            }
+            DialogEvent::CloneRepository { url, parent } => self.clone_repository(url.clone(), parent.clone(), window, cx),
             DialogEvent::Git(command) => {
                 let command = command.clone();
                 self.dismiss_modal(window, cx);
@@ -616,7 +689,28 @@ impl Workspace {
             .border_color(theme::border())
             .text_size(px(12.))
             .text_color(theme::ui_text())
-            .child(div().px_1().child(SharedString::from(self.project.name())))
+            .child({
+                let name = self.project.name();
+                div()
+                    .id("tool-project")
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .px_1p5()
+                    .h(px(24.))
+                    .rounded_md()
+                    .cursor_pointer()
+                    .hover(|d| d.bg(theme::hover()))
+                    .child(crate::dialogs::avatar(&name, 18.))
+                    .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(SharedString::from(name)))
+                    .child(div().text_color(theme::muted()).child("▾"))
+                    .on_click(cx.listener(|this, _, window, cx| this.open_projects(&OpenProjects, window, cx)))
+            })
+            .when_some(self.git.branch.clone(), |d, branch| {
+                d.child(tool("tool-branch", "", "").child(format!("⎇ {branch}")).child(div().text_color(theme::muted()).child("▾")).on_click(cx.listener(
+                    |this, _, window, cx| this.open_branches_dropdown(window, cx),
+                )))
+            })
             .child(div().flex_1())
             .when(laravel, |d| {
                 d.child(
@@ -867,8 +961,18 @@ impl Workspace {
         )
     }
 
-    pub(super) fn render_modal(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+    pub(super) fn render_modal(&self, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         let modal = self.modal.clone()?;
+        if let Some(left) = self.modal_anchor {
+            return Some(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _, window, cx| this.dismiss_modal(window, cx)))
+                    .child(div().absolute().top(px(30.)).left(px(left)).child(modal))
+                    .into_any_element(),
+            );
+        }
         Some(
             div()
                 .absolute()
@@ -882,7 +986,8 @@ impl Workspace {
                     gpui::MouseButton::Left,
                     cx.listener(|this, _, window, cx| this.dismiss_modal(window, cx)),
                 )
-                .child(modal),
+                .child(modal)
+                .into_any_element(),
         )
     }
 }

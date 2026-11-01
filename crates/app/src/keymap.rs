@@ -95,6 +95,7 @@ const DEFAULTS: &[Default] = &[
     both("alt-shift-up", "editor::MoveLineUp", ED),
     both("alt-shift-down", "editor::MoveLineDown", ED),
     per("cmd-alt-a", "ctrl-alt-a", "editor::ToggleBlame", ED),
+    per("cmd-alt-m", "ctrl-alt-m", "editor::ToggleMarkdownPreview", Some("EditorPane")),
     both("secondary-s", "editor::Save", ED),
     // Code intelligence.
     both("secondary-b", "editor::GoToDeclaration", ED),
@@ -149,6 +150,13 @@ const DEFAULTS: &[Default] = &[
     both("secondary-shift-k", "workspace::GitPush", None),
     both("secondary-enter", "workspace::CommitChanges", None),
     both("alt-shift-h", "workspace::ShowLocalHistory", None),
+    // Diff tab.
+    both("alt-up", "diff::PrevChange", Some("DiffView")),
+    both("alt-down", "diff::NextChange", Some("DiffView")),
+    per("cmd-shift-[", "alt-left", "diff::PrevFile", Some("DiffView")),
+    per("cmd-shift-]", "alt-right", "diff::NextFile", Some("DiffView")),
+    both("up", "diff::PrevChange", Some("DiffView")),
+    both("down", "diff::NextChange", Some("DiffView")),
     // Preferences.
     both("secondary-,", "workspace::OpenSettings", None),
     both("secondary-k secondary-s", "workspace::OpenKeymap", None),

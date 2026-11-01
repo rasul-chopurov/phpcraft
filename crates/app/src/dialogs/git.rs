@@ -10,6 +10,7 @@ use crate::theme;
 #[derive(Debug, Clone)]
 pub enum GitCommand {
     Checkout(String),
+    CheckoutRevision(String),
     CreateBranch { name: String, from: Option<String> },
     Merge(String),
     Rename { old: String, new: String },
@@ -23,37 +24,6 @@ pub enum GitCommand {
 const MAX_ROWS: usize = 5000;
 
 // --- Diff -----------------------------------------------------------------------------
-
-pub struct DiffDialog {
-    title: String,
-    rows: Vec<git::DiffRow>,
-    open_path: Option<std::path::PathBuf>,
-    focus_handle: FocusHandle,
-}
-
-impl EventEmitter<DialogEvent> for DiffDialog {}
-
-impl DiffDialog {
-    pub fn new(title: String, old: &str, new: &str, open_path: Option<std::path::PathBuf>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let focus_handle = cx.focus_handle();
-        window.focus(&focus_handle);
-        Self { title, rows: git::side_by_side(old, new), open_path, focus_handle }
-    }
-
-    fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(DialogEvent::Dismiss);
-    }
-
-    fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(DialogEvent::Dismiss);
-    }
-}
-
-impl Focusable for DiffDialog {
-    fn focus_handle(&self, _: &App) -> FocusHandle {
-        self.focus_handle.clone()
-    }
-}
 
 fn side(line: &Option<(usize, String)>, bg: Option<gpui::Hsla>) -> gpui::Div {
     let (number, text) = match line {
@@ -71,164 +41,319 @@ fn side(line: &Option<(usize, String)>, bg: Option<gpui::Hsla>) -> gpui::Div {
         .child(div().flex_1().whitespace_nowrap().overflow_hidden().text_color(theme::text()).child(SharedString::from(text)))
 }
 
-impl Render for DiffDialog {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let added = theme::success().opacity(0.18);
-        let removed = theme::error().opacity(0.18);
-        let changed = theme::accent().opacity(0.16);
-        let (mut adds, mut dels) = (0, 0);
-        for row in &self.rows {
-            match row.tag {
-                git::RowTag::Added => adds += 1,
-                git::RowTag::Removed => dels += 1,
-                git::RowTag::Changed => {
-                    adds += usize::from(row.right.is_some());
-                    dels += usize::from(row.left.is_some());
-                }
-                git::RowTag::Equal => {}
-            }
-        }
-        let rows = self.rows.iter().take(MAX_ROWS).enumerate().map(|(ix, row)| {
-            let (left_bg, right_bg) = match row.tag {
-                git::RowTag::Equal => (None, None),
-                git::RowTag::Removed => (Some(removed), None),
-                git::RowTag::Added => (None, Some(added)),
-                git::RowTag::Changed => (Some(changed), Some(changed)),
-            };
-            div()
-                .id(("diff-row", ix))
-                .flex()
-                .h(px(19.))
-                .child(side(&row.left, left_bg))
-                .child(div().w(px(1.)).h_full().bg(theme::border()))
-                .child(side(&row.right, right_bg))
-        });
-        let open_path = self.open_path.clone();
-        card(1100.)
-            .key_context("Dialog")
-            .track_focus(&self.focus_handle)
-            .on_action(cx.listener(Self::cancel))
-            .on_action(cx.listener(Self::confirm))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .px_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(theme::border())
-                    .child(SharedString::from(self.title.clone()))
-                    .child(div().text_color(theme::success()).child(format!("+{adds}")))
-                    .child(div().text_color(theme::error()).child(format!("−{dels}")))
-                    .child(div().flex_1())
-                    .when_some(open_path, |d, path| {
-                        d.child(button("diff-open", "Open in Editor", false).on_click(cx.listener(move |_, _, _, cx| {
-                            cx.emit(DialogEvent::OpenLocation(php_index::Location { path: path.clone(), range: 0..0 }))
-                        })))
-                    })
-                    .child(button("diff-close", "Close", false).on_click(cx.listener(|_, _, _, cx| cx.emit(DialogEvent::Dismiss)))),
-            )
-            .child(
-                div()
-                    .flex()
-                    .text_size(px(11.))
-                    .text_color(theme::muted())
-                    .border_b_1()
-                    .border_color(theme::border())
-                    .child(div().flex_1().px_3().py_1().child("Base (HEAD)"))
-                    .child(div().flex_1().px_3().py_1().child("Your version")),
-            )
-            .child(
-                div()
-                    .id("diff-rows")
-                    .h(px(620.))
-                    .overflow_y_scroll()
-                    .font_family(theme::editor_font())
-                    .text_size(px(12.))
-                    .children(rows),
-            )
-    }
+// --- Branches (title bar dropdown) -------------------------------------------------------
+
+#[derive(Clone, PartialEq, Eq)]
+enum BranchMode {
+    Normal,
+    NewBranch { from: Option<String> },
+    Rename(String),
+    Revision,
 }
 
-// --- Branches ---------------------------------------------------------------------------
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BranchAction {
+    Checkout,
+    NewFrom,
+    Merge,
+    Rename,
+    Delete,
+}
+
+#[derive(Clone)]
+enum BranchRow {
+    Pull,
+    Fetch,
+    Commit,
+    Push,
+    NewBranch,
+    Revision,
+    Header(&'static str),
+    Folder { key: String, name: String, depth: usize, collapsed: bool },
+    Branch { name: String, label: String, depth: usize, upstream: Option<String> },
+    Action { branch: String, action: BranchAction, depth: usize },
+    /// Typed name/revision in a mode, confirmed with Enter.
+    Input(String),
+    Tag(String),
+}
+
+impl BranchRow {
+    fn selectable(&self) -> bool {
+        !matches!(self, BranchRow::Header(_))
+    }
+}
 
 pub struct BranchDialog {
     current: Option<String>,
     local: Vec<String>,
     remote: Vec<String>,
+    recent: Vec<String>,
+    tags: Vec<String>,
+    upstreams: std::collections::HashMap<String, String>,
     query: Entity<TextField>,
     selected: usize,
+    mode: BranchMode,
+    expanded: Option<String>,
+    collapsed: std::collections::HashSet<String>,
     focus_handle: FocusHandle,
     _subscription: Subscription,
 }
 
 impl EventEmitter<DialogEvent> for BranchDialog {}
 
-#[derive(Clone)]
-enum BranchRow {
-    Create(String),
-    Local(String),
-    Remote(String),
+fn tree_rows(branches: &[String], section: &str, query: &str, collapsed: &std::collections::HashSet<String>, upstreams: &std::collections::HashMap<String, String>, out: &mut Vec<BranchRow>) {
+    // Group by path segments: feature/archive/x -> feature/ > archive/ > x
+    let mut seen_folders = std::collections::HashSet::new();
+    let mut sorted: Vec<&String> = branches.iter().filter(|b| query.is_empty() || b.to_ascii_lowercase().contains(query)).collect();
+    sorted.sort_by_key(|b| (b.split('/').count() == 1, b.to_ascii_lowercase()));
+    sorted.sort_by(|a, b| {
+        let fa: Vec<&str> = a.split('/').collect();
+        let fb: Vec<&str> = b.split('/').collect();
+        fa[..fa.len() - 1].cmp(&fb[..fb.len() - 1]).then(a.cmp(b))
+    });
+    for branch in sorted {
+        let parts: Vec<&str> = branch.split('/').collect();
+        let mut hidden = false;
+        let mut key = section.to_string();
+        for (depth, folder) in parts[..parts.len() - 1].iter().enumerate() {
+            key = format!("{key}/{folder}");
+            if hidden {
+                continue;
+            }
+            let is_collapsed = collapsed.contains(&key) && query.is_empty();
+            if seen_folders.insert(key.clone()) {
+                out.push(BranchRow::Folder { key: key.clone(), name: folder.to_string(), depth: depth + 1, collapsed: is_collapsed });
+            }
+            hidden = is_collapsed;
+        }
+        if !hidden {
+            out.push(BranchRow::Branch {
+                name: branch.clone(),
+                label: parts[parts.len() - 1].to_string(),
+                depth: parts.len(),
+                upstream: upstreams.get(branch).cloned(),
+            });
+        }
+    }
 }
 
 impl BranchDialog {
     pub fn new(repo: &git::Repo, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (local, remote) = repo.branches().unwrap_or_default();
-        let query = cx.new(|cx| TextField::new("Search branches, or type a new branch name", cx));
+        let upstreams = local.iter().take(80).filter_map(|b| Some((b.clone(), repo.upstream(b)?))).collect();
+        let query = cx.new(|cx| TextField::new("Search for branches and actions", cx));
         let subscription = cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
-            this.selected = 0;
+            this.selected = this.first_selectable(cx);
             cx.notify();
         });
         window.focus(&query.focus_handle(cx));
-        Self { current: repo.current_branch(), local, remote, query, selected: 0, focus_handle: cx.focus_handle(), _subscription: subscription }
+        Self {
+            current: repo.current_branch(),
+            recent: repo.recent_branches(5),
+            tags: repo.tags(),
+            local,
+            remote,
+            upstreams,
+            query,
+            selected: 0,
+            mode: BranchMode::Normal,
+            expanded: None,
+            collapsed: std::collections::HashSet::new(),
+            focus_handle: cx.focus_handle(),
+            _subscription: subscription,
+        }
+    }
+
+    fn first_selectable(&self, cx: &App) -> usize {
+        self.rows(cx).iter().position(BranchRow::selectable).unwrap_or(0)
     }
 
     fn rows(&self, cx: &App) -> Vec<BranchRow> {
         let query = self.query.read(cx).text().trim().to_string();
-        let matches = |b: &String| query.is_empty() || b.to_ascii_lowercase().contains(&query.to_ascii_lowercase());
+        let lower = query.to_ascii_lowercase();
         let mut rows = Vec::new();
-        if !query.is_empty() && !self.local.iter().any(|b| *b == query) && !query.contains(' ') {
-            rows.push(BranchRow::Create(query.clone()));
+        match &self.mode {
+            BranchMode::NewBranch { from } => {
+                rows.push(BranchRow::Header(if from.is_some() { "New branch from selected" } else { "New branch from current" }));
+                rows.push(BranchRow::Input(query));
+                return rows;
+            }
+            BranchMode::Rename(old) => {
+                rows.push(BranchRow::Header("Rename branch"));
+                rows.push(BranchRow::Input(if query.is_empty() { old.clone() } else { query }));
+                return rows;
+            }
+            BranchMode::Revision => {
+                rows.push(BranchRow::Header("Checkout tag or revision (detached)"));
+                if !query.is_empty() {
+                    rows.push(BranchRow::Input(query.clone()));
+                }
+                rows.extend(self.tags.iter().filter(|t| lower.is_empty() || t.to_ascii_lowercase().contains(&lower)).take(50).cloned().map(BranchRow::Tag));
+                return rows;
+            }
+            BranchMode::Normal => {}
         }
-        rows.extend(self.local.iter().filter(|b| matches(b)).cloned().map(BranchRow::Local));
-        rows.extend(self.remote.iter().filter(|b| matches(b)).cloned().map(BranchRow::Remote));
+        let action_matches = |label: &str| lower.is_empty() || label.to_ascii_lowercase().contains(&lower);
+        for (row, label) in [
+            (BranchRow::Pull, "Update Project"),
+            (BranchRow::Fetch, "Fetch"),
+            (BranchRow::Commit, "Commit"),
+            (BranchRow::Push, "Push"),
+            (BranchRow::NewBranch, "New Branch"),
+            (BranchRow::Revision, "Checkout Tag or Revision"),
+        ] {
+            if action_matches(label) {
+                rows.push(row);
+            }
+        }
+        let mut branch_rows = Vec::new();
+        let recent: Vec<String> = self.recent.iter().filter(|b| lower.is_empty() || b.to_ascii_lowercase().contains(&lower)).cloned().collect();
+        if !recent.is_empty() && lower.is_empty() {
+            branch_rows.push(BranchRow::Header("Recent"));
+            for b in &recent {
+                branch_rows.push(BranchRow::Branch { name: b.clone(), label: b.clone(), depth: 1, upstream: self.upstreams.get(b).cloned() });
+            }
+        }
+        let mut local = Vec::new();
+        tree_rows(&self.local, "local", &lower, &self.collapsed, &self.upstreams, &mut local);
+        if !local.is_empty() {
+            branch_rows.push(BranchRow::Header("Local"));
+            branch_rows.extend(local);
+        }
+        let mut remote = Vec::new();
+        tree_rows(&self.remote, "remote", &lower, &self.collapsed, &self.upstreams, &mut remote);
+        if !remote.is_empty() {
+            branch_rows.push(BranchRow::Header("Remote"));
+            branch_rows.extend(remote);
+        }
+        // Inline actions under the expanded branch.
+        for row in branch_rows {
+            let expanded = matches!(&row, BranchRow::Branch { name, .. } if Some(name) == self.expanded.as_ref());
+            let depth = if let BranchRow::Branch { depth, .. } = &row { *depth } else { 0 };
+            rows.push(row);
+            if expanded {
+                let branch = self.expanded.clone().unwrap_or_default();
+                let is_current = Some(&branch) == self.current.as_ref();
+                let is_local = self.local.contains(&branch);
+                let mut actions = Vec::new();
+                if !is_current {
+                    actions.push(BranchAction::Checkout);
+                }
+                actions.push(BranchAction::NewFrom);
+                if !is_current {
+                    actions.push(BranchAction::Merge);
+                }
+                if is_local {
+                    actions.push(BranchAction::Rename);
+                }
+                if is_local && !is_current {
+                    actions.push(BranchAction::Delete);
+                }
+                rows.extend(actions.into_iter().map(|action| BranchRow::Action { branch: branch.clone(), action, depth: depth + 1 }));
+            }
+        }
         rows
-    }
-
-    fn selected_row(&self, cx: &App) -> Option<BranchRow> {
-        self.rows(cx).into_iter().nth(self.selected)
     }
 
     fn run(&mut self, command: GitCommand, cx: &mut Context<Self>) {
         cx.emit(DialogEvent::Git(command));
     }
 
-    fn checkout_selected(&mut self, cx: &mut Context<Self>) {
-        match self.selected_row(cx) {
-            Some(BranchRow::Create(name)) => self.run(GitCommand::CreateBranch { name, from: None }, cx),
-            Some(BranchRow::Local(name) | BranchRow::Remote(name)) => self.run(GitCommand::Checkout(name), cx),
-            None => {}
+    fn enter_mode(&mut self, mode: BranchMode, window: &mut Window, cx: &mut Context<Self>) {
+        let placeholder = match &mode {
+            BranchMode::NewBranch { .. } => "New branch name",
+            BranchMode::Rename(_) => "New name",
+            BranchMode::Revision => "Tag, branch or commit hash",
+            BranchMode::Normal => "Search for branches and actions",
+        };
+        self.mode = mode;
+        self.query.update(cx, |q, cx| {
+            q.set_text("", cx);
+            q.set_placeholder(placeholder, cx);
+        });
+        window.focus(&self.query.focus_handle(cx));
+        self.selected = self.first_selectable(cx);
+        cx.notify();
+    }
+
+    fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(row) = self.rows(cx).into_iter().nth(ix) else { return };
+        let current = self.current.clone();
+        match row {
+            BranchRow::Pull => self.run(GitCommand::Pull, cx),
+            BranchRow::Fetch => self.run(GitCommand::Fetch, cx),
+            BranchRow::Push => self.run(GitCommand::Push, cx),
+            BranchRow::Commit => cx.emit(DialogEvent::RunAction(Box::new(crate::workspace::ShowCommit))),
+            BranchRow::NewBranch => self.enter_mode(BranchMode::NewBranch { from: None }, window, cx),
+            BranchRow::Revision => self.enter_mode(BranchMode::Revision, window, cx),
+            BranchRow::Header(_) => {}
+            BranchRow::Folder { key, .. } => {
+                if !self.collapsed.remove(&key) {
+                    self.collapsed.insert(key);
+                }
+                cx.notify();
+            }
+            BranchRow::Branch { name, .. } => {
+                self.expanded = if self.expanded.as_ref() == Some(&name) { None } else { Some(name) };
+                cx.notify();
+            }
+            BranchRow::Action { branch, action, .. } => match action {
+                BranchAction::Checkout => self.run(GitCommand::Checkout(branch), cx),
+                BranchAction::NewFrom => self.enter_mode(BranchMode::NewBranch { from: Some(branch) }, window, cx),
+                BranchAction::Merge => self.run(GitCommand::Merge(branch), cx),
+                BranchAction::Rename => self.enter_mode(BranchMode::Rename(branch), window, cx),
+                BranchAction::Delete => self.run(GitCommand::Delete(branch), cx),
+            },
+            BranchRow::Input(text) => {
+                if text.is_empty() {
+                    return;
+                }
+                match self.mode.clone() {
+                    BranchMode::NewBranch { from } => self.run(GitCommand::CreateBranch { name: text, from }, cx),
+                    BranchMode::Rename(old) if text != old => self.run(GitCommand::Rename { old, new: text }, cx),
+                    BranchMode::Revision => self.run(GitCommand::CheckoutRevision(text), cx),
+                    _ => {}
+                }
+                let _ = current;
+            }
+            BranchRow::Tag(tag) => self.run(GitCommand::CheckoutRevision(tag), cx),
+        }
+    }
+
+    fn step(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let rows = self.rows(cx);
+        let mut ix = self.selected as isize;
+        loop {
+            ix += delta;
+            if ix < 0 || ix as usize >= rows.len() {
+                return;
+            }
+            if rows[ix as usize].selectable() {
+                self.selected = ix as usize;
+                cx.notify();
+                return;
+            }
         }
     }
 
     fn select_prev(&mut self, _: &SelectPrev, _: &mut Window, cx: &mut Context<Self>) {
-        self.selected = self.selected.saturating_sub(1);
-        cx.notify();
+        self.step(-1, cx);
     }
 
     fn select_next(&mut self, _: &SelectNext, _: &mut Window, cx: &mut Context<Self>) {
-        let count = self.rows(cx).len();
-        self.selected = (self.selected + 1).min(count.saturating_sub(1));
-        cx.notify();
+        self.step(1, cx);
     }
 
-    fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
-        self.checkout_selected(cx);
+    fn confirm(&mut self, _: &Confirm, window: &mut Window, cx: &mut Context<Self>) {
+        self.activate(self.selected, window, cx);
     }
 
-    fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(DialogEvent::Dismiss);
+    fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
+        if self.mode != BranchMode::Normal {
+            self.enter_mode(BranchMode::Normal, window, cx);
+        } else {
+            cx.emit(DialogEvent::Dismiss);
+        }
     }
 }
 
@@ -242,110 +367,77 @@ impl Render for BranchDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let rows = self.rows(cx);
         let selected = self.selected.min(rows.len().saturating_sub(1));
-        let selected_row = rows.get(selected).cloned();
-        let mut elements: Vec<gpui::AnyElement> = Vec::new();
-        let mut last_section = "";
-        for (ix, row) in rows.iter().enumerate() {
-            let (section, label, detail) = match row {
-                BranchRow::Create(name) => ("", format!("+ New branch '{name}'"), self.current.clone().map(|c| format!("from {c}")).unwrap_or_default()),
-                BranchRow::Local(name) => ("LOCAL", name.clone(), if Some(name) == self.current.as_ref() { "current".to_string() } else { String::new() }),
-                BranchRow::Remote(name) => ("REMOTE", name.clone(), String::new()),
-            };
-            if section != last_section && !section.is_empty() {
-                elements.push(div().px_3().pt_2().pb_1().text_size(px(11.)).text_color(theme::muted()).child(section).into_any_element());
-            }
-            last_section = section;
-            let is_current = matches!(row, BranchRow::Local(n) if Some(n) == self.current.as_ref());
-            elements.push(
-                div()
-                    .id(("branch", ix))
-                    .flex()
-                    .gap_2()
-                    .px_3()
-                    .h(px(26.))
-                    .items_center()
-                    .cursor_pointer()
-                    .when(ix == selected, |d| d.bg(theme::selection()))
-                    .hover(|d| d.bg(theme::hover()))
-                    .child(div().w(px(14.)).text_color(theme::accent()).child(if is_current { "✓" } else { "⎇" }))
-                    .child(div().flex_1().child(label))
-                    .child(div().text_size(px(12.)).text_color(theme::muted()).child(detail))
-                    .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
-                        this.selected = ix;
-                        if event.click_count() >= 2 {
-                            this.checkout_selected(cx);
+        let current = self.current.clone();
+        let elements: Vec<gpui::AnyElement> = rows
+            .into_iter()
+            .enumerate()
+            .map(|(ix, row)| {
+                let item = |icon: &'static str, label: String, hint: &'static str| {
+                    div()
+                        .id(("branch-row", ix))
+                        .mx_1()
+                        .px_2()
+                        .h(px(26.))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .when(ix == selected, |d| d.bg(theme::selection()))
+                        .hover(|d| d.bg(theme::hover()))
+                        .child(div().w(px(16.)).text_color(theme::muted()).child(icon))
+                        .child(div().flex_1().overflow_hidden().whitespace_nowrap().child(label))
+                        .child(div().text_size(px(12.)).text_color(theme::muted()).child(hint))
+                };
+                let element = match row {
+                    BranchRow::Pull => item("↙", "Update Project…".into(), "⌘T"),
+                    BranchRow::Fetch => item("⟳", "Fetch".into(), ""),
+                    BranchRow::Commit => item("⊸", "Commit…".into(), "⌘0"),
+                    BranchRow::Push => item("↗", "Push…".into(), "⇧⌘K"),
+                    BranchRow::NewBranch => item("+", "New Branch…".into(), "⌥⌘N"),
+                    BranchRow::Revision => item("", "Checkout Tag or Revision…".into(), ""),
+                    BranchRow::Header(title) => {
+                        return div().mt_1().px_3().pt_1p5().pb_1().border_t_1().border_color(theme::border()).text_size(px(12.)).text_color(theme::muted()).child(title).into_any_element();
+                    }
+                    BranchRow::Folder { name, depth, collapsed, .. } => item(if collapsed { "▸" } else { "▾" }, format!("{}📁 {name}", "  ".repeat(depth.saturating_sub(1))), ""),
+                    BranchRow::Branch { name, label, depth, upstream } => {
+                        let is_current = current.as_deref() == Some(name.as_str());
+                        let mut el = item(if is_current { "🏷" } else { "⎇" }, format!("{}{label}", "  ".repeat(depth.saturating_sub(1))), "");
+                        if let Some(upstream) = upstream {
+                            el = el.child(div().text_size(px(12.)).text_color(theme::muted()).child(upstream));
                         }
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            );
-        }
-        let query = self.query.read(cx).text().trim().to_string();
-        let target = match &selected_row {
-            Some(BranchRow::Local(name) | BranchRow::Remote(name)) => Some(name.clone()),
-            _ => None,
-        };
-        let is_other_local = matches!(&selected_row, Some(BranchRow::Local(n)) if Some(n) != self.current.as_ref());
-        let action = |id: &'static str, label: &'static str| button(id, label, false);
-        card(560.)
+                        el.child(div().text_color(theme::muted()).child("›"))
+                    }
+                    BranchRow::Action { branch, action, depth } => {
+                        let cur = current.clone().unwrap_or_default();
+                        let label = match action {
+                            BranchAction::Checkout => format!("Checkout '{branch}'"),
+                            BranchAction::NewFrom => format!("New Branch from '{branch}'…"),
+                            BranchAction::Merge => format!("Merge '{branch}' into '{cur}'"),
+                            BranchAction::Rename => "Rename…".to_string(),
+                            BranchAction::Delete => "Delete".to_string(),
+                        };
+                        item("", format!("{}{label}", "  ".repeat(depth)), "")
+                    }
+                    BranchRow::Input(text) => item("↵", if text.is_empty() { "Type a name…".into() } else { text }, "Enter"),
+                    BranchRow::Tag(tag) => item("🏷", tag, ""),
+                };
+                element.on_click(cx.listener(move |this, _, window, cx| {
+                    this.selected = ix;
+                    this.activate(ix, window, cx);
+                }))
+                .into_any_element()
+            })
+            .collect();
+        card(420.)
             .key_context("ListDialog")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::cancel))
             .on_action(cx.listener(Self::select_prev))
             .on_action(cx.listener(Self::select_next))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(theme::border())
-                    .child(div().flex_1().child(format!("⎇ {}", self.current.clone().unwrap_or_else(|| "detached".into()))))
-                    .child(action("git-fetch", "Fetch").on_click(cx.listener(|this, _, _, cx| this.run(GitCommand::Fetch, cx))))
-                    .child(action("git-pull", "Pull").on_click(cx.listener(|this, _, _, cx| this.run(GitCommand::Pull, cx))))
-                    .child(action("git-push", "Push").on_click(cx.listener(|this, _, _, cx| this.run(GitCommand::Push, cx)))),
-            )
             .child(div().p_2().child(self.query.clone()))
-            .child(div().id("branch-list").max_h(px(380.)).overflow_y_scroll().pb_1().text_size(px(13.)).children(elements))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap_2()
-                    .p_2()
-                    .border_t_1()
-                    .border_color(theme::border())
-                    .text_size(px(12.))
-                    .child(action("branch-checkout", "Checkout").on_click(cx.listener(|this, _, _, cx| this.checkout_selected(cx))))
-                    .when_some(target.clone(), |d, target| {
-                        let from = target.clone();
-                        d.child(action("branch-new-from", "New Branch from…").on_click(cx.listener(move |this, _, _, cx| {
-                            let name = this.query.read(cx).text().trim().to_string();
-                            if name.is_empty() || name == from {
-                                this.query.update(cx, |q, cx| q.set_placeholder(format!("Type the new branch name, then New Branch from {from}"), cx));
-                            } else {
-                                this.run(GitCommand::CreateBranch { name, from: Some(from.clone()) }, cx);
-                            }
-                        })))
-                        .child(action("branch-merge", "Merge into Current").on_click(cx.listener(move |this, _, _, cx| {
-                            this.run(GitCommand::Merge(target.clone()), cx)
-                        })))
-                    })
-                    .when(is_other_local, |d| {
-                        let name = target.clone().unwrap_or_default();
-                        let rename_from = name.clone();
-                        let new_name = query.clone();
-                        d.child(action("branch-rename", "Rename to Typed Name").on_click(cx.listener(move |this, _, _, cx| {
-                            if !new_name.is_empty() && new_name != rename_from {
-                                this.run(GitCommand::Rename { old: rename_from.clone(), new: new_name.clone() }, cx);
-                            }
-                        })))
-                        .child(action("branch-delete", "Delete").on_click(cx.listener(move |this, _, _, cx| this.run(GitCommand::Delete(name.clone()), cx))))
-                    }),
-            )
+            .child(div().id("branch-list").max_h(px(520.)).overflow_y_scroll().pb_1().text_size(px(13.)).children(elements))
     }
 }
 

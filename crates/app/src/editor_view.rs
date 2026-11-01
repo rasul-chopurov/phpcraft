@@ -25,6 +25,7 @@ pub use intel_ui::OptimizeImports;
 actions!(
     editor,
     [
+        ToggleMarkdownPreview,
         MoveLeft,
         MoveRight,
         MoveUp,
@@ -91,6 +92,11 @@ pub struct EditorView {
     menu: Option<Menu>,
     find: Option<find_bar::FindBar>,
     autosave: Option<gpui::Task<()>>,
+    /// Compact mode without gutter (commit message box).
+    plain: bool,
+    /// Markdown files: editor, split or preview, plus the parsed preview for a buffer version.
+    md_mode: MdMode,
+    md_cache: Option<(u64, std::rc::Rc<Vec<crate::markdown_preview::Block>>)>,
     /// File contents at HEAD for change markers (`None`: not in a repository / untracked).
     git_base: Option<String>,
     git_markers: Option<(u64, Vec<(usize, git::LineChange)>)>,
@@ -134,7 +140,17 @@ impl EditorView {
             is_selecting: false,
             marked_range: None,
             layout: None,
+            plain: false,
+            md_mode: MdMode::Split,
+            md_cache: None,
         }
+    }
+
+    /// A compact text area (commit message): no gutter, no code intelligence.
+    pub fn plain(intel: Arc<Intel>, workspace: gpui::WeakEntity<Workspace>, cx: &mut Context<Self>) -> Self {
+        let mut view = Self::new(Buffer::new(""), intel, workspace, cx);
+        view.plain = true;
+        view
     }
 
     fn line_height() -> Pixels {
@@ -611,6 +627,77 @@ impl Focusable for EditorView {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MdMode {
+    Editor,
+    Split,
+    Preview,
+}
+
+impl EditorView {
+    fn is_markdown(&self) -> bool {
+        !self.plain && self.buffer.lang() == php_syntax::Lang::Markdown
+    }
+
+    fn toggle_markdown_preview(&mut self, _: &ToggleMarkdownPreview, _: &mut Window, cx: &mut Context<Self>) {
+        self.md_mode = match self.md_mode {
+            MdMode::Editor => MdMode::Split,
+            MdMode::Split => MdMode::Preview,
+            MdMode::Preview => MdMode::Editor,
+        };
+        cx.notify();
+    }
+
+    fn markdown_blocks(&mut self) -> std::rc::Rc<Vec<crate::markdown_preview::Block>> {
+        let version = self.buffer.version();
+        if let Some((v, blocks)) = &self.md_cache
+            && *v == version
+        {
+            return blocks.clone();
+        }
+        let blocks = std::rc::Rc::new(crate::markdown_preview::parse(&self.buffer.text()));
+        self.md_cache = Some((version, blocks.clone()));
+        blocks
+    }
+
+    fn render_markdown_switch(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let mode = self.md_mode;
+        let button = |id: &'static str, label: &'static str, target: MdMode| {
+            gpui::div()
+                .id(id)
+                .px_2()
+                .h(px(20.))
+                .flex()
+                .items_center()
+                .rounded_sm()
+                .cursor_pointer()
+                .when(mode == target, |d| d.bg(theme::selection()))
+                .hover(|d| d.bg(theme::hover()))
+                .child(label)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.md_mode = target;
+                    cx.notify();
+                }))
+        };
+        gpui::div()
+            .flex()
+            .flex_none()
+            .justify_end()
+            .gap_1()
+            .px_2()
+            .h(px(26.))
+            .items_center()
+            .border_b_1()
+            .border_color(theme::border())
+            .bg(theme::panel_bg())
+            .text_size(px(12.))
+            .text_color(theme::ui_text())
+            .child(button("md-editor", "Editor", MdMode::Editor))
+            .child(button("md-split", "Editor and Preview", MdMode::Split))
+            .child(button("md-preview", "Preview", MdMode::Preview))
+    }
+}
+
 impl Render for EditorView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut key_context = KeyContext::new_with_defaults();
@@ -697,8 +784,28 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::show_replace))
             .on_action(cx.listener(Self::find_next))
             .on_action(cx.listener(Self::find_prev))
+            .on_action(cx.listener(Self::toggle_markdown_preview))
             .children(find_bar)
-            .child(editor)
+            .map(|pane| {
+                if !self.is_markdown() {
+                    return pane.child(editor);
+                }
+                let blocks = self.markdown_blocks();
+                let mode = self.md_mode;
+                pane.child(self.render_markdown_switch(cx)).child(
+                    gpui::div()
+                        .flex_1()
+                        .min_h(px(0.))
+                        .flex()
+                        .when(mode != MdMode::Preview, |d| {
+                            d.child(gpui::div().flex_1().min_w(px(0.)).h_full().flex().flex_col().child(editor))
+                        })
+                        .when(mode == MdMode::Split, |d| d.child(gpui::div().w(px(1.)).h_full().bg(theme::border())))
+                        .when(mode != MdMode::Editor, |d| {
+                            d.child(gpui::div().flex_1().min_w(px(0.)).h_full().child(crate::markdown_preview::render(&blocks)))
+                        }),
+                )
+            })
     }
 }
 
@@ -723,6 +830,7 @@ pub struct EditorPrepaint {
     caret: Option<PaintQuad>,
     gutter_quads: Vec<PaintQuad>,
     blame_lines: Vec<(ShapedLine, Pixels)>,
+    plain: bool,
 }
 
 impl IntoElement for EditorElement {
@@ -784,7 +892,7 @@ impl Element for EditorElement {
                 .shape_line("0".into(), font_size, &[run(1, theme::line_number())], None)
                 .width;
             let blame_width = if view.blame.is_some() { digit_width * BLAME_CHARS as f32 } else { px(0.) };
-            let gutter_width = blame_width + digit_width * digits as f32 + px(GUTTER_PADDING * 2.);
+            let gutter_width = if view.plain { px(0.) } else { blame_width + digit_width * digits as f32 + px(GUTTER_PADDING * 2.) };
             let markers = view.git_markers();
             let mut gutter_quads = Vec::new();
             let mut blame_lines = Vec::new();
@@ -984,6 +1092,7 @@ impl Element for EditorElement {
                 caret,
                 gutter_quads,
                 blame_lines,
+                plain: view.plain,
             }
         })
     }
@@ -1035,10 +1144,10 @@ impl Element for EditorElement {
             label.paint(point(bounds.left() + px(6.), *y), line_height, window, cx).ok();
         }
         for line in &prepaint.lines {
-            let number_x = bounds.left() + gutter - px(GUTTER_PADDING) - line.number.width;
-            line.number
-                .paint(point(number_x, line.y), line_height, window, cx)
-                .ok();
+            if !prepaint.plain {
+                let number_x = bounds.left() + gutter - px(GUTTER_PADDING) - line.number.width;
+                line.number.paint(point(number_x, line.y), line_height, window, cx).ok();
+            }
             line.shaped
                 .paint(point(text_x, line.y), line_height, window, cx)
                 .ok();

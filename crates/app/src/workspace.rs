@@ -1,6 +1,8 @@
 //! Main window: project tree, editor tabs and status bar.
 
 mod git_panel;
+mod git_window;
+pub use git_panel::ShowCommit;
 pub use tools::{SyncPull, SyncPush};
 mod navigation;
 mod tools;
@@ -34,11 +36,17 @@ pub struct Workspace {
     history: Vec<(PathBuf, usize)>,
     modal: Option<gpui::AnyView>,
     modal_subscription: Option<gpui::Subscription>,
+    /// Left offset of a title bar dropdown; `None` centres the modal.
+    modal_anchor: Option<f32>,
     output: Option<tools::Output>,
     artisan_commands: tools::CommandCache,
     laravel_menu_open: bool,
     prefs_menu_open: bool,
     left_panel: git_panel::LeftPanel,
+    /// The diff tab (one at a time, like PhpStorm's preview diff) and whether it is shown.
+    diff: Option<Entity<crate::diff_view::DiffView>>,
+    diff_active: bool,
+    _diff_subscription: Option<gpui::Subscription>,
     git: git_panel::GitState,
     _git_poll: Option<gpui::Task<()>>,
     /// Running background work shown in the status bar: (id, label).
@@ -73,7 +81,14 @@ impl Workspace {
         .detach();
         Self {
             left_panel: git_panel::LeftPanel::Project,
-            git: git_panel::GitState::new(cx),
+            diff: None,
+            diff_active: false,
+            _diff_subscription: None,
+            git: {
+                let mut git = git_panel::GitState::new(intel.clone(), cx);
+                git.watch_filters(cx);
+                git
+            },
             _git_poll: None,
             tasks: vec![(0, "Indexing…".into())],
             next_task: 1,
@@ -81,6 +96,7 @@ impl Workspace {
             history: Vec::new(),
             modal: None,
             modal_subscription: None,
+            modal_anchor: None,
             output: None,
             artisan_commands: None,
             laravel_menu_open: false,
@@ -211,7 +227,53 @@ impl Workspace {
         }
     }
 
+    fn render_diff_tab(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let diff = self.diff.as_ref()?;
+        let title = diff.read(cx).tab_title();
+        let active = self.diff_active;
+        Some(
+            div()
+                .id("diff-tab")
+                .flex()
+                .items_center()
+                .gap_1p5()
+                .pl_3()
+                .pr_1p5()
+                .h_full()
+                .border_r_1()
+                .border_color(theme::border())
+                .when(active, |d| d.bg(theme::tab_active()).text_color(theme::accent()))
+                .when(!active, |d| d.text_color(theme::muted()).hover(|d| d.bg(theme::hover())))
+                .child("⇄")
+                .child(title)
+                .child(
+                    div()
+                        .id("diff-tab-close")
+                        .px_1()
+                        .rounded_sm()
+                        .text_color(theme::muted())
+                        .hover(|d| d.bg(theme::hover()))
+                        .child("×")
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.diff = None;
+                            this.diff_active = false;
+                            this.focus_active(window, cx);
+                            cx.notify();
+                        })),
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.diff_active = true;
+                    if let Some(diff) = &this.diff {
+                        window.focus(&diff.focus_handle(cx));
+                    }
+                    cx.notify();
+                })),
+        )
+    }
+
     fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.diff_active = false;
         if ix != self.active
             && crate::config::Settings::load_cached().auto_save != crate::config::AutoSave::Off
             && let Some(previous) = self.tabs.get(self.active).cloned()
@@ -376,6 +438,7 @@ impl Workspace {
             .border_color(theme::border())
             .text_size(px(13.))
             .children(tabs)
+            .children(self.render_diff_tab(cx))
     }
 
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -478,9 +541,10 @@ impl Focusable for Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let editor = match self.tabs.get(self.active) {
-            Some(tab) => div().flex_1().overflow_hidden().child(tab.clone()),
-            None => div()
+        let editor = match (self.diff.as_ref().filter(|_| self.diff_active), self.tabs.get(self.active)) {
+            (Some(diff), _) => div().flex_1().overflow_hidden().child(diff.clone()),
+            (None, Some(tab)) => div().flex_1().overflow_hidden().child(tab.clone()),
+            (None, None) => div()
                 .flex_1()
                 .flex()
                 .flex_col()
@@ -520,6 +584,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::show_commit))
             .on_action(cx.listener(Self::toggle_git_log))
             .on_action(cx.listener(Self::open_branches))
+            .on_action(cx.listener(Self::open_projects))
             .on_action(cx.listener(Self::commit_changes))
             .on_action(cx.listener(Self::commit_and_push))
             .on_action(cx.listener(Self::git_pull))

@@ -64,14 +64,18 @@
 **Editor & workspace**
 - Find/replace (⌘F/⌘R), Find/Replace in Files (⇧⌘F/⇧⌘R), Search Everywhere (⇧⇧), Go to File/Class/Symbol
 - ⌘/ comments, ⌘D duplicate, move/delete lines, multi-language highlighting (PHP, Blade, HTML, JS/TS, CSS, JSON, YAML, SQL, Markdown, logs…)
+- Markdown preview: editor, split or preview (⌥⌘M)
+- Project switcher in the title bar: Open…, Clone Repository…, recent projects, each in its own window
+- Local History (⌥⇧H): the last 10 versions of every file, with diff and revert
 - Auto save, JSON themes (⌘K ⌘T), editable keymap (⌘K ⌘S), settings (⌘,)
 - macOS, Windows and Linux
 
 **Git**
-- Commit tool window (⌘0): changed files with include checkboxes, diff on click, Rollback, Amend, Commit / Commit and Push
-- Change markers in the gutter, Annotate with Git Blame (⌥⌘A), side-by-side diff
-- Branches from the status bar: checkout (local and remote), new branch (from any branch), merge, rename, delete, pull (⌘T), push (⇧⌘K), fetch
-- Git Log panel (⌘9) with changed files and per-file diffs
+- Commit tool window (⌘0): Changes and Unversioned Files groups, multi-line message, Rollback, Amend, Commit / Commit and Push
+- Diffs open as editor tabs ("Commit: File.php") with ↑↓ change and ←→ file navigation
+- Change markers in the gutter, Annotate with Git Blame (⌥⌘A)
+- Branch popup in the title bar: search, Update Project, Commit, Push, New Branch, Checkout Tag or Revision, Recent / Local / Remote trees grouped by folder, per-branch checkout, merge, rename, delete
+- Git tool window (⌘9): branch tree, log with commit graph and filters (text/hash, branch, user, path), commit details, Console
 
 **Settings Sync**
 - Settings, keymap and themes synced through a secret GitHub Gist using the GitHub CLI (`gh auth login`)

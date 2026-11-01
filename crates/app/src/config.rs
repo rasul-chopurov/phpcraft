@@ -89,3 +89,23 @@ impl Settings {
         );
     }
 }
+
+/// Recently opened project folders, newest first.
+pub fn recent_projects() -> Vec<PathBuf> {
+    fs::read_to_string(dir().join("recent_projects.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Vec<PathBuf>>(&text).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| p.is_dir())
+        .collect()
+}
+
+pub fn remember_project(root: &std::path::Path) {
+    let mut projects = recent_projects();
+    projects.retain(|p| p != root);
+    projects.insert(0, root.to_path_buf());
+    projects.truncate(20);
+    let _ = fs::create_dir_all(dir());
+    let _ = fs::write(dir().join("recent_projects.json"), serde_json::to_string_pretty(&projects).unwrap_or_default());
+}

@@ -8,7 +8,7 @@ use gpui::{AppContext, Context, Entity, Focusable, MouseButton, SharedString, Wi
 
 use super::Workspace;
 use super::tools::Output;
-use crate::dialogs::{BranchDialog, ConfirmDialog, DiffDialog, GitCommand};
+use crate::dialogs::{BranchDialog, ConfirmDialog, GitCommand};
 use crate::text_field::TextField;
 use crate::theme;
 
@@ -26,28 +26,72 @@ pub(super) struct GitState {
     pub ahead_behind: Option<(usize, usize)>,
     /// Files excluded from the next commit (PhpStorm-style checkboxes; included by default).
     pub excluded: HashSet<String>,
-    pub message: Entity<TextField>,
+    pub message: Entity<crate::editor_view::EditorView>,
+    /// Collapsed groups in the Commit window ("changes", "unversioned").
+    pub groups_collapsed: HashSet<&'static str>,
     pub amend: bool,
     pub log_open: bool,
     pub log: Vec<git::Commit>,
+    pub log_graph: Vec<git::GraphRow>,
     pub log_selected: Option<usize>,
     pub log_files: Vec<(git::Change, String)>,
+    pub log_details: Option<git::CommitDetails>,
+    /// Git tool window: filters, branch tree and console.
+    pub filter_text: Entity<TextField>,
+    pub filter_user: Entity<TextField>,
+    pub filter_path: Entity<TextField>,
+    pub filter_branch: String,
+    pub tree_query: Entity<TextField>,
+    pub tree_collapsed: HashSet<String>,
+    pub branches: (Vec<String>, Vec<String>),
+    pub tab: GitTab,
+    pub console: Vec<String>,
+    pub _subscriptions: Vec<gpui::Subscription>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GitTab {
+    Log,
+    Console,
 }
 
 impl GitState {
-    pub fn new(cx: &mut Context<Workspace>) -> Self {
+    pub fn new(intel: std::sync::Arc<crate::intel::Intel>, cx: &mut Context<Workspace>) -> Self {
+        let workspace = cx.weak_entity();
         Self {
+            groups_collapsed: HashSet::new(),
             status: Vec::new(),
             branch: None,
             ahead_behind: None,
             excluded: HashSet::new(),
-            message: cx.new(|cx| TextField::new("Commit message", cx)),
+            message: cx.new(|cx| crate::editor_view::EditorView::plain(intel, workspace, cx)),
             amend: false,
             log_open: false,
             log: Vec::new(),
+            log_graph: Vec::new(),
             log_selected: None,
             log_files: Vec::new(),
+            log_details: None,
+            filter_text: cx.new(|cx| TextField::new("Text or hash", cx)),
+            filter_user: cx.new(|cx| TextField::new("User", cx)),
+            filter_path: cx.new(|cx| TextField::new("Path", cx)),
+            filter_branch: String::new(),
+            tree_query: cx.new(|cx| TextField::new("Branch or tag", cx)),
+            tree_collapsed: HashSet::new(),
+            branches: (Vec::new(), Vec::new()),
+            tab: GitTab::Log,
+            console: Vec::new(),
+            _subscriptions: Vec::new(),
         }
+    }
+
+    /// Re-runs the log when a filter field changes.
+    pub fn watch_filters(&mut self, cx: &mut Context<Workspace>) {
+        for field in [self.filter_text.clone(), self.filter_user.clone(), self.filter_path.clone()] {
+            self._subscriptions.push(cx.subscribe(&field, |this: &mut Workspace, _, _: &crate::text_field::FieldEvent, cx| this.refresh_log(cx)));
+        }
+        let tree = self.tree_query.clone();
+        self._subscriptions.push(cx.subscribe(&tree, |_: &mut Workspace, _, _: &crate::text_field::FieldEvent, cx| cx.notify()));
     }
 }
 
@@ -87,6 +131,12 @@ impl Workspace {
                 .await;
             this.update(cx, |this, cx| {
                 let changed = this.git.status != status || this.git.branch != branch || this.git.ahead_behind != ahead;
+                // Like PhpStorm, new unversioned files start out of the commit.
+                for file in status.iter().filter(|f| f.change == git::Change::Untracked) {
+                    if !this.git.status.iter().any(|old| old.path == file.path) {
+                        this.git.excluded.insert(file.path.clone());
+                    }
+                }
                 this.git.status = status;
                 this.git.branch = branch;
                 this.git.ahead_behind = ahead;
@@ -99,12 +149,26 @@ impl Workspace {
         .detach();
     }
 
-    fn refresh_log(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn refresh_log(&mut self, cx: &mut Context<Self>) {
         let Some(repo) = self.intel.repo().cloned() else { return };
+        let filter = git::LogFilter {
+            text: self.git.filter_text.read(cx).text().to_string(),
+            author: self.git.filter_user.read(cx).text().to_string(),
+            branch: self.git.filter_branch.clone(),
+            path: self.git.filter_path.read(cx).text().to_string(),
+        };
         cx.spawn(async move |this, cx| {
-            let log = cx.background_executor().spawn(async move { repo.log(300).unwrap_or_default() }).await;
+            let (log, branches) = cx
+                .background_executor()
+                .spawn(async move { (repo.log_filtered(&filter, 1000).unwrap_or_default(), repo.branches().unwrap_or_default()) })
+                .await;
             this.update(cx, |this, cx| {
+                this.git.log_graph = git::graph(&log);
                 this.git.log = log;
+                this.git.branches = branches;
+                this.git.log_selected = None;
+                this.git.log_details = None;
+                this.git.log_files.clear();
                 cx.notify();
             })
             .ok();
@@ -133,9 +197,15 @@ impl Workspace {
     }
 
     pub(super) fn open_branches(&mut self, _: &OpenBranches, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_branches_dropdown(window, cx);
+    }
+
+    /// The branch popup under the title bar's `⎇ branch` button.
+    pub(super) fn open_branches_dropdown(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(repo) = self.intel.repo().cloned() else { return };
         let dialog = cx.new(|cx| BranchDialog::new(&repo, window, cx));
-        self.show_modal(dialog, window, cx);
+        let left = 30. + self.project.name().len() as f32 * 7.5 + 20.;
+        self.show_dropdown(dialog, left, window, cx);
     }
 
     pub(super) fn git_pull(&mut self, _: &GitPull, _: &mut Window, cx: &mut Context<Self>) {
@@ -161,7 +231,7 @@ impl Workspace {
     fn commit(&mut self, push: bool, cx: &mut Context<Self>) {
         let Some(repo) = self.intel.repo().cloned() else { return };
         self.save_all(cx);
-        let message = self.git.message.read(cx).text().trim().to_string();
+        let message = self.git.message.read(cx).buffer.text().trim().to_string();
         let paths = self.included_paths();
         let amend = self.git.amend;
         let task = self.begin_task(if push { "Commit and push…" } else { "Committing…" }, cx);
@@ -181,7 +251,7 @@ impl Workspace {
                 this.end_task(task, cx);
                 let ok = result.is_ok();
                 if ok {
-                    this.git.message.update(cx, |m, cx| m.set_text("", cx));
+                    this.git.message.update(cx, |m, cx| m.replace_all_text("", cx));
                     this.git.amend = false;
                     this.git.excluded.clear();
                 }
@@ -199,6 +269,7 @@ impl Workspace {
         let Some(repo) = self.intel.repo().cloned() else { return };
         let title = match &command {
             GitCommand::Checkout(b) => format!("Checkout {b}"),
+            GitCommand::CheckoutRevision(r) => format!("Checkout {r}"),
             GitCommand::CreateBranch { name, .. } => format!("New branch {name}"),
             GitCommand::Merge(b) => format!("Merge {b}"),
             GitCommand::Rename { old, new } => format!("Rename {old} → {new}"),
@@ -209,15 +280,15 @@ impl Workspace {
             GitCommand::Rollback(files) => format!("Rollback {} file(s)", files.len()),
         };
         // Switching branches rewrites files: save edits first.
-        if matches!(command, GitCommand::Checkout(_) | GitCommand::CreateBranch { .. } | GitCommand::Merge(_) | GitCommand::Pull) {
+        if matches!(command, GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::CreateBranch { .. } | GitCommand::Merge(_) | GitCommand::Pull) {
             self.save_all(cx);
         }
-        let rescan = matches!(command, GitCommand::Checkout(_) | GitCommand::Merge(_) | GitCommand::Pull);
+        let rescan = matches!(command, GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::Merge(_) | GitCommand::Pull);
         // Snapshot what is about to be overwritten into Local History.
         let root = repo.root().to_path_buf();
         let at_risk: Vec<std::path::PathBuf> = match &command {
             GitCommand::Rollback(files) => files.iter().map(|f| root.join(&f.path)).collect(),
-            GitCommand::Checkout(_) | GitCommand::Merge(_) | GitCommand::Pull | GitCommand::CreateBranch { .. } => self
+            GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::Merge(_) | GitCommand::Pull | GitCommand::CreateBranch { .. } => self
                 .git
                 .status
                 .iter()
@@ -235,6 +306,7 @@ impl Workspace {
                 .spawn(async move {
                     match command {
                         GitCommand::Checkout(branch) => repo.checkout(&branch),
+                        GitCommand::CheckoutRevision(rev) => repo.checkout_revision(&rev),
                         GitCommand::CreateBranch { name, from: Some(from) } => repo.create_branch_from(&name, &from),
                         GitCommand::CreateBranch { name, from: None } => repo.create_branch(&name),
                         GitCommand::Merge(branch) => repo.merge(&branch),
@@ -254,6 +326,7 @@ impl Workspace {
                     Ok(out) if out.trim().is_empty() => "Done.".to_string(),
                     Ok(out) | Err(out) => out,
                 };
+                this.git.console.push(format!("$ git {title}\n{}", text.trim_end()));
                 this.output = Some(Output { title: format!("git {title}"), text, running: false, ok });
                 this.after_git(cx);
                 if rescan && ok {
@@ -291,23 +364,71 @@ impl Workspace {
         .detach();
     }
 
+    /// Diff of working-tree changes as an editor tab; ←/→ walks the other changed files.
     fn show_file_diff(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(repo) = self.intel.repo().cloned() else { return };
-        let full = repo.root().join(path);
-        let old = repo.show("HEAD", path).unwrap_or_default();
-        let new = std::fs::read_to_string(&full).unwrap_or_default();
-        let title = path.to_string();
-        let dialog = cx.new(|cx| DiffDialog::new(title, &old, &new, Some(full), window, cx));
-        self.show_modal(dialog, window, cx);
+        let files: Vec<crate::diff_view::DiffSource> = self
+            .git
+            .status
+            .iter()
+            .map(|status| {
+                let full = repo.root().join(&status.path);
+                crate::diff_view::DiffSource {
+                    title: status.path.rsplit('/').next().unwrap_or(&status.path).to_string(),
+                    subtitle: status.path.clone(),
+                    old: repo.show("HEAD", &status.path).unwrap_or_default(),
+                    new: std::fs::read_to_string(&full).unwrap_or_default(),
+                    left_label: "HEAD".into(),
+                    right_label: "Your version".into(),
+                    open_path: Some(full),
+                }
+            })
+            .collect();
+        let index = self.git.status.iter().position(|s| s.path == path).unwrap_or(0);
+        self.open_diff_tab("Changes", files, index, window, cx);
+    }
+
+    pub(super) fn show_commit_diff_public(&mut self, hash: &str, path: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_commit_diff(hash, path, window, cx);
     }
 
     fn show_commit_diff(&mut self, hash: &str, path: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(repo) = self.intel.repo().cloned() else { return };
-        let old = repo.show(&format!("{hash}^"), path).unwrap_or_default();
-        let new = repo.show(hash, path).unwrap_or_default();
-        let title = format!("{path} @ {}", &hash[..hash.len().min(8)]);
-        let dialog = cx.new(|cx| DiffDialog::new(title, &old, &new, None, window, cx));
-        self.show_modal(dialog, window, cx);
+        let short = &hash[..hash.len().min(8)];
+        let files: Vec<crate::diff_view::DiffSource> = self
+            .git
+            .log_files
+            .iter()
+            .map(|(_, file)| crate::diff_view::DiffSource {
+                title: file.rsplit('/').next().unwrap_or(file).to_string(),
+                subtitle: file.clone(),
+                old: repo.show(&format!("{hash}^"), file).unwrap_or_default(),
+                new: repo.show(hash, file).unwrap_or_default(),
+                left_label: format!("{short}^"),
+                right_label: short.to_string(),
+                open_path: Some(repo.root().join(file)),
+            })
+            .collect();
+        let index = self.git.log_files.iter().position(|(_, f)| f == path).unwrap_or(0);
+        self.open_diff_tab("Commit", files, index, window, cx);
+    }
+
+    fn open_diff_tab(&mut self, kind: &str, files: Vec<crate::diff_view::DiffSource>, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if files.is_empty() {
+            return;
+        }
+        let kind = kind.to_string();
+        let view = cx.new(|cx| crate::diff_view::DiffView::new(kind, files, index, cx));
+        self._diff_subscription = Some(cx.subscribe_in(&view, window, |this, _, event, window, cx| match event {
+            crate::diff_view::DiffEvent::Open(path) => {
+                let path = path.clone();
+                this.open_file(&path, window, cx);
+            }
+        }));
+        window.focus(&view.focus_handle(cx));
+        self.diff = Some(view);
+        self.diff_active = true;
+        cx.notify();
     }
 
     fn confirm_rollback(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -358,12 +479,7 @@ impl Workspace {
     }
 
     pub(super) fn render_commit_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let rows: Vec<_> = self
-            .git
-            .status
-            .iter()
-            .enumerate()
-            .map(|(ix, file)| {
+        let file_row = |ix: usize, file: &git::FileStatus, cx: &mut Context<Self>| {
                 let included = !self.git.excluded.contains(&file.path);
                 let (dir, name) = file.path.rsplit_once('/').map_or(("", file.path.as_str()), |(d, n)| (d, n));
                 let path = file.path.clone();
@@ -371,7 +487,8 @@ impl Workspace {
                 div()
                     .id(("change", ix))
                     .mx_1()
-                    .px_2()
+                    .pl(px(28.))
+                    .pr_2()
                     .h(px(24.))
                     .flex()
                     .items_center()
@@ -404,8 +521,69 @@ impl Workspace {
                             this.show_file_diff(&path, window, cx);
                         }
                     }))
-            })
-            .collect();
+                    .into_any_element()
+        };
+        // PhpStorm groups: tracked changes, then unversioned files.
+        let mut rows: Vec<gpui::AnyElement> = Vec::new();
+        for (group, title) in [("changes", "Changes"), ("unversioned", "Unversioned Files")] {
+            let files: Vec<(usize, &git::FileStatus)> = self
+                .git
+                .status
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| (f.change == git::Change::Untracked) == (group == "unversioned"))
+                .collect();
+            if files.is_empty() {
+                continue;
+            }
+            let collapsed = self.git.groups_collapsed.contains(group);
+            let paths: Vec<String> = files.iter().map(|(_, f)| f.path.clone()).collect();
+            let all_in = paths.iter().all(|p| !self.git.excluded.contains(p));
+            rows.push(
+                div()
+                    .id(gpui::ElementId::Name(format!("group-{group}").into()))
+                    .mx_1()
+                    .px_2()
+                    .h(px(24.))
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .hover(|d| d.bg(theme::hover()))
+                    .child(div().w(px(10.)).text_size(px(9.)).text_color(theme::muted()).child(if collapsed { "▶" } else { "▼" }))
+                    .child(
+                        div()
+                            .id(gpui::ElementId::Name(format!("group-include-{group}").into()))
+                            .child(crate::dialogs::checkbox_box(all_in))
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                for path in &paths {
+                                    if all_in {
+                                        this.git.excluded.insert(path.clone());
+                                    } else {
+                                        this.git.excluded.remove(path);
+                                    }
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .child(div().text_color(theme::ui_text()).child(title))
+                    .child(div().text_color(theme::muted()).child(format!("{} files", files.len())))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.git.groups_collapsed.remove(group) {
+                            this.git.groups_collapsed.insert(group);
+                        }
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+            if !collapsed {
+                for (ix, file) in files {
+                    rows.push(file_row(ix, file, cx));
+                }
+            }
+        }
         let included = self.included_paths().len();
         let all_included = self.git.excluded.is_empty();
         let small = |id: &'static str, label: &'static str| {
@@ -458,7 +636,15 @@ impl Workspace {
                     .p_2()
                     .border_t_1()
                     .border_color(theme::border())
-                    .child(self.git.message.clone())
+                    .child(
+                        div()
+                            .h(px(110.))
+                            .rounded_md()
+                            .border_1()
+                            .border_color(theme::border_strong())
+                            .overflow_hidden()
+                            .child(self.git.message.clone()),
+                    )
                     .child(
                         div()
                             .flex()
@@ -468,10 +654,10 @@ impl Workspace {
                             .child(crate::dialogs::checkbox("amend", "Amend", self.git.amend).on_click(cx.listener(|this, _, _, cx| {
                                 this.git.amend ^= true;
                                 // Like PhpStorm: amending starts from the last commit message.
-                                if this.git.amend && this.git.message.read(cx).text().is_empty()
+                                if this.git.amend && this.git.message.read(cx).buffer.text().is_empty()
                                     && let Some(last) = this.intel.repo().and_then(|r| r.last_commit_message())
                                 {
-                                    this.git.message.update(cx, |m, cx| m.set_text(last, cx));
+                                    this.git.message.update(cx, |m, cx| m.replace_all_text(&last, cx));
                                 }
                                 cx.notify();
                             })))
@@ -497,99 +683,6 @@ impl Workspace {
                 .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
                 .child(format!("⎇ {branch}{sync}"))
                 .on_click(cx.listener(|this, _, w, cx| this.open_branches(&OpenBranches, w, cx))),
-        )
-    }
-
-    pub(super) fn render_git_log(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        if !self.git.log_open {
-            return None;
-        }
-        let commits: Vec<_> = self
-            .git
-            .log
-            .iter()
-            .enumerate()
-            .map(|(ix, commit)| {
-                let selected = self.git.log_selected == Some(ix);
-                let hash = commit.hash.clone();
-                div()
-                    .id(("commit", ix))
-                    .flex()
-                    .gap_3()
-                    .px_2()
-                    .h(px(22.))
-                    .items_center()
-                    .cursor_pointer()
-                    .when(selected, |d| d.bg(theme::selection()))
-                    .hover(|d| d.bg(theme::hover()))
-                    .child(div().w(px(64.)).flex_none().font_family(theme::editor_font()).text_color(theme::muted()).child(commit.short.clone()))
-                    .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_color(theme::ui_text()).child(commit.subject.clone()))
-                    .when(!commit.refs.is_empty(), |d| {
-                        d.child(div().px_1().rounded_sm().text_size(px(11.)).text_color(theme::accent()).border_1().border_color(theme::accent()).child(commit.refs.clone()))
-                    })
-                    .child(div().w(px(120.)).flex_none().overflow_hidden().text_color(theme::muted()).child(commit.author.clone()))
-                    .child(div().w(px(80.)).flex_none().text_color(theme::muted()).child(commit.date.clone()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.git.log_selected = Some(ix);
-                        this.git.log_files = this.intel.repo().and_then(|r| r.commit_files(&hash).ok()).unwrap_or_default();
-                        cx.notify();
-                    }))
-            })
-            .collect();
-        let selected_hash = self.git.log_selected.and_then(|i| self.git.log.get(i)).map(|c| c.hash.clone());
-        let files: Vec<_> = self
-            .git
-            .log_files
-            .iter()
-            .enumerate()
-            .map(|(ix, (change, path))| {
-                let path = path.clone();
-                let hash = selected_hash.clone().unwrap_or_default();
-                div()
-                    .id(("commit-file", ix))
-                    .flex()
-                    .gap_2()
-                    .px_2()
-                    .h(px(22.))
-                    .items_center()
-                    .cursor_pointer()
-                    .hover(|d| d.bg(theme::hover()))
-                    .child(div().w(px(12.)).text_color(change_color(*change)).child(change.letter()))
-                    .child(div().overflow_hidden().whitespace_nowrap().child(SharedString::from(path.clone())))
-                    .on_click(cx.listener(move |this, _, window, cx| this.show_commit_diff(&hash, &path, window, cx)))
-            })
-            .collect();
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .flex_none()
-                .h(px(260.))
-                .border_t_1()
-                .border_color(theme::border_strong())
-                .bg(theme::editor_bg())
-                .text_size(px(12.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .px_2()
-                        .h(px(26.))
-                        .bg(theme::panel_bg())
-                        .child(div().text_color(theme::ui_text()).child("Git Log"))
-                        .child(div().flex_1())
-                        .child(div().id("log-refresh").px_1().cursor_pointer().text_color(theme::muted()).child("⟳").on_click(cx.listener(|this, _, _, cx| this.refresh_log(cx))))
-                        .child(div().id("log-close").px_1().cursor_pointer().text_color(theme::muted()).child("×").on_click(cx.listener(|this, _, w, cx| this.toggle_git_log(&ToggleGitLog, w, cx)))),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_1()
-                        .min_h(px(0.))
-                        .child(div().id("log-commits").flex_1().overflow_y_scroll().children(commits))
-                        .child(div().id("log-files").w(px(320.)).flex_none().border_l_1().border_color(theme::border()).overflow_y_scroll().children(files)),
-                ),
         )
     }
 }
