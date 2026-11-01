@@ -9,6 +9,7 @@ mod db_panel;
 mod remote_panel;
 mod http_panel;
 mod sql_panel;
+mod tree_search;
 mod laravel_panel;
 mod panes;
 mod git_window;
@@ -68,6 +69,7 @@ pub struct Workspace {
     agent: agent_panel::AgentState,
     db: db_panel::DbState,
     remote: remote_panel::RemoteState,
+    tree_nav: tree_search::TreeNav,
     /// The chosen HTTP Client environment.
     http_env: Option<String>,
     laravel: laravel_panel::LaravelState,
@@ -146,6 +148,7 @@ impl Workspace {
             agent: Default::default(),
             db: Default::default(),
             remote: Default::default(),
+            tree_nav: tree_search::TreeNav::new(cx),
             http_env: None,
             laravel: Default::default(),
             panes: vec![None],
@@ -412,19 +415,39 @@ impl Workspace {
 
     /// Only the visible rows are built (a fully expanded vendor/ has thousands).
     fn render_project_tree(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        gpui::uniform_list(
-            "project-tree",
-            self.rows.len(),
-            cx.processor(|this, range: std::ops::Range<usize>, _, cx| range.filter_map(|ix| this.tree_row(ix, cx)).collect::<Vec<_>>()),
-        )
-        .flex_1()
-        .pb_2()
+        div()
+            .flex_1()
+            .min_h(px(0.))
+            .flex()
+            .flex_col()
+            .key_context("ProjectTree")
+            .track_focus(&self.tree_nav.focus)
+            .on_key_down(cx.listener(Self::tree_key_down))
+            .on_action(cx.listener(Self::tree_up))
+            .on_action(cx.listener(Self::tree_down))
+            .on_action(cx.listener(Self::tree_open))
+            .on_action(cx.listener(Self::tree_collapse))
+            .on_action(cx.listener(Self::tree_expand))
+            .on_action(cx.listener(Self::tree_search))
+            .on_action(cx.listener(Self::tree_cancel))
+            .children(self.render_tree_search(cx))
+            .child(
+                gpui::uniform_list(
+                    "project-tree",
+                    self.rows.len(),
+                    cx.processor(|this, range: std::ops::Range<usize>, _, cx| range.filter_map(|ix| this.tree_row(ix, cx)).collect::<Vec<_>>()),
+                )
+                .track_scroll(self.tree_nav.scroll.clone())
+                .flex_1()
+                .pb_2(),
+            )
     }
 
     fn tree_row(&self, ix: usize, cx: &mut Context<Self>) -> Option<gpui::Stateful<gpui::Div>> {
         let row = self.rows.get(ix)?;
         let selected = self.selected_path.as_deref() == Some(row.entry.path.as_path());
         let icon = file_icon(&row.entry.name, row.entry.is_dir, row.expanded);
+        let matching = self.tree_row_matches(ix, cx);
         Some(div()
             .id(ix)
             .mx_1()
@@ -447,7 +470,9 @@ impl Workspace {
             }))
             .child(div().w(px(16.)).flex_none().flex().justify_center().child(icon))
             .child(div().overflow_hidden().whitespace_nowrap().child(SharedString::from(row.entry.name.clone())))
+            .when(matching, |d| d.text_color(theme::accent()))
             .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                window.focus(&this.tree_nav.focus);
                 this.click_row(ix, event.click_count(), window, cx)
             }))
             .on_mouse_down(MouseButton::Right, {
