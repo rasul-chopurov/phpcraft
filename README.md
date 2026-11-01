@@ -77,6 +77,11 @@
 - Branch popup in the title bar: search, Update Project, Commit, Push, New Branch, Checkout Tag or Revision, Recent / Local / Remote trees grouped by folder, per-branch checkout, merge, rename, delete
 - Git tool window (⌘9): branch tree, log with commit graph and filters (text/hash, branch, user, path), commit details, Console
 
+**Terminal & Run**
+- Terminal tool window (⌥F12): tabs, 256/true colours, scrollback, copy/paste, ⌘T new tab
+- Run configurations in `.phpcraft/run.json` plus detected ones (artisan serve, tests, composer and npm scripts)
+- Run… (⌃⌥R), Rerun (⌃R), Stop (⌘F2), Run context (⌃⇧F10): the PHPUnit/Pest test under the caret, or the current script
+
 **Settings Sync**
 - Settings, keymap and themes synced through a secret GitHub Gist using the GitHub CLI (`gh auth login`)
 

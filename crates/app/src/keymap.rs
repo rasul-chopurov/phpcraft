@@ -150,6 +150,13 @@ const DEFAULTS: &[Default] = &[
     both("secondary-shift-k", "workspace::GitPush", None),
     both("secondary-enter", "workspace::CommitChanges", None),
     both("alt-shift-h", "workspace::ShowLocalHistory", None),
+    both("alt-f12", "workspace::ToggleTerminal", None),
+    per("cmd-t", "ctrl-shift-t", "workspace::NewTerminal", Some("Terminal")),
+    per("cmd-w", "ctrl-shift-w", "workspace::CloseTerminal", Some("Terminal")),
+    per("ctrl-r", "shift-f10", "workspace::RunLast", None),
+    per("ctrl-alt-r", "alt-shift-f10", "workspace::RunPopup", None),
+    both("ctrl-shift-f10", "workspace::RunContext", None),
+    per("cmd-f2", "ctrl-f2", "workspace::StopRun", None),
     // Diff tab.
     both("alt-up", "diff::PrevChange", Some("DiffView")),
     both("alt-down", "diff::NextChange", Some("DiffView")),

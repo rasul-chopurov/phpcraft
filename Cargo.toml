@@ -17,6 +17,7 @@ laravel = { path = "crates/laravel" }
 search = { path = "crates/search" }
 git = { path = "crates/git" }
 history = { path = "crates/history" }
+terminal = { path = "crates/terminal" }
 gpui = { version = "0.2.2", features = ["runtime_shaders"] }
 ropey = "1.6"
 tree-sitter = "0.25"

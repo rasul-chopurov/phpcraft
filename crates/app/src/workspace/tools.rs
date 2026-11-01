@@ -494,7 +494,11 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.on_run_dialog_event(event, window, cx) {
+            return;
+        }
         match event {
+            DialogEvent::Run { .. } | DialogEvent::EditRunConfigurations => {}
             DialogEvent::Dismiss => self.dismiss_modal(window, cx),
             DialogEvent::CommandsLoaded(list) => self.artisan_commands = Some(list.clone()),
             DialogEvent::Created(paths) => {
@@ -712,6 +716,7 @@ impl Workspace {
                 )))
             })
             .child(div().flex_1())
+            .child(self.render_run_widget(cx))
             .when(laravel, |d| {
                 d.child(
                     div()

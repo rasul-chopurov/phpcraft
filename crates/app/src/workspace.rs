@@ -1,6 +1,7 @@
 //! Main window: project tree, editor tabs and status bar.
 
 mod git_panel;
+mod terminal_panel;
 mod git_window;
 pub use git_panel::ShowCommit;
 pub use tools::{SyncPull, SyncPush};
@@ -38,6 +39,7 @@ pub struct Workspace {
     modal_subscription: Option<gpui::Subscription>,
     /// Left offset of a title bar dropdown; `None` centres the modal.
     modal_anchor: Option<f32>,
+    terminals: terminal_panel::TerminalState,
     output: Option<tools::Output>,
     artisan_commands: tools::CommandCache,
     laravel_menu_open: bool,
@@ -97,6 +99,7 @@ impl Workspace {
             modal: None,
             modal_subscription: None,
             modal_anchor: None,
+            terminals: Default::default(),
             output: None,
             artisan_commands: None,
             laravel_menu_open: false,
@@ -585,6 +588,14 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::toggle_git_log))
             .on_action(cx.listener(Self::open_branches))
             .on_action(cx.listener(Self::open_projects))
+            .on_action(cx.listener(Self::toggle_terminal))
+            .on_action(cx.listener(Self::new_terminal))
+            .on_action(cx.listener(Self::close_terminal))
+            .on_action(cx.listener(Self::run_popup))
+            .on_action(cx.listener(Self::run_last))
+            .on_action(cx.listener(Self::run_context))
+            .on_action(cx.listener(Self::stop_run))
+            .on_action(cx.listener(Self::edit_run_configurations))
             .on_action(cx.listener(Self::commit_changes))
             .on_action(cx.listener(Self::commit_and_push))
             .on_action(cx.listener(Self::git_pull))
@@ -623,7 +634,8 @@ impl Render for Workspace {
                             .child(self.render_tabs(cx))
                             .child(editor)
                             .children(self.render_output(cx))
-                            .children(self.render_git_log(cx)),
+                            .children(self.render_git_log(cx))
+                            .children(self.render_terminal_panel(cx)),
                     ),
             )
             .child(self.render_status(cx))

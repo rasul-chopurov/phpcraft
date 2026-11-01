@@ -6,6 +6,7 @@ mod make;
 mod navigate;
 mod prefs;
 mod projects;
+mod run;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -24,6 +25,7 @@ pub use make::{MakeChooser, MakeDialog};
 pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
 pub use prefs::{KeymapDialog, SettingsDialog, ThemeDialog};
 pub use projects::{ProjectDialog, avatar};
+pub use run::RunDialog;
 
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
@@ -75,6 +77,9 @@ pub enum DialogEvent {
     PickProjectFolder,
     OpenProject(std::path::PathBuf),
     CloneRepository { url: String, parent: std::path::PathBuf },
+    /// Run a configuration; `save` stores it in `.phpcraft/run.json`.
+    Run { config: crate::run_configs::RunConfig, save: bool },
+    EditRunConfigurations,
 }
 
 /// The square of a checkbox, without a label.

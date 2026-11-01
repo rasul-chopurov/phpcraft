@@ -354,7 +354,7 @@ impl Workspace {
     }
 
     /// Re-indexes the project after files changed on disk (checkout, merge, pull).
-    fn rescan(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn rescan(&mut self, cx: &mut Context<Self>) {
         let intel = self.intel.clone();
         let task = self.begin_task("Indexing…", cx);
         cx.spawn(async move |this, cx| {
