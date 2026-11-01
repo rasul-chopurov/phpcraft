@@ -4,10 +4,38 @@ use std::path::Path;
 use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtisanArgument {
+    pub name: String,
+    pub required: bool,
+    pub is_array: bool,
+    pub description: String,
+    pub default: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtisanOption {
+    /// Without the leading `--`.
+    pub name: String,
+    /// e.g. `-m`, empty when none.
+    pub shortcut: String,
+    /// `false` for plain flags like `--force`.
+    pub accepts_value: bool,
+    pub description: String,
+    pub default: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArtisanCommand {
     pub name: String,
     pub description: String,
+    pub arguments: Vec<ArtisanArgument>,
+    pub options: Vec<ArtisanOption>,
 }
+
+/// Options every Symfony console command has; not worth showing in the run dialog.
+const GLOBAL_OPTIONS: &[&str] = &[
+    "help", "silent", "quiet", "verbose", "version", "ansi", "no-ansi", "no-interaction", "env",
+];
 
 /// Commands from `php artisan list --format=json`. Blocking; call off the UI thread.
 pub fn list_commands(root: &Path) -> Result<Vec<ArtisanCommand>, String> {
@@ -19,53 +47,101 @@ pub fn list_commands(root: &Path) -> Result<Vec<ArtisanCommand>, String> {
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).into_owned());
     }
-    Ok(parse_list(&String::from_utf8_lossy(&output.stdout)))
+    parse_list(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// Extracts `name`/`description` pairs from the `commands` array of the JSON listing
-/// without a JSON dependency: each command object starts with `"name":` then `"description":`.
-fn parse_list(json: &str) -> Vec<ArtisanCommand> {
-    let Some(commands) = json.find("\"commands\"").map(|i| &json[i..]) else { return Vec::new() };
-    let mut out = Vec::new();
-    let mut rest = commands;
-    while let Some(at) = rest.find("{\"name\":") {
-        rest = &rest[at + 8..];
-        let Some((name, after)) = json_string(rest) else { break };
-        let description = after
-            .find("\"description\":")
-            .and_then(|i| json_string(&after[i + 14..]))
-            .map(|(d, _)| d)
-            .unwrap_or_default();
-        if !name.starts_with('_') {
-            out.push(ArtisanCommand { name, description });
-        }
-        rest = after;
+fn scalar(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Null | serde_json::Value::Bool(false) => None,
+        serde_json::Value::String(s) if s.is_empty() => None,
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Array(a) if a.is_empty() => None,
+        other => Some(other.to_string()),
     }
+}
+
+fn parse_list(json: &str) -> Result<Vec<ArtisanCommand>, String> {
+    let root: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("unexpected artisan output: {e}"))?;
+    let commands = root["commands"].as_array().cloned().unwrap_or_default();
+    let text = |v: &serde_json::Value| v.as_str().unwrap_or_default().to_string();
+    let mut out: Vec<ArtisanCommand> = commands
+        .iter()
+        .filter(|c| !c["hidden"].as_bool().unwrap_or(false))
+        .filter(|c| !text(&c["name"]).starts_with('_'))
+        .map(|c| {
+            let definition = &c["definition"];
+            let arguments = definition["arguments"]
+                .as_object()
+                .map(|args| {
+                    args.values()
+                        .map(|a| ArtisanArgument {
+                            name: text(&a["name"]),
+                            required: a["is_required"].as_bool().unwrap_or(false),
+                            is_array: a["is_array"].as_bool().unwrap_or(false),
+                            description: text(&a["description"]),
+                            default: scalar(&a["default"]),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let options = definition["options"]
+                .as_object()
+                .map(|opts| {
+                    opts.iter()
+                        .filter(|(key, _)| !GLOBAL_OPTIONS.contains(&key.as_str()))
+                        .map(|(key, o)| ArtisanOption {
+                            name: key.clone(),
+                            shortcut: text(&o["shortcut"]),
+                            accepts_value: o["accept_value"].as_bool().unwrap_or(false),
+                            description: text(&o["description"]),
+                            default: scalar(&o["default"]),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            ArtisanCommand {
+                name: text(&c["name"]),
+                description: text(&c["description"]),
+                arguments,
+                options,
+            }
+        })
+        .collect();
     out.sort_by(|a, b| a.name.cmp(&b.name));
-    out
+    Ok(out)
 }
 
-/// Parses a JSON string literal at the start of `s` (after optional whitespace).
-fn json_string(s: &str) -> Option<(String, &str)> {
-    let s = s.trim_start().strip_prefix('"')?;
-    let mut out = String::new();
-    let mut chars = s.char_indices();
-    while let Some((i, c)) = chars.next() {
-        match c {
-            '"' => return Some((out, &s[i + 1..])),
-            '\\' => match chars.next()?.1 {
-                'n' => out.push('\n'),
-                't' => out.push('\t'),
-                'u' => {
-                    let hex: String = (0..4).filter_map(|_| chars.next().map(|(_, c)| c)).collect();
-                    out.extend(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32));
-                }
-                other => out.push(other),
-            },
-            c => out.push(c),
+/// Quotes an argument for display/splitting when it contains spaces or quotes.
+pub fn quote(arg: &str) -> String {
+    if arg.is_empty() || arg.contains(|c: char| c.is_whitespace() || c == '"' || c == '\'') {
+        format!("\"{}\"", arg.replace('"', "\\\""))
+    } else {
+        arg.to_string()
+    }
+}
+
+/// Builds `name arg1 arg2 --flag --opt=value` from filled-in values.
+pub fn command_line(command: &ArtisanCommand, arguments: &[String], options: &[(String, Option<String>)]) -> String {
+    let mut parts = vec![command.name.clone()];
+    for (argument, value) in command.arguments.iter().zip(arguments) {
+        let value = value.trim();
+        if value.is_empty() {
+            continue;
+        }
+        if argument.is_array {
+            parts.extend(value.split_whitespace().map(quote));
+        } else {
+            parts.push(quote(value));
         }
     }
-    None
+    for (name, value) in options {
+        match value {
+            Some(v) if !v.trim().is_empty() => parts.push(format!("--{name}={}", quote(v.trim()))),
+            Some(_) => {}
+            None => parts.push(format!("--{name}")),
+        }
+    }
+    parts.join(" ")
 }
 
 /// Splits a command line into arguments, honouring single and double quotes.
@@ -150,11 +226,26 @@ mod tests {
 
     #[test]
     fn parses_listing() {
-        let json = r#"{"application":{"name":"Laravel"},"commands":[{"name":"_complete","description":"x"},{"name":"make:model","description":"Create a new \"Eloquent\" model class","usage":[]},{"name":"about","description":"Display basic information"}]}"#;
-        let commands = parse_list(json);
+        let json = r#"{"commands":[
+            {"name":"_complete","description":"x","hidden":true,"definition":{"arguments":[],"options":[]}},
+            {"name":"make:model","description":"Create a new \"Eloquent\" model class","hidden":false,"definition":{
+                "arguments":{"name":{"name":"name","is_required":true,"is_array":false,"description":"The name of the model","default":null}},
+                "options":{"migration":{"name":"--migration","shortcut":"-m","accept_value":false,"is_value_required":false,"description":"Create a migration","default":false},
+                           "path":{"name":"--path","shortcut":"","accept_value":true,"is_value_required":true,"description":"Path","default":null},
+                           "help":{"name":"--help","shortcut":"-h","accept_value":false,"description":"","default":false}}}},
+            {"name":"about","description":"Display basic information","hidden":false,"definition":{"arguments":[],"options":{}}}
+        ]}"#;
+        let commands = parse_list(json).unwrap();
         let names: Vec<_> = commands.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["about", "make:model"]);
-        assert_eq!(commands[1].description, "Create a new \"Eloquent\" model class");
+        let model = &commands[1];
+        assert_eq!(model.description, "Create a new \"Eloquent\" model class");
+        assert!(model.arguments[0].required);
+        let options: Vec<_> = model.options.iter().map(|o| (o.name.as_str(), o.accepts_value)).collect();
+        assert_eq!(options, [("migration", false), ("path", true)]);
+        let line = command_line(model, &["Blog Post".into()], &[("migration".into(), None), ("path".into(), Some("app/X".into()))]);
+        assert_eq!(line, "make:model \"Blog Post\" --migration --path=app/X");
+        assert_eq!(split_args(&line), ["make:model", "Blog Post", "--migration", "--path=app/X"]);
     }
 
     #[test]

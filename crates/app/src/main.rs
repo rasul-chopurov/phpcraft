@@ -12,7 +12,7 @@ use gpui::{
 use project::Project;
 
 use editor_view::*;
-use workspace::{CloseTab, NavigateBack, NextTab, OpenArtisan, OpenMake, PrevTab, Workspace};
+use workspace::{CloseTab, NavigateBack, NextTab, OpenArtisan, OpenMake, OpenRouteSearch, PrevTab, Workspace};
 
 actions!(phpcraft, [Quit]);
 
@@ -57,6 +57,8 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-[", NavigateBack, None),
         KeyBinding::new("cmd-alt-left", NavigateBack, None),
         KeyBinding::new("cmd-n", OpenMake, None),
+        KeyBinding::new("cmd-shift-,", OpenMake, None),
+        KeyBinding::new("ctrl-shift-r", OpenRouteSearch, None),
         KeyBinding::new("ctrl-shift-x", OpenArtisan, None),
         KeyBinding::new("cmd-w", CloseTab, None),
         KeyBinding::new("ctrl-tab", NextTab, None),

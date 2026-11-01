@@ -103,6 +103,22 @@ impl Intel {
             .unwrap_or_default()
     }
 
+    /// Where a route's action is defined: controller method, invokable class, or closure line.
+    pub fn route_location(&self, route: &laravel::routes::RouteInfo) -> Option<Location> {
+        if let Some((class, method)) = route.controller() {
+            let index = self.index.read().unwrap();
+            if let Some((owner, member)) = index.find_member(class, method, &[php_index::MemberKind::Method]) {
+                return Some(Location { path: owner.path.to_path_buf(), range: member.range });
+            }
+            return index.class_location(class);
+        }
+        let (file, line) = route.defined_at.as_ref()?;
+        let path = self.root.join(file);
+        let source = std::fs::read_to_string(&path).ok()?;
+        let offset: usize = source.split_inclusive('\n').take(line.saturating_sub(1)).map(str::len).sum();
+        Some(Location { path, range: offset..offset })
+    }
+
     pub fn import(&self, path: &Path, source: &str, fqn: &str) -> Option<TextEdit> {
         Document::parse(path, source).and_then(|doc| php_analysis::import_edit(&doc, fqn))
     }

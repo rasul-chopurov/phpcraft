@@ -4,6 +4,7 @@
 mod array_keys;
 pub mod artisan;
 pub mod make;
+pub mod routes;
 
 use std::fs;
 use std::ops::Range;

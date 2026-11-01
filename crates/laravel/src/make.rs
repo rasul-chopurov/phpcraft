@@ -11,7 +11,7 @@ mod filament;
 #[path = "make_model.rs"]
 pub mod model_spec;
 
-pub use model_spec::{Field, IdType, ModelSpec, Relation, RelationKind, parse_fields, parse_relations};
+pub use model_spec::{COLUMN_TYPES, Field, IdType, ModelSpec, Relation, RelationKind, parse_fields, parse_relations};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MakeKind {
@@ -121,10 +121,12 @@ impl MakeKind {
             Self::Model => &[
                 Extra::Migration,
                 Extra::Factory,
+                Extra::JsonResource,
+                Extra::FilamentResource,
                 Extra::Seeder,
                 Extra::Controller,
-                Extra::Policy,
                 Extra::Requests,
+                Extra::Policy,
                 Extra::Observer,
             ],
             Self::Controller => &[Extra::Resource, Extra::Requests],
@@ -139,6 +141,9 @@ pub enum Extra {
     Migration,
     Factory,
     Seeder,
+    JsonResource,
+    FilamentResource,
+    /// REST-API (resource) controller for the model.
     Controller,
     Policy,
     Requests,
@@ -153,11 +158,13 @@ impl Extra {
     pub fn label(self) -> &'static str {
         match self {
             Self::Migration => "Migration",
-            Self::Factory => "Factory",
+            Self::Factory => "Database factory",
             Self::Seeder => "Seeder",
-            Self::Controller => "Resource controller",
+            Self::JsonResource => "Json resource",
+            Self::FilamentResource => "Filament resource",
+            Self::Controller => "REST-API Controller",
             Self::Policy => "Policy",
-            Self::Requests => "Form requests",
+            Self::Requests => "Form request",
             Self::Observer => "Observer",
             Self::Resource => "Resource methods",
             Self::Unit => "Unit test",
@@ -167,6 +174,22 @@ impl Extra {
     /// Checked by default when the dialog opens.
     pub fn default_on(self) -> bool {
         matches!(self, Self::Migration | Self::Factory | Self::Resource)
+    }
+
+    /// Default class/file name generated for a model, shown in the dialog's name field.
+    pub fn default_name(self, model: &str) -> String {
+        let model = ClassName::parse(model).map(|c| c.name).unwrap_or_default();
+        match self {
+            Self::Migration => format!("create_{}_table", table_name(&model)),
+            Self::Factory => format!("{model}Factory"),
+            Self::Seeder => format!("{model}Seeder"),
+            Self::JsonResource | Self::FilamentResource => format!("{model}Resource"),
+            Self::Controller => format!("{model}Controller"),
+            Self::Requests => format!("Store{model}Request, Update{model}Request"),
+            Self::Policy => format!("{model}Policy"),
+            Self::Observer => format!("{model}Observer"),
+            Self::Resource | Self::Unit => String::new(),
+        }
     }
 }
 
@@ -327,6 +350,15 @@ impl Maker {
             .collect()
     }
 
+    /// Post-generation options for `kind` available in this project.
+    pub fn extras(&self, kind: MakeKind) -> Vec<Extra> {
+        kind.extras()
+            .iter()
+            .copied()
+            .filter(|e| self.uses_filament || *e != Extra::FilamentResource)
+            .collect()
+    }
+
     /// laravel-modules (nwidart) modules: `Modules/<Name>/module.json`.
     pub fn modules(&self) -> Vec<String> {
         let Ok(entries) = fs::read_dir(self.root.join("Modules")) else { return Vec::new() };
@@ -388,11 +420,22 @@ impl Maker {
         match kind {
             MakeKind::Model => {
                 let model_fqn = class.fqn(&t.app("Models"));
+                // A name typed in the dialog overrides the derived one.
+                let named = |extra: Extra| {
+                    spec.class_names
+                        .get(&extra)
+                        .map(|n| n.trim().to_string())
+                        .filter(|n| !n.is_empty() && *n != extra.default_name(&class.name))
+                };
+                let sibling = |extra: Extra, suffix: &str| match named(extra) {
+                    Some(name) => ClassName { dirs: class.dirs.clone(), name: studly(&name) },
+                    None => class.with_suffix(suffix),
+                };
                 let source = model_spec::model_source(&class.namespace(&t.app("Models")), &class.name, has(Extra::Factory), spec);
                 files.push(t.class_file(&class, "Models", source));
-                let table = table_name(&class.name);
+                let table = spec.table.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| table_name(&class.name));
                 if has(Extra::Migration) {
-                    let name = format!("create_{table}_table");
+                    let name = named(Extra::Migration).map(|n| snake(&n)).unwrap_or_else(|| format!("create_{table}_table"));
                     let path = t.migration_path(&name);
                     files.push(t.file(path, create_migration(&table, &model_spec::create_columns(spec))));
                     for relation in spec.relations.iter().filter(|r| r.kind == RelationKind::BelongsToMany) {
@@ -403,7 +446,7 @@ impl Maker {
                     }
                 }
                 if has(Extra::Factory) {
-                    let factory = class.with_suffix("Factory");
+                    let factory = sibling(Extra::Factory, "Factory");
                     let (definition, models) = model_spec::factory_definition(spec);
                     let mut uses: Vec<String> = models.iter().map(|m| format!("{}\\{m}", t.app("Models"))).collect();
                     uses.push(model_fqn.clone());
@@ -411,26 +454,49 @@ impl Maker {
                     let ns = format!("{}\\Factories", t.database_namespace);
                     files.push(t.file(path, factory_source(&factory, &ns, &model_fqn, &uses, &definition)));
                 }
-                if has(Extra::Seeder) {
-                    files.push(t.seeder(&class.with_suffix("Seeder")));
+                if has(Extra::JsonResource) {
+                    let resource = sibling(Extra::JsonResource, "Resource");
+                    files.push(t.class_file(&resource, "Http\\Resources", json_resource(&resource, &t.app("Http\\Resources"))));
                 }
+                if has(Extra::FilamentResource) {
+                    let model = named(Extra::FilamentResource)
+                        .map(|n| studly(n.trim_end_matches("Resource")))
+                        .unwrap_or_else(|| class.name.clone());
+                    files.extend(filament::resource(&t, &model, &model_fqn, self.filament_v3));
+                }
+                if has(Extra::Seeder) {
+                    files.push(t.seeder(&sibling(Extra::Seeder, "Seeder")));
+                }
+                let mut requests = Vec::new();
                 if has(Extra::Requests) {
-                    for prefix in ["Store", "Update"] {
-                        let request = ClassName { dirs: class.dirs.clone(), name: format!("{prefix}{}Request", class.name) };
+                    let names: Vec<String> = match named(Extra::Requests) {
+                        Some(names) => names.split(',').map(|n| studly(n.trim())).filter(|n| !n.is_empty()).collect(),
+                        None => vec![format!("Store{}Request", class.name), format!("Update{}Request", class.name)],
+                    };
+                    for name in names {
+                        let request = ClassName { dirs: class.dirs.clone(), name };
                         files.push(t.class_file(&request, "Http\\Requests", form_request(&request, &t.app("Http\\Requests"))));
+                        requests.push(request.name);
                     }
                 }
                 if has(Extra::Controller) {
-                    let controller = class.with_suffix("Controller");
-                    let contents = controller_file(&controller, &t.app("Http\\Controllers"), &t.app_namespace, Some((&model_fqn, &class.name)), true, has(Extra::Requests));
+                    let controller = sibling(Extra::Controller, "Controller");
+                    let contents = controller_file(
+                        &controller,
+                        &t.app("Http\\Controllers"),
+                        &t.app_namespace,
+                        Some((&model_fqn, &class.name)),
+                        ControllerStyle::Api,
+                        (requests.len() == 2).then(|| (requests[0].clone(), requests[1].clone())),
+                    );
                     files.push(t.class_file(&controller, "Http\\Controllers", contents));
                 }
                 if has(Extra::Policy) {
-                    let policy = class.with_suffix("Policy");
+                    let policy = sibling(Extra::Policy, "Policy");
                     files.push(t.class_file(&policy, "Policies", policy_file(&policy, &t.app("Policies"), &t.app_namespace, &model_fqn, &class.name)));
                 }
                 if has(Extra::Observer) {
-                    let observer = class.with_suffix("Observer");
+                    let observer = sibling(Extra::Observer, "Observer");
                     files.push(t.class_file(&observer, "Observers", observer_file(&observer, &t.app("Observers"), &model_fqn, &class.name)));
                 }
             }
@@ -440,13 +506,17 @@ impl Maker {
                 let controller = class.with_suffix("Controller");
                 let model = controller.name.strip_suffix("Controller").filter(|_| has(Extra::Resource)).map(|m| m.to_string());
                 let model_fqn = model.as_ref().map(|m| format!("{}\\{m}", t.app("Models")));
+                let requests = model
+                    .as_ref()
+                    .filter(|_| has(Extra::Requests))
+                    .map(|m| (format!("Store{m}Request"), format!("Update{m}Request")));
                 let contents = controller_file(
                     &controller,
                     &t.app("Http\\Controllers"),
                     &t.app_namespace,
                     model_fqn.as_deref().zip(model.as_deref()),
-                    has(Extra::Resource),
-                    has(Extra::Requests),
+                    if has(Extra::Resource) { ControllerStyle::Resource } else { ControllerStyle::Plain },
+                    requests,
                 );
                 files.push(t.class_file(&controller, "Http\\Controllers", contents));
                 if has(Extra::Requests) && let Some(model) = &model {
@@ -667,13 +737,22 @@ fn seeder_file(seeder: &ClassName, base: &str) -> String {
     )
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ControllerStyle {
+    Plain,
+    /// index/create/store/show/edit/update/destroy
+    Resource,
+    /// index/store/show/update/destroy
+    Api,
+}
+
 fn controller_file(
     controller: &ClassName,
     namespace: &str,
     app_namespace: &str,
     model: Option<(&str, &str)>,
-    resource: bool,
-    requests: bool,
+    style: ControllerStyle,
+    requests: Option<(String, String)>,
 ) -> String {
     let ns = controller.namespace(namespace);
     let name = &controller.name;
@@ -682,18 +761,21 @@ fn controller_file(
     if !controller.dirs.is_empty() {
         uses.push(format!("{app_namespace}\\Http\\Controllers\\Controller"));
     }
-    let body = if resource {
+    let body = if style == ControllerStyle::Plain {
+        "    //\n".to_string()
+    } else {
         let (model_fqn, model_name) = model.unwrap_or(("", ""));
         let var = camel(model_name);
-        let (store_req, update_req) = if requests && !model_name.is_empty() {
-            let store = format!("Store{model_name}Request");
-            let update = format!("Update{model_name}Request");
-            uses.push(format!("{app_namespace}\\Http\\Requests\\{store}"));
-            uses.push(format!("{app_namespace}\\Http\\Requests\\{update}"));
-            (store, update)
-        } else {
-            uses.push("Illuminate\\Http\\Request".into());
-            ("Request".to_string(), "Request".to_string())
+        let (store_req, update_req) = match requests {
+            Some((store, update)) => {
+                uses.push(format!("{app_namespace}\\Http\\Requests\\{store}"));
+                uses.push(format!("{app_namespace}\\Http\\Requests\\{update}"));
+                (store, update)
+            }
+            None => {
+                uses.push("Illuminate\\Http\\Request".into());
+                ("Request".to_string(), "Request".to_string())
+            }
         };
         let bound = if model_name.is_empty() {
             "string $id".to_string()
@@ -702,18 +784,18 @@ fn controller_file(
             format!("{model_name} ${var}")
         };
         let method = |doc: &str, sig: &str| format!("    /**\n     * {doc}\n     */\n    public function {sig}\n    {{\n        //\n    }}\n");
-        [
-            method("Display a listing of the resource.", "index()"),
-            method("Show the form for creating a new resource.", "create()"),
-            method("Store a newly created resource in storage.", &format!("store({store_req} $request)")),
-            method("Display the specified resource.", &format!("show({bound})")),
-            method("Show the form for editing the specified resource.", &format!("edit({bound})")),
-            method("Update the specified resource in storage.", &format!("update({update_req} $request, {bound})")),
-            method("Remove the specified resource from storage.", &format!("destroy({bound})")),
-        ]
-        .join("\n")
-    } else {
-        "    //\n".to_string()
+        let mut methods = vec![method("Display a listing of the resource.", "index()")];
+        if style == ControllerStyle::Resource {
+            methods.push(method("Show the form for creating a new resource.", "create()"));
+        }
+        methods.push(method("Store a newly created resource in storage.", &format!("store({store_req} $request)")));
+        methods.push(method("Display the specified resource.", &format!("show({bound})")));
+        if style == ControllerStyle::Resource {
+            methods.push(method("Show the form for editing the specified resource.", &format!("edit({bound})")));
+        }
+        methods.push(method("Update the specified resource in storage.", &format!("update({update_req} $request, {bound})")));
+        methods.push(method("Remove the specified resource from storage.", &format!("destroy({bound})")));
+        methods.join("\n")
     };
     uses.sort();
     uses.dedup();
@@ -868,7 +950,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("composer.json"), r#"{"autoload":{"psr-4":{"App\\":"app/"}}}"#).unwrap();
         let maker = Maker::new(&root);
-        let files = maker.plan(MakeKind::Model, "Blog/Post", MakeKind::Model.extras(), None);
+        let files = maker.plan(MakeKind::Model, "Blog/Post", &maker.extras(MakeKind::Model), None);
         let rel: Vec<String> = files
             .iter()
             .map(|f| f.path.strip_prefix(&root).unwrap().display().to_string())
@@ -880,6 +962,7 @@ mod tests {
                 "app/Models/Blog/Post.php",
                 "database/migrations/*_create_posts_table.php",
                 "database/factories/Blog/PostFactory.php",
+                "app/Http/Resources/Blog/PostResource.php",
                 "database/seeders/Blog/PostSeeder.php",
                 "app/Http/Requests/Blog/StorePostRequest.php",
                 "app/Http/Requests/Blog/UpdatePostRequest.php",
@@ -890,7 +973,8 @@ mod tests {
         );
         let model = &files[0].contents;
         assert!(model.contains("namespace App\\Models\\Blog;") && model.contains("use HasFactory;"));
-        let controller = &files[6].contents;
+        let controller = &files[7].contents;
+        assert!(!controller.contains("function create()"), "REST-API controller has no create/edit");
         assert!(controller.contains("use App\\Http\\Controllers\\Controller;"));
         assert!(controller.contains("public function update(UpdatePostRequest $request, Post $post)"));
         assert!(controller.contains("use App\\Models\\Blog\\Post;"));
@@ -955,6 +1039,16 @@ mod tests {
         assert_eq!(rel(&files[1]), "Modules/Blog/database/factories/PostFactory.php");
         assert!(files[1].contents.contains("namespace Modules\\Blog\\Database\\Factories;"));
         assert!(files[1].contents.contains("use Modules\\Blog\\Models\\Post;"));
+
+        // Names typed in the dialog override the derived ones; Filament option appears when installed.
+        assert!(maker.extras(MakeKind::Model).contains(&Extra::FilamentResource));
+        let mut spec = ModelSpec { fillable: false, table: Some("blog_posts".into()), ..ModelSpec::default() };
+        spec.class_names.insert(Extra::Controller, "Api/PostApiController".into());
+        spec.class_names.insert(Extra::Requests, "SavePostRequest".into());
+        let files = maker.plan_with(MakeKind::Model, "Post", &[Extra::Controller, Extra::Requests, Extra::Migration], None, &spec);
+        let paths: Vec<_> = files.iter().map(rel).map(|p| if p.contains("migrations") { p.split('_').skip(4).collect::<Vec<_>>().join("_") } else { p }).collect();
+        assert_eq!(paths, ["app/Models/Post.php", "create_blog_posts_table.php", "app/Http/Requests/SavePostRequest.php", "app/Http/Controllers/Api/PostApiController.php"]);
+        assert!(files[0].contents.contains("protected $table = 'blog_posts';") && !files[0].contents.contains("$fillable"));
 
         let files = maker.plan(MakeKind::FilamentResource, "BlogCategory", &[], None);
         let paths: Vec<_> = files.iter().map(rel).collect();

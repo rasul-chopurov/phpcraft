@@ -99,26 +99,46 @@ pub struct Field {
     pub column: String,
     pub nullable: bool,
     pub unique: bool,
+    pub index: bool,
     pub default: Option<String>,
 }
+
+/// Blueprint column types offered in the Make dialog.
+pub const COLUMN_TYPES: &[&str] = &[
+    "string", "text", "longText", "integer", "bigInteger", "unsignedBigInteger", "tinyInteger",
+    "boolean", "decimal", "float", "date", "dateTime", "timestamp", "time", "year", "json",
+    "uuid", "ulid", "foreignId", "ipAddress", "binary",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelSpec {
     pub id: IdType,
+    /// Add the primary key column to the migration.
+    pub with_id: bool,
     pub timestamps: bool,
     pub soft_deletes: bool,
+    /// Add a `$fillable` array to the model.
+    pub fillable: bool,
+    /// Table name override (defaults to the plural snake case model name).
+    pub table: Option<String>,
     pub fields: Vec<Field>,
     pub relations: Vec<Relation>,
+    /// Class/file names typed for post-generations, overriding the derived ones.
+    pub class_names: std::collections::HashMap<super::Extra, String>,
 }
 
 impl Default for ModelSpec {
     fn default() -> Self {
         Self {
             id: IdType::Id,
+            with_id: true,
             timestamps: true,
             soft_deletes: false,
+            fillable: true,
+            table: None,
             fields: Vec::new(),
             relations: Vec::new(),
+            class_names: Default::default(),
         }
     }
 }
@@ -150,12 +170,14 @@ pub fn parse_fields(input: &str) -> Vec<Field> {
                 column: "string".into(),
                 nullable: false,
                 unique: false,
+                index: false,
                 default: None,
             };
             for (i, part) in parts.enumerate() {
                 match part {
                     "nullable" | "null" | "?" => field.nullable = true,
                     "unique" => field.unique = true,
+                    "index" => field.index = true,
                     p if p.starts_with("default(") && p.ends_with(')') => {
                         field.default = Some(p[8..p.len() - 1].to_string());
                     }
@@ -256,9 +278,14 @@ pub fn model_source(namespace: &str, name: &str, factory: bool, spec: &ModelSpec
         fillable.push(foreign_key(&relation.target));
     }
     let fillable = fillable.iter().map(|f| format!("        '{f}',\n")).collect::<String>();
-    body.push(format!(
-        "    /**\n     * The attributes that are mass assignable.\n     *\n     * @var list<string>\n     */\n    protected $fillable = [\n{fillable}    ];\n"
-    ));
+    if spec.fillable {
+        body.push(format!(
+            "    /**\n     * The attributes that are mass assignable.\n     *\n     * @var list<string>\n     */\n    protected $fillable = [\n{fillable}    ];\n"
+        ));
+    }
+    if spec.table.as_deref().is_some_and(|t| !t.trim().is_empty()) {
+        body.insert(0, format!("    protected $table = '{}';\n", spec.table.as_deref().unwrap().trim()));
+    }
     let casts: Vec<String> = spec
         .fields
         .iter()
@@ -318,7 +345,7 @@ pub fn model_source(namespace: &str, name: &str, factory: bool, spec: &ModelSpec
 fn column_line(field: &Field) -> String {
     let mut line = match field.column.as_str() {
         "decimal" => format!("$table->decimal('{}', 10, 2)", field.name),
-        "foreignId" => format!("$table->foreignId('{}')", field.name),
+        "foreignId" => format!("$table->foreignId('{}')->constrained()", field.name),
         column => format!("$table->{column}('{}')", field.name),
     };
     if field.nullable {
@@ -326,6 +353,8 @@ fn column_line(field: &Field) -> String {
     }
     if field.unique {
         line.push_str("->unique()");
+    } else if field.index {
+        line.push_str("->index()");
     }
     if let Some(default) = &field.default {
         line.push_str(&format!("->default({default})"));
@@ -336,11 +365,13 @@ fn column_line(field: &Field) -> String {
 /// The `Schema::create` body for the model's table.
 pub fn create_columns(spec: &ModelSpec) -> String {
     let mut out = String::new();
-    out.push_str(match spec.id {
-        IdType::Id => "            $table->id();\n",
-        IdType::Uuid => "            $table->uuid('id')->primary();\n",
-        IdType::Ulid => "            $table->ulid('id')->primary();\n",
-    });
+    if spec.with_id {
+        out.push_str(match spec.id {
+            IdType::Id => "            $table->id();\n",
+            IdType::Uuid => "            $table->uuid('id')->primary();\n",
+            IdType::Ulid => "            $table->ulid('id')->primary();\n",
+        });
+    }
     for relation in &spec.relations {
         match relation.kind {
             RelationKind::BelongsTo => out.push_str(&format!(
@@ -427,8 +458,10 @@ mod tests {
 
     #[test]
     fn parses_fields_and_relations() {
-        let fields = parse_fields("title:string, body:text:nullable, isPublished:bool:default(false), price:decimal:unique");
-        assert_eq!(fields.len(), 4);
+        let fields = parse_fields("title:string, body:text:nullable, isPublished:bool:default(false), price:decimal:unique, slug:string:index");
+        assert_eq!(fields.len(), 5);
+        assert!(fields[4].index);
+        assert_eq!(column_line(&fields[4]), "            $table->string('slug')->index();\n");
         assert_eq!(fields[2].name, "is_published");
         assert_eq!(fields[2].column, "boolean");
         assert_eq!(fields[2].default.as_deref(), Some("false"));

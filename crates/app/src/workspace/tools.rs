@@ -6,10 +6,11 @@ use std::sync::Arc;
 use gpui::{AnyView, Context, Entity, SharedString, Window, actions, div, prelude::*, px};
 
 use super::Workspace;
-use crate::dialogs::{ArtisanDialog, DialogEvent, MakeDialog};
+use crate::dialogs::{ArtisanDialog, ArtisanRunDialog, DialogEvent, MakeChooser, MakeDialog, RouteSearchDialog};
+use laravel::make::MakeKind;
 use crate::theme;
 
-actions!(workspace, [OpenMake, OpenArtisan, CloseOutput]);
+actions!(workspace, [OpenMake, OpenArtisan, CloseOutput, OpenRouteSearch, NewModel, NewPivotTable, ToggleLaravelMenu]);
 
 /// Bottom panel showing Artisan output and generation results.
 pub struct Output {
@@ -24,8 +25,33 @@ const MAX_OUTPUT_LINES: usize = 2000;
 impl Workspace {
     pub(super) fn open_make(&mut self, _: &OpenMake, window: &mut Window, cx: &mut Context<Self>) {
         let root = self.project.root().to_path_buf();
-        let dialog = cx.new(|cx| MakeDialog::new(&root, window, cx));
+        let dialog = cx.new(|cx| MakeChooser::new(&root, window, cx));
         self.show_modal(dialog, window, cx);
+    }
+
+    pub(super) fn new_model(&mut self, _: &NewModel, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_make_kind(MakeKind::Model, window, cx);
+    }
+
+    pub(super) fn new_pivot_table(&mut self, _: &NewPivotTable, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_make_kind(MakeKind::PivotTable, window, cx);
+    }
+
+    fn open_make_kind(&mut self, kind: MakeKind, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let dialog = cx.new(|cx| MakeDialog::new(&root, kind, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    pub(super) fn open_route_search(&mut self, _: &OpenRouteSearch, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let dialog = cx.new(|cx| RouteSearchDialog::new(&root, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    pub(super) fn toggle_laravel_menu(&mut self, _: &ToggleLaravelMenu, _: &mut Window, cx: &mut Context<Self>) {
+        self.laravel_menu_open = !self.laravel_menu_open;
+        cx.notify();
     }
 
     pub(super) fn open_artisan(&mut self, _: &OpenArtisan, window: &mut Window, cx: &mut Context<Self>) {
@@ -45,6 +71,7 @@ impl Workspace {
             this.on_dialog_event(event, window, cx)
         }));
         self.modal = Some(AnyView::from(dialog));
+        self.laravel_menu_open = false;
         cx.notify();
     }
 
@@ -74,6 +101,19 @@ impl Workspace {
                     running: false,
                     ok: true,
                 });
+            }
+            DialogEvent::OpenMakeKind(kind) => self.open_make_kind(*kind, window, cx),
+            DialogEvent::OpenRoute(route) => {
+                let location = self.intel.route_location(route);
+                self.dismiss_modal(window, cx);
+                if let Some(location) = location {
+                    self.open_location(&location, None, window, cx);
+                }
+            }
+            DialogEvent::ConfigureArtisan(command) => {
+                let command = command.clone();
+                let dialog = cx.new(|cx| ArtisanRunDialog::new(command, window, cx));
+                self.show_modal(dialog, window, cx);
             }
             DialogEvent::RunArtisan(line) => {
                 self.dismiss_modal(window, cx);
@@ -164,13 +204,87 @@ impl Workspace {
             .child(div().px_1().child(SharedString::from(self.project.name())))
             .child(div().flex_1())
             .when(laravel, |d| {
-                d.child(tool("tool-make", "⚡ Laravel Make", "⌘N").on_click(cx.listener(|this, _, window, cx| {
-                    this.open_make(&OpenMake, window, cx)
-                })))
+                d.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(tool("tool-laravel", "◈ Laravel", "▾").on_click(cx.listener(|this, _, window, cx| {
+                            this.toggle_laravel_menu(&ToggleLaravelMenu, window, cx)
+                        })))
+                        .children(self.render_laravel_menu(cx)),
+                )
                 .child(tool("tool-artisan", "▶ Artisan", "⌃⇧X").on_click(cx.listener(|this, _, window, cx| {
                     this.open_artisan(&OpenArtisan, window, cx)
                 })))
             })
+    }
+
+    fn render_laravel_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        if !self.laravel_menu_open {
+            return None;
+        }
+        type Handler = fn(&mut Workspace, &mut Window, &mut Context<Workspace>);
+        let entries: &[Option<(&'static str, &'static str, Option<Handler>)>] = &[
+            Some(("Code Generation", "⇧⌘,", Some(|w, win, cx| w.open_make(&OpenMake, win, cx)))),
+            Some(("New Eloquent Model", "", Some(|w, win, cx| w.new_model(&NewModel, win, cx)))),
+            Some(("New Eloquent Model from Database Table", "soon", None)),
+            Some(("New Class", "", Some(|w, win, cx| w.open_make(&OpenMake, win, cx)))),
+            Some(("New Pivot Table", "", Some(|w, win, cx| w.new_pivot_table(&NewPivotTable, win, cx)))),
+            None,
+            Some(("Route Search", "⌃⇧R", Some(|w, win, cx| w.open_route_search(&OpenRouteSearch, win, cx)))),
+            None,
+            Some(("Run Artisan Command", "⌃⇧X", Some(|w, win, cx| w.open_artisan(&OpenArtisan, win, cx)))),
+            None,
+            Some(("Generate Helper Code", "soon", None)),
+            Some(("Find Unused Views", "soon", None)),
+            None,
+            Some(("Laravel Settings…", "soon", None)),
+        ];
+        let items = entries.iter().enumerate().map(|(ix, entry)| match entry {
+            None => div().my_1().h(px(1.)).bg(theme::border_strong()).into_any_element(),
+            Some((label, hint, handler)) => {
+                let enabled = handler.is_some();
+                let handler = *handler;
+                div()
+                    .id(("laravel-menu", ix))
+                    .flex()
+                    .justify_between()
+                    .gap_6()
+                    .px_3()
+                    .h(px(24.))
+                    .items_center()
+                    .when(enabled, |d| d.cursor_pointer().hover(|d| d.bg(theme::selection())))
+                    .when(!enabled, |d| d.text_color(theme::muted()))
+                    .child(*label)
+                    .child(div().text_color(theme::muted()).child(*hint))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.laravel_menu_open = false;
+                        if let Some(handler) = handler {
+                            handler(this, window, cx);
+                        }
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            }
+        });
+        Some(
+            gpui::deferred(
+                gpui::anchored().child(
+                    div()
+                        .occlude()
+                        .min_w(px(340.))
+                        .py_1()
+                        .bg(theme::panel_bg())
+                        .border_1()
+                        .border_color(theme::border_strong())
+                        .rounded_md()
+                        .shadow_lg()
+                        .text_size(px(13.))
+                        .children(items),
+                ),
+            )
+            .with_priority(1),
+        )
     }
 
     pub(super) fn render_output(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {

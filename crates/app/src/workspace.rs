@@ -15,7 +15,7 @@ use project::{Project, Row};
 use crate::editor_view::EditorView;
 use crate::intel::Intel;
 use php_index::Location;
-pub use tools::{OpenArtisan, OpenMake};
+pub use tools::{OpenArtisan, OpenMake, OpenRouteSearch};
 use crate::theme;
 
 actions!(workspace, [CloseTab, NextTab, PrevTab, NavigateBack]);
@@ -34,6 +34,7 @@ pub struct Workspace {
     modal_subscription: Option<gpui::Subscription>,
     output: Option<tools::Output>,
     artisan_commands: tools::CommandCache,
+    laravel_menu_open: bool,
 }
 
 impl Workspace {
@@ -53,6 +54,7 @@ impl Workspace {
             modal_subscription: None,
             output: None,
             artisan_commands: None,
+            laravel_menu_open: false,
             project,
             rows,
             tabs: Vec::new(),
@@ -351,6 +353,10 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::navigate_back))
             .on_action(cx.listener(Self::open_make))
             .on_action(cx.listener(Self::open_artisan))
+            .on_action(cx.listener(Self::open_route_search))
+            .on_action(cx.listener(Self::new_model))
+            .on_action(cx.listener(Self::new_pivot_table))
+            .on_action(cx.listener(Self::toggle_laravel_menu))
             .on_action(cx.listener(Self::close_output))
             .relative()
             .size_full()
