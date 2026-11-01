@@ -216,17 +216,34 @@ pub fn set(cx: &mut App) {
                 Some(("Rerun Failed Tests", "workspace::RerunFailedTests")),
             ],
         ),
-        menu(
-            cx,
-            "Tools",
-            &[
-                Some(("HTTP Client: New Request File", "workspace::NewHttpRequest")),
-                Some(("HTTP Client: Run Request", "workspace::RunHttpRequest")),
-                None,
-                Some(("Deployment: Upload to Server", "workspace::UploadToServer")),
-                Some(("Deployment: Download from Server", "workspace::DownloadFromServer")),
-            ],
-        ),
+        Menu {
+            name: "Tools".into(),
+            items: [
+                Some(MenuItem::submenu(menu(
+                    cx,
+                    "Composer",
+                    &[
+                        Some(("Install", "workspace::ComposerInstall")),
+                        Some(("Update", "workspace::ComposerUpdate")),
+                        Some(("Require…", "workspace::ComposerRequire")),
+                        Some(("Remove…", "workspace::ComposerRemove")),
+                        None,
+                        Some(("Dump Autoloader", "workspace::ComposerDumpAutoload")),
+                        Some(("Validate composer.json", "workspace::ComposerValidate")),
+                        Some(("Show Outdated Packages", "workspace::ComposerOutdated")),
+                    ],
+                ))),
+                Some(MenuItem::separator()),
+                item(cx, "HTTP Client: New Request File", "workspace::NewHttpRequest"),
+                item(cx, "HTTP Client: Run Request", "workspace::RunHttpRequest"),
+                Some(MenuItem::separator()),
+                item(cx, "Deployment: Upload to Server", "workspace::UploadToServer"),
+                item(cx, "Deployment: Download from Server", "workspace::DownloadFromServer"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+        },
         Menu {
             name: "Git".into(),
             items: [

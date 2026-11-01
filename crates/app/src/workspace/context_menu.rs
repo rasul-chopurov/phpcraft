@@ -290,6 +290,16 @@ impl Workspace {
                 trash::delete(path).map(|_| None).map_err(|e| e.to_string())
             }
             FileOp::RenameSymbol(symbol) => self.rename_symbol(symbol, name, cx),
+            FileOp::ComposerRequire | FileOp::ComposerRemove => {
+                let verb = if matches!(op, FileOp::ComposerRequire) { "require" } else { "remove" };
+                // Package names and constraints only: no shell syntax.
+                if name.chars().all(|c| c.is_alphanumeric() || "/-_.^~*@:<>=| ,".contains(c)) {
+                    self.run_composer(&format!("{verb} {name}"), cx);
+                    Ok(None)
+                } else {
+                    Err(format!("'{name}' is not a package name"))
+                }
+            }
         };
         match result {
             Ok(created) => {

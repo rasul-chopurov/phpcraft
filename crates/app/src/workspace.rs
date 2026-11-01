@@ -18,6 +18,7 @@ mod tabs;
 mod refactor;
 mod problems;
 mod tests_view;
+mod composer;
 pub use git_panel::ShowCommit;
 pub(crate) use db_panel::RunSql;
 
@@ -1022,6 +1023,13 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::inspect_code))
             .on_action(cx.listener(Self::show_test_results))
             .on_action(cx.listener(Self::rerun_failed_tests))
+            .on_action(cx.listener(Self::composer_install))
+            .on_action(cx.listener(Self::composer_update))
+            .on_action(cx.listener(Self::composer_require))
+            .on_action(cx.listener(Self::composer_remove))
+            .on_action(cx.listener(Self::composer_dump_autoload))
+            .on_action(cx.listener(Self::composer_validate))
+            .on_action(cx.listener(Self::composer_outdated))
             .on_action(cx.listener(Self::go_to_bookmark_0))
             .on_action(cx.listener(Self::go_to_bookmark_1))
             .on_action(cx.listener(Self::go_to_bookmark_2))
