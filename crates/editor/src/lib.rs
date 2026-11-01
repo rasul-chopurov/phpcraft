@@ -93,6 +93,15 @@ impl Buffer {
         self.path.as_deref()
     }
 
+    /// Follows a rename of the file (or of a folder containing it).
+    pub fn rename_path(&mut self, from: &Path, to: &Path) {
+        if let Some(path) = &self.path
+            && let Ok(rest) = path.strip_prefix(from)
+        {
+            self.path = Some(if rest.as_os_str().is_empty() { to.to_path_buf() } else { to.join(rest) });
+        }
+    }
+
     pub fn title(&self) -> String {
         self.path
             .as_ref()

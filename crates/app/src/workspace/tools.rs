@@ -498,8 +498,12 @@ impl Workspace {
         if self.on_run_dialog_event(event, window, cx) {
             return;
         }
+        if let Some((op, name)) = event.file_op() {
+            self.apply_file_op(op, &name, window, cx);
+            return;
+        }
         match event {
-            DialogEvent::Run { .. } | DialogEvent::EditRunConfigurations => {}
+            DialogEvent::Run { .. } | DialogEvent::EditRunConfigurations | DialogEvent::FileOp { .. } => {}
             DialogEvent::Dismiss => self.dismiss_modal(window, cx),
             DialogEvent::CommandsLoaded(list) => self.artisan_commands = Some(list.clone()),
             DialogEvent::Created(paths) => {
@@ -983,6 +987,8 @@ impl Workspace {
                 div()
                     .absolute()
                     .inset_0()
+                    // Keep scrolling and clicks from reaching the panels underneath.
+                    .occlude()
                     .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _, window, cx| this.dismiss_modal(window, cx)))
                     .child(
                         div()
@@ -1000,6 +1006,7 @@ impl Workspace {
                 .absolute()
                 .inset_0()
                 .bg(theme::overlay())
+                .occlude()
                 .flex()
                 .justify_center()
                 .items_start()

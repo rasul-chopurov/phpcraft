@@ -14,12 +14,6 @@ use crate::theme;
 
 actions!(workspace, [ShowProject, ShowCommit, ToggleGitLog, OpenBranches, CommitChanges, CommitAndPush, GitPull, GitPush]);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum LeftPanel {
-    Project,
-    Commit,
-}
-
 pub(super) struct GitState {
     pub status: Vec<git::FileStatus>,
     pub branch: Option<String>,
@@ -177,12 +171,14 @@ impl Workspace {
     }
 
     pub(super) fn show_project(&mut self, _: &ShowProject, _: &mut Window, cx: &mut Context<Self>) {
-        self.left_panel = LeftPanel::Project;
+        self.layout.show(super::layout::ToolWindow::Project);
+        self.layout.save();
         cx.notify();
     }
 
     pub(super) fn show_commit(&mut self, _: &ShowCommit, window: &mut Window, cx: &mut Context<Self>) {
-        self.left_panel = LeftPanel::Commit;
+        self.layout.show(super::layout::ToolWindow::Commit);
+        self.layout.save();
         self.refresh_git(cx);
         window.focus(&self.git.message.focus_handle(cx));
         cx.notify();
@@ -365,7 +361,7 @@ impl Workspace {
     }
 
     /// Diff of working-tree changes as an editor tab; ←/→ walks the other changed files.
-    fn show_file_diff(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn show_file_diff(&mut self, path: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(repo) = self.intel.repo().cloned() else { return };
         let files: Vec<crate::diff_view::DiffSource> = self
             .git
@@ -444,38 +440,6 @@ impl Workspace {
         };
         let dialog = cx.new(|cx| ConfirmDialog::new(message, GitCommand::Rollback(files), window, cx));
         self.show_modal(dialog, window, cx);
-    }
-
-    pub(super) fn render_left_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let tab = |id: &'static str, label: String, active: bool| {
-            div()
-                .id(id)
-                .px_2()
-                .h(px(22.))
-                .flex()
-                .items_center()
-                .rounded_md()
-                .cursor_pointer()
-                .text_size(px(11.))
-                .when(active, |d| d.bg(theme::hover()).text_color(theme::ui_text()))
-                .when(!active, |d| d.text_color(theme::muted()))
-                .hover(|d| d.bg(theme::hover()))
-                .child(label)
-        };
-        let changes = self.git.status.len();
-        div()
-            .flex()
-            .gap_1()
-            .px_2()
-            .h(px(32.))
-            .items_center()
-            .child(tab("left-project", "PROJECT".into(), self.left_panel == LeftPanel::Project).on_click(cx.listener(|this, _, w, cx| this.show_project(&ShowProject, w, cx))))
-            .when(self.intel.repo().is_some(), |d| {
-                d.child(
-                    tab("left-commit", if changes > 0 { format!("COMMIT · {changes}") } else { "COMMIT".into() }, self.left_panel == LeftPanel::Commit)
-                        .on_click(cx.listener(|this, _, w, cx| this.show_commit(&ShowCommit, w, cx))),
-                )
-            })
     }
 
     pub(super) fn render_commit_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {

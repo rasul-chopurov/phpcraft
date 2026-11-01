@@ -2,6 +2,8 @@
 
 mod git_panel;
 mod terminal_panel;
+mod layout;
+mod context_menu;
 mod agent_panel;
 mod git_window;
 pub use git_panel::ShowCommit;
@@ -49,7 +51,8 @@ pub struct Workspace {
     artisan_commands: tools::CommandCache,
     laravel_menu_open: bool,
     prefs_menu_open: bool,
-    left_panel: git_panel::LeftPanel,
+    layout: layout::Layout,
+    context_menu: Option<context_menu::ContextMenu>,
     /// The diff tab (one at a time, like PhpStorm's preview diff) and whether it is shown.
     diff: Option<Entity<crate::diff_view::DiffView>>,
     diff_active: bool,
@@ -87,7 +90,8 @@ impl Workspace {
         })
         .detach();
         Self {
-            left_panel: git_panel::LeftPanel::Project,
+            layout: layout::Layout::load(),
+            context_menu: None,
             diff: None,
             diff_active: false,
             _diff_subscription: None,
@@ -336,7 +340,7 @@ impl Workspace {
         }
     }
 
-    fn render_tree(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_project_tree(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let rows = self.rows.iter().enumerate().map(|(ix, row)| {
             let selected = self.selected_path.as_deref() == Some(row.entry.path.as_path());
             let (icon, icon_color) = file_icon(&row.entry.name, row.entry.is_dir, row.expanded);
@@ -370,24 +374,17 @@ impl Workspace {
                 .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
                     this.click_row(ix, event.click_count(), window, cx)
                 }))
+                .on_mouse_down(MouseButton::Right, {
+                    let path = row.entry.path.clone();
+                    let is_dir = row.entry.is_dir;
+                    cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                        this.selected_path = Some(path.clone());
+                        this.open_tree_menu(path.clone(), is_dir, event.position, cx);
+                    })
+                })
         });
         let rows: Vec<_> = rows.collect();
-        let commit = self.left_panel == git_panel::LeftPanel::Commit;
-        div()
-            .w(px(280.))
-            .h_full()
-            .flex_none()
-            .flex()
-            .flex_col()
-            .bg(theme::panel_bg())
-            .border_r_1()
-            .border_color(theme::border())
-            .text_size(px(13.))
-            .child(self.render_left_tabs(cx))
-            .when(commit, |d| d.child(self.render_commit_panel(cx)))
-            .when(!commit, |d| {
-                d.child(div().id("project-tree").flex_1().overflow_y_scroll().pb_2().children(rows))
-            })
+        div().id("project-tree").flex_1().overflow_y_scroll().pb_2().children(rows)
     }
 
     fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -435,6 +432,7 @@ impl Workspace {
                         .on_click(cx.listener(move |this, _, window, cx| this.close_tab_at(ix, window, cx))),
                 )
                 .on_click(cx.listener(move |this, _, window, cx| this.activate(ix, window, cx)))
+                .on_mouse_down(MouseButton::Right, cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| this.open_tab_menu(ix, event.position, cx)))
         });
         div()
             .id("tabs")
@@ -651,6 +649,7 @@ impl Render for Workspace {
             .on_modifiers_changed(cx.listener(Self::on_modifiers))
             .capture_key_down(cx.listener(|this, _: &gpui::KeyDownEvent, _, _| this.on_any_key()))
             .on_action(cx.listener(Self::close_output))
+            .on_drag_move(cx.listener(Self::on_resize))
             .relative()
             .size_full()
             .flex()
@@ -663,7 +662,8 @@ impl Render for Workspace {
                     .flex_1()
                     .flex()
                     .overflow_hidden()
-                    .child(self.render_tree(cx))
+                    .child(self.render_stripe(layout::Side::Left, cx))
+                    .children(self.render_side(layout::Side::Left, cx))
                     .child(
                         div()
                             .flex_1()
@@ -676,9 +676,11 @@ impl Render for Workspace {
                             .children(self.render_git_log(cx))
                             .children(self.render_terminal_panel(cx)),
                     )
-                    .children(self.render_agent_panel(cx)),
+                    .children(self.render_side(layout::Side::Right, cx))
+                    .child(self.render_stripe(layout::Side::Right, cx)),
             )
             .child(self.render_status(cx))
+            .children(self.render_context_menu(cx))
             .children(self.render_modal(cx))
     }
 }

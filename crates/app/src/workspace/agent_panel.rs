@@ -52,7 +52,7 @@ pub(super) struct AgentState {
     pub open: bool,
     session: Option<Backend>,
     items: Vec<ChatItem>,
-    input: Option<Entity<EditorView>>,
+    pub(super) input: Option<Entity<EditorView>>,
     key_field: Option<Entity<TextField>>,
     running: bool,
     _pump: Option<Task<()>>,
@@ -100,7 +100,14 @@ fn describe(name: &str, input: &Value) -> String {
 
 impl Workspace {
     pub(super) fn toggle_agent(&mut self, _: &ToggleAgent, window: &mut Window, cx: &mut Context<Self>) {
-        self.agent.open = !self.agent.open;
+        use super::layout::ToolWindow;
+        self.agent.open = !self.layout.is_active(ToolWindow::Ai);
+        if self.agent.open {
+            self.layout.show(ToolWindow::Ai);
+        } else {
+            self.layout.hide(ToolWindow::Ai);
+        }
+        self.layout.save();
         if self.agent.open {
             self.ensure_agent_input(cx);
             if let Some(input) = &self.agent.input {
@@ -112,7 +119,7 @@ impl Workspace {
         cx.notify();
     }
 
-    fn ensure_agent_input(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn ensure_agent_input(&mut self, cx: &mut Context<Self>) {
         if self.agent.input.is_none() {
             let intel = self.intel.clone();
             let workspace = cx.entity().downgrade();
@@ -446,12 +453,10 @@ impl Workspace {
         let running = self.agent.running;
         Some(
             div()
-                .w(px(400.))
-                .flex_none()
+                .flex_1()
+                .min_h(px(0.))
                 .flex()
                 .flex_col()
-                .border_l_1()
-                .border_color(theme::border_strong())
                 .bg(theme::editor_bg())
                 .text_size(px(13.))
                 .child(header)

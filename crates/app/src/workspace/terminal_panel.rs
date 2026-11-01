@@ -32,6 +32,11 @@ pub(super) struct TerminalState {
 impl Workspace {
     fn add_terminal(&mut self, run: Option<RunConfig>, cx: &mut Context<Self>) -> Option<Entity<TerminalView>> {
         let root = self.project.root().to_path_buf();
+        self.add_terminal_at(run, root, cx)
+    }
+
+    /// A shell (or run configuration) started in `root`.
+    pub(super) fn add_terminal_at(&mut self, run: Option<RunConfig>, root: std::path::PathBuf, cx: &mut Context<Self>) -> Option<Entity<TerminalView>> {
         let (command, title, env) = match &run {
             Some(config) => (
                 Some(run_configs::command(config, &root)),
@@ -296,7 +301,9 @@ impl Workspace {
                 .flex()
                 .flex_col()
                 .flex_none()
-                .h(px(300.))
+                .relative()
+                .h(px(self.layout.bottom_height))
+                .child(self.resize_handle(super::layout::Side::Bottom))
                 .border_t_1()
                 .border_color(theme::border_strong())
                 .text_size(px(12.))
