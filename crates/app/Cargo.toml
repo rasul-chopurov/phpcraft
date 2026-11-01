@@ -17,6 +17,7 @@ search.workspace = true
 git.workspace = true
 history.workspace = true
 terminal.workspace = true
+agent.workspace = true
 async-channel = "2.5.0"
 pulldown-cmark = { version = "0.13", default-features = false }
 serde_json = "1"

@@ -82,6 +82,15 @@
 - Run configurations in `.phpcraft/run.json` plus detected ones (artisan serve, tests, composer and npm scripts)
 - Run… (⌃⌥R), Rerun (⌃R), Stop (⌘F2), Run context (⌃⇧F10): the PHPUnit/Pest test under the caret, or the current script
 
+**AI Assistant** (⌘⌥I)
+- Chat with Claude over the Anthropic API (your key), or with OpenCode, Claude Code and Codex over ACP
+- Reads and searches the project, edits files and runs commands — edits and commands wait for your Allow
+- The open file and selection are sent as context; streamed Markdown replies
+
+**Welcome & Settings**
+- Welcome window: recent projects, Open, Clone Repository, New Laravel Project, Customize
+- Settings with a section tree and search; import settings and shortcuts from PhpStorm, VS Code and Zed
+
 **Settings Sync**
 - Settings, keymap and themes synced through a secret GitHub Gist using the GitHub CLI (`gh auth login`)
 

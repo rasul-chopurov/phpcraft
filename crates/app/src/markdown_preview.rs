@@ -300,6 +300,11 @@ fn render_block(block: &Block) -> AnyElement {
     }
 }
 
+/// Blocks laid out inline (chat messages), without the preview pane's scrolling and padding.
+pub fn render_inline(blocks: &[Block]) -> impl IntoElement + use<> {
+    div().flex().flex_col().gap_2().line_height(px(20.)).text_color(theme::text()).children(blocks.iter().map(render_block))
+}
+
 /// The preview pane for already parsed blocks.
 pub fn render(blocks: &[Block]) -> impl IntoElement + use<> {
     div()

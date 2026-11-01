@@ -2,6 +2,7 @@
 
 mod git_panel;
 mod terminal_panel;
+mod agent_panel;
 mod git_window;
 pub use git_panel::ShowCommit;
 pub use tools::{OpenKeymap, OpenLaravelSettings, SyncPull, SyncPush};
@@ -40,6 +41,7 @@ pub struct Workspace {
     /// Left offset of a title bar dropdown; `None` centres the modal.
     modal_anchor: Option<f32>,
     terminals: terminal_panel::TerminalState,
+    agent: agent_panel::AgentState,
     output: Option<tools::Output>,
     artisan_commands: tools::CommandCache,
     laravel_menu_open: bool,
@@ -100,6 +102,7 @@ impl Workspace {
             modal_subscription: None,
             modal_anchor: None,
             terminals: Default::default(),
+            agent: Default::default(),
             output: None,
             artisan_commands: None,
             laravel_menu_open: false,
@@ -589,6 +592,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_branches))
             .on_action(cx.listener(Self::open_projects))
             .on_action(cx.listener(Self::toggle_terminal))
+            .on_action(cx.listener(Self::toggle_agent))
+            .on_action(cx.listener(Self::new_agent_chat))
             .on_action(cx.listener(Self::new_terminal))
             .on_action(cx.listener(Self::close_terminal))
             .on_action(cx.listener(Self::run_popup))
@@ -636,7 +641,8 @@ impl Render for Workspace {
                             .children(self.render_output(cx))
                             .children(self.render_git_log(cx))
                             .children(self.render_terminal_panel(cx)),
-                    ),
+                    )
+                    .children(self.render_agent_panel(cx)),
             )
             .child(self.render_status(cx))
             .children(self.render_modal(cx))

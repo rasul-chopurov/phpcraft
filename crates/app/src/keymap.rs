@@ -151,6 +151,8 @@ const DEFAULTS: &[Default] = &[
     both("secondary-enter", "workspace::CommitChanges", None),
     both("alt-shift-h", "workspace::ShowLocalHistory", None),
     both("alt-f12", "workspace::ToggleTerminal", None),
+    per("cmd-alt-i", "ctrl-alt-i", "workspace::ToggleAgent", None),
+    both("secondary-enter", "workspace::SendAgentMessage", Some("AgentInput")),
     per("cmd-t", "ctrl-shift-t", "workspace::NewTerminal", Some("Terminal")),
     per("cmd-w", "ctrl-shift-w", "workspace::CloseTerminal", Some("Terminal")),
     per("ctrl-r", "shift-f10", "workspace::RunLast", None),

@@ -717,6 +717,9 @@ impl Workspace {
             })
             .child(div().flex_1())
             .child(self.render_run_widget(cx))
+            .child(
+                tool("tool-agent", "✦ AI", "").on_click(cx.listener(|this, _, window, cx| this.toggle_agent(&super::agent_panel::ToggleAgent, window, cx))),
+            )
             .when(laravel, |d| {
                 d.child(
                     div()
