@@ -139,6 +139,9 @@ pub fn detect(root: &Path) -> Vec<RunConfig> {
 }
 
 /// The program and arguments for a configuration.
+/// Where test runs write their JUnit report, relative to the project.
+pub const JUNIT_REPORT: &str = ".phpcraft/junit.xml";
+
 pub fn command(config: &RunConfig, root: &Path) -> terminal::Command {
     let php = php(root);
     let cmd = |program: &str, args: Vec<String>| terminal::Command { program: program.into(), args };
@@ -158,6 +161,9 @@ pub fn command(config: &RunConfig, root: &Path) -> terminal::Command {
             if !filter.is_empty() {
                 args.push(format!("--filter={filter}"));
             }
+            // A JUnit report for the results list (see `test_results`).
+            args.push("--log-junit".into());
+            args.push(JUNIT_REPORT.into());
             cmd(&php, args)
         }
         Kind::Composer { script } => cmd("composer", vec!["run-script".into(), script.clone()]),
@@ -218,7 +224,7 @@ pub fn for_context(root: &Path, file: &Path, text: &str, offset: usize) -> Optio
     None
 }
 
-fn regex_escape(s: &str) -> String {
+pub(crate) fn regex_escape(s: &str) -> String {
     s.chars().fold(String::new(), |mut out, c| {
         if "\\.^$|?*+()[]{}/'\"".contains(c) {
             out.push('\\');
@@ -260,7 +266,7 @@ mod tests {
 
         let all = detect(&root).into_iter().find(|c| c.name == "All tests").unwrap();
         let c = command(&all, &root);
-        assert_eq!((c.program.as_str(), c.args.clone()), ("php", vec!["artisan".to_string(), "test".to_string()]));
+        assert_eq!((c.program.as_str(), c.args.clone()), ("php", ["artisan", "test", "--log-junit", JUNIT_REPORT].map(String::from).to_vec()));
 
         save(&root, &RunConfig { name: "serve".into(), kind: Kind::Artisan { command: "serve --port=8080".into() }, env: BTreeMap::new() }).unwrap();
         let saved = load(&root);

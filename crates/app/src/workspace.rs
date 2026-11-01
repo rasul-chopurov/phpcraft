@@ -17,6 +17,7 @@ mod git_window;
 mod tabs;
 mod refactor;
 mod problems;
+mod tests_view;
 pub use git_panel::ShowCommit;
 pub(crate) use db_panel::RunSql;
 
@@ -81,6 +82,8 @@ pub struct Workspace {
     panes: Vec<Option<panes::Pane>>,
     /// Files of closed tabs, newest last (Reopen Closed Tab).
     closed_tabs: Vec<PathBuf>,
+    /// Results of the last test run (JUnit report).
+    test_results: Vec<crate::test_results::TestCase>,
     /// Pinned tabs (kept by Close Others / Close All but Pinned).
     pinned: std::collections::HashSet<PathBuf>,
     focused_pane: usize,
@@ -161,6 +164,7 @@ impl Workspace {
             laravel: Default::default(),
             panes: vec![None],
             closed_tabs: Vec::new(),
+            test_results: Vec::new(),
             pinned: Default::default(),
             focused_pane: 0,
             tables: Vec::new(),
@@ -1016,6 +1020,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::show_bookmarks))
             .on_action(cx.listener(Self::show_problems))
             .on_action(cx.listener(Self::inspect_code))
+            .on_action(cx.listener(Self::show_test_results))
+            .on_action(cx.listener(Self::rerun_failed_tests))
             .on_action(cx.listener(Self::go_to_bookmark_0))
             .on_action(cx.listener(Self::go_to_bookmark_1))
             .on_action(cx.listener(Self::go_to_bookmark_2))

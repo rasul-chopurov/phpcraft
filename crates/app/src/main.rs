@@ -23,6 +23,7 @@ mod quality;
 mod run_configs;
 mod settings_import;
 mod splash;
+mod test_results;
 mod structure;
 mod table_view;
 mod templates;

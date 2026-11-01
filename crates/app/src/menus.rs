@@ -211,6 +211,9 @@ pub fn set(cx: &mut App) {
                 Some(("Stop", "workspace::StopRun")),
                 None,
                 Some(("Edit Configurations…", "workspace::EditRunConfigurations")),
+                None,
+                Some(("Show Test Results", "workspace::ShowTestResults")),
+                Some(("Rerun Failed Tests", "workspace::RerunFailedTests")),
             ],
         ),
         menu(

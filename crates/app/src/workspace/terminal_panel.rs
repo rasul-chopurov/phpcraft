@@ -62,10 +62,19 @@ impl Workspace {
             }
         };
         let is_run = run.is_some();
+        let is_test = run.as_ref().is_some_and(|r| matches!(r.kind, run_configs::Kind::Test { .. }));
+        if is_test {
+            let report = root.join(run_configs::JUNIT_REPORT);
+            let _ = std::fs::create_dir_all(report.parent().unwrap_or(&root));
+            let _ = std::fs::remove_file(&report);
+        }
         let subscription = cx.subscribe(&view, move |this, _, event: &TerminalViewEvent, cx| {
             if matches!(event, TerminalViewEvent::Exited) && is_run {
                 // Generators, migrations and composer change files on disk.
                 this.rescan(cx);
+                if is_test {
+                    this.read_test_results(cx);
+                }
             }
             cx.notify();
         });
