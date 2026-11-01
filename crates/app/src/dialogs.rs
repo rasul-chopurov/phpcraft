@@ -2,6 +2,7 @@
 
 mod find_files;
 mod git;
+mod git_prompt;
 mod make;
 mod navigate;
 mod prefs;
@@ -23,6 +24,7 @@ use laravel::routes::RouteInfo;
 
 pub use find_files::FindInFilesDialog;
 pub use git::{BranchDialog, ConfirmDialog, GitCommand, LocalHistoryDialog};
+pub use git_prompt::{GitPrompt, GitPromptDialog};
 pub use make::{GeneratorDialog, MakeChooser, MakeDialog};
 pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
 pub use prefs::{KeymapDialog, SettingsDialog, ThemeDialog};

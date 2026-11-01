@@ -126,6 +126,12 @@ impl Repo {
         &self.root
     }
 
+    /// Any git command in the repository (the Git menu's simpler items).
+    pub fn run(&self, args: &[String]) -> Result<String, String> {
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.git(&args)
+    }
+
     fn git(&self, args: &[&str]) -> Result<String, String> {
         let output = Command::new("git")
             .args(args)

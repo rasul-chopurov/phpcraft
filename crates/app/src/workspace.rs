@@ -10,6 +10,7 @@ mod remote_panel;
 mod http_panel;
 mod sql_panel;
 mod tree_search;
+mod git_menu;
 mod laravel_panel;
 mod panes;
 mod git_window;
@@ -1023,7 +1024,27 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::run_sql))
             .on_action(cx.listener(Self::upload_to_server))
             .on_action(cx.listener(Self::run_http_request))
+            .on_action(cx.listener(Self::new_http_request))
             .on_action(cx.listener(Self::run_sql_file))
+            .on_action(cx.listener(Self::git_fetch))
+            .on_action(cx.listener(Self::git_merge))
+            .on_action(cx.listener(Self::git_rebase))
+            .on_action(cx.listener(Self::git_new_branch))
+            .on_action(cx.listener(Self::git_new_tag))
+            .on_action(cx.listener(Self::git_reset_head))
+            .on_action(cx.listener(Self::git_new_worktree))
+            .on_action(cx.listener(Self::git_worktrees))
+            .on_action(cx.listener(Self::git_stash))
+            .on_action(cx.listener(Self::git_unstash))
+            .on_action(cx.listener(Self::git_create_patch))
+            .on_action(cx.listener(Self::git_apply_patch))
+            .on_action(cx.listener(Self::git_manage_remotes))
+            .on_action(cx.listener(Self::git_add_remote))
+            .on_action(cx.listener(Self::git_open_on_github))
+            .on_action(cx.listener(Self::git_create_pull_request))
+            .on_action(cx.listener(Self::git_open_on_gitlab))
+            .on_action(cx.listener(Self::git_clone))
+            .on_action(cx.listener(Self::vcs_operations))
             .on_action(cx.listener(Self::download_from_server))
             .on_action(cx.listener(Self::new_agent_chat))
             .on_action(cx.listener(Self::new_terminal))

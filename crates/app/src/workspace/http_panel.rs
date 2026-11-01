@@ -9,13 +9,27 @@ use crate::http_client;
 use crate::icons::{Icon, icon};
 use crate::theme;
 
-actions!(workspace, [RunHttpRequest]);
+actions!(workspace, [RunHttpRequest, NewHttpRequest]);
 
 impl Workspace {
     /// The active tab's file when it's an `.http` file.
     fn active_http_file(&self, cx: &gpui::App) -> Option<std::path::PathBuf> {
         let path = self.tabs.get(self.active)?.read(cx).buffer.path()?.to_path_buf();
         http_client::is_http_file(&path).then_some(path)
+    }
+
+    /// Tools ▸ HTTP Client: a new `.http` file (in `http/`) from the template, opened.
+    pub(super) fn new_http_request(&mut self, _: &NewHttpRequest, window: &mut Window, cx: &mut Context<Self>) {
+        let dir = self.project.root().join("http");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = (1..).map(|n| dir.join(if n == 1 { "requests.http".to_string() } else { format!("requests-{n}.http") })).find(|p| !p.exists()).unwrap_or_else(|| dir.join("requests.http"));
+        if std::fs::write(&path, http_client::TEMPLATE).is_ok() {
+            if !dir.join("http-client.env.json").exists() {
+                let _ = std::fs::write(dir.join("http-client.env.json"), "{\n  \"local\": { \"host\": \"http://localhost:8000\" }\n}\n");
+            }
+            self.rows = self.project.rows();
+            self.open_file(&path, window, cx);
+        }
     }
 
     pub(super) fn run_http_request(&mut self, _: &RunHttpRequest, _: &mut Window, cx: &mut Context<Self>) {

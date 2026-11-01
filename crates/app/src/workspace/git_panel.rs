@@ -277,17 +277,22 @@ impl Workspace {
             GitCommand::Push => "Push".into(),
             GitCommand::Fetch => "Fetch".into(),
             GitCommand::Rollback(files) => format!("Rollback {} file(s)", files.len()),
+            GitCommand::Raw { title, .. } => title.clone(),
         };
+        let raw_changes = matches!(&command, GitCommand::Raw { changes_files: true, .. });
+        if raw_changes {
+            self.save_all(cx);
+        }
         // Switching branches rewrites files: save edits first.
         if matches!(command, GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::CreateBranch { .. } | GitCommand::Merge(_) | GitCommand::Pull) {
             self.save_all(cx);
         }
-        let rescan = matches!(command, GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::Merge(_) | GitCommand::Pull);
+        let rescan = raw_changes || matches!(command, GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::Merge(_) | GitCommand::Pull);
         // Snapshot what is about to be overwritten into Local History.
         let root = repo.root().to_path_buf();
         let at_risk: Vec<std::path::PathBuf> = match &command {
             GitCommand::Rollback(files) => files.iter().map(|f| root.join(&f.path)).collect(),
-            GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::Merge(_) | GitCommand::Pull | GitCommand::CreateBranch { .. } => self
+            GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::Merge(_) | GitCommand::Pull | GitCommand::CreateBranch { .. } | GitCommand::Raw { changes_files: true, .. } => self
                 .git
                 .status
                 .iter()
@@ -315,6 +320,7 @@ impl Workspace {
                         GitCommand::Push => repo.push(),
                         GitCommand::Fetch => repo.fetch(),
                         GitCommand::Rollback(files) => repo.discard(&files).map(|_| "Changes rolled back.".to_string()),
+                        GitCommand::Raw { args, .. } => repo.run(&args),
                     }
                 })
                 .await;

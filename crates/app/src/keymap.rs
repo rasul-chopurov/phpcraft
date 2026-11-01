@@ -176,6 +176,9 @@ const DEFAULTS: &[Default] = &[
     both("enter", "workspace::TreeOpen", Some("TreeSearch")),
     both("escape", "workspace::TreeCancel", Some("TreeSearch")),
     both("enter", "dialog::Confirm", Some("TerminalRename")),
+    // Git menu.
+    per("cmd-alt-n", "ctrl-alt-n", "workspace::GitNewBranch", None),
+    per("ctrl-v", "alt-`", "workspace::VcsOperations", Some("Workspace && !Terminal")),
     both("escape", "dialog::Cancel", Some("TerminalRename")),
     per("cmd-alt-shift-x", "ctrl-alt-shift-x", "workspace::UploadToServer", None),
     per("cmd-t", "ctrl-shift-t", "workspace::NewTerminal", Some("Terminal")),
