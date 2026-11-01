@@ -1,11 +1,11 @@
 //! Editor features backed by code intelligence: navigation, completion popup, quick-fixes.
 
-use php_analysis::{CompletionItem, CompletionKind};
-use php_index::{Location, short_name};
 use gpui::{
-    AnyElement, Context, MouseButton, MouseDownEvent, Point, Pixels, SharedString, Window, actions,
+    AnyElement, Context, MouseButton, MouseDownEvent, Pixels, Point, SharedString, Window, actions,
     anchored, deferred, div, prelude::*, px,
 };
+use php_analysis::{CompletionItem, CompletionKind};
+use php_index::{Location, short_name};
 
 use super::EditorView;
 use crate::theme;
@@ -72,7 +72,12 @@ impl EditorView {
 
     // --- navigation ----------------------------------------------------
 
-    pub(super) fn goto_offset(&mut self, offset: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn goto_offset(
+        &mut self,
+        offset: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(path) = self.path() else { return };
         let targets = self.intel.goto(&path, &self.buffer.text(), offset);
         match targets.len() {
@@ -109,12 +114,22 @@ impl EditorView {
         });
     }
 
-    pub(super) fn go_to_declaration(&mut self, _: &GoToDeclaration, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn go_to_declaration(
+        &mut self,
+        _: &GoToDeclaration,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.goto_offset(self.caret_byte(), window, cx);
     }
 
     /// ⌘+click: navigate instead of moving the caret.
-    pub(super) fn cmd_click(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    pub(super) fn cmd_click(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if !event.modifiers.platform {
             return false;
         }
@@ -125,10 +140,17 @@ impl EditorView {
         true
     }
 
-    pub(super) fn update_hover_link(&mut self, position: Point<Pixels>, cmd: bool, cx: &mut Context<Self>) {
+    pub(super) fn update_hover_link(
+        &mut self,
+        position: Point<Pixels>,
+        cmd: bool,
+        cx: &mut Context<Self>,
+    ) {
         let link = if cmd {
             let current = self.hover_link.clone();
-            let offset = self.char_for_position(position).map(|ix| self.buffer.char_to_byte(ix));
+            let offset = self
+                .char_for_position(position)
+                .map(|ix| self.buffer.char_to_byte(ix));
             match (offset, current) {
                 (Some(offset), Some(range)) if range.contains(&offset) => Some(range),
                 (Some(offset), _) => self
@@ -153,7 +175,12 @@ impl EditorView {
 
     // --- completion ----------------------------------------------------
 
-    pub(super) fn show_completions(&mut self, _: &ShowCompletions, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn show_completions(
+        &mut self,
+        _: &ShowCompletions,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.refresh_completion(true, cx);
     }
 
@@ -163,7 +190,9 @@ impl EditorView {
         if !self.buffer.is_php() {
             return;
         }
-        let items = self.intel.complete(&path, &self.buffer.text(), self.caret_byte());
+        let items = self
+            .intel
+            .complete(&path, &self.buffer.text(), self.caret_byte());
         if items.is_empty() && !explicit {
             self.menu = None;
             cx.notify();
@@ -188,9 +217,13 @@ impl EditorView {
 
     /// Opens completion automatically after typing identifier characters, `->`, `::` or `$`.
     pub(super) fn after_typing(&mut self, typed: &str, cx: &mut Context<Self>) {
-        let before = self.buffer.slice(self.buffer.selection.head.saturating_sub(2)..self.buffer.selection.head);
+        let before = self
+            .buffer
+            .slice(self.buffer.selection.head.saturating_sub(2)..self.buffer.selection.head);
         let trigger = typed.chars().count() == 1
-            && (typed.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$' || c == '\\')
+            && (typed
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '$' || c == '\\')
                 || before == "->"
                 || before == "::"
                 || (self.menu.is_some() && typed != " "));
@@ -219,11 +252,19 @@ impl EditorView {
 
     // --- quick fixes ---------------------------------------------------
 
-    pub(super) fn show_intentions(&mut self, _: &ShowIntentions, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn show_intentions(
+        &mut self,
+        _: &ShowIntentions,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let offset = self.caret_byte();
         let mut items = Vec::new();
         let unresolved = self.current_diagnostics().to_vec();
-        for problem in unresolved.iter().filter(|u| u.range.start <= offset && offset <= u.range.end) {
+        for problem in unresolved
+            .iter()
+            .filter(|u| u.range.start <= offset && offset <= u.range.end)
+        {
             for fqn in &problem.candidates {
                 items.push(MenuItem {
                     label: format!("Import class '{}'", short_name(fqn)).into(),
@@ -252,7 +293,12 @@ impl EditorView {
         self.show_menu(items, false, cx);
     }
 
-    pub(super) fn optimize_imports(&mut self, _: &OptimizeImports, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn optimize_imports(
+        &mut self,
+        _: &OptimizeImports,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.run_optimize_imports(cx);
     }
 
@@ -260,7 +306,8 @@ impl EditorView {
         let Some(path) = self.path() else { return };
         if let Some(edit) = self.intel.optimize_imports(&path, &self.buffer.text()) {
             let caret = self.caret_byte();
-            self.buffer.apply_edits(vec![(edit.range, edit.text)], caret);
+            self.buffer
+                .apply_edits(vec![(edit.range, edit.text)], caret);
             self.changed(cx);
         }
     }
@@ -269,7 +316,8 @@ impl EditorView {
         let Some(path) = self.path() else { return };
         if let Some(edit) = self.intel.import(&path, &self.buffer.text(), fqn) {
             let caret = self.caret_byte();
-            self.buffer.apply_edits(vec![(edit.range, edit.text)], caret);
+            self.buffer
+                .apply_edits(vec![(edit.range, edit.text)], caret);
             self.changed(cx);
         }
     }
@@ -280,11 +328,20 @@ impl EditorView {
         let stale = self.diagnostics.as_ref().is_none_or(|(v, _)| *v != version);
         if stale {
             let found = match self.path() {
-                Some(path) if self.buffer.is_php() => self.intel.unresolved(&path, &self.buffer.text()),
+                Some(path) if self.buffer.is_php() => {
+                    self.intel.unresolved(&path, &self.buffer.text())
+                }
                 _ => Vec::new(),
             };
             // Keep stale results until the index is ready, so nothing flickers.
-            self.diagnostics = Some((if self.intel.is_ready() { version } else { u64::MAX }, found));
+            self.diagnostics = Some((
+                if self.intel.is_ready() {
+                    version
+                } else {
+                    u64::MAX
+                },
+                found,
+            ));
         }
         &self.diagnostics.as_ref().unwrap().1
     }
@@ -331,14 +388,21 @@ impl EditorView {
         cx.notify();
     }
 
-    pub(super) fn menu_confirm(&mut self, _: &MenuConfirm, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn menu_confirm(
+        &mut self,
+        _: &MenuConfirm,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.confirm_item(None, window, cx);
     }
 
     fn confirm_item(&mut self, ix: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(menu) = self.menu.take() else { return };
         let ix = ix.unwrap_or(menu.selected);
-        let Some(item) = menu.items.into_iter().nth(ix) else { return };
+        let Some(item) = menu.items.into_iter().nth(ix) else {
+            return;
+        };
         match item.action {
             MenuAction::Complete(completion) => self.apply_completion(completion, cx),
             MenuAction::Navigate(location) => self.navigate(location, window, cx),
@@ -353,38 +417,47 @@ impl EditorView {
         let menu = self.menu.as_ref()?;
         let position = self.caret_point?;
         let first = menu.selected.saturating_sub(MENU_ROWS - 1);
-        let rows = menu.items.iter().enumerate().skip(first).take(MENU_ROWS).map(|(ix, item)| {
-            let selected = ix == menu.selected;
-            div()
-                .id(ix)
-                .flex()
-                .items_center()
-                .gap_2()
-                .px_2()
-                .h(px(22.))
-                .when(selected, |d| d.bg(theme::selection()))
-                .hover(|d| d.bg(theme::hover()))
-                .child(
-                    div()
-                        .w(px(16.))
-                        .text_color(theme::syntax(php_syntax::Highlight::Keyword))
-                        .child(item.icon),
-                )
-                .child(div().text_color(theme::text()).child(item.label.clone()))
-                .child(
-                    div()
-                        .flex_1()
-                        .ml_4()
-                        .text_right()
-                        .overflow_hidden()
-                        .text_color(theme::muted())
-                        .child(item.detail.clone()),
-                )
-                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, window, cx| {
-                    cx.stop_propagation();
-                    this.confirm_item(Some(ix), window, cx);
-                }))
-        });
+        let rows = menu
+            .items
+            .iter()
+            .enumerate()
+            .skip(first)
+            .take(MENU_ROWS)
+            .map(|(ix, item)| {
+                let selected = ix == menu.selected;
+                div()
+                    .id(ix)
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .h(px(22.))
+                    .when(selected, |d| d.bg(theme::selection()))
+                    .hover(|d| d.bg(theme::hover()))
+                    .child(
+                        div()
+                            .w(px(16.))
+                            .text_color(theme::syntax(php_syntax::Highlight::Keyword))
+                            .child(item.icon),
+                    )
+                    .child(div().text_color(theme::text()).child(item.label.clone()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .ml_4()
+                            .text_right()
+                            .overflow_hidden()
+                            .text_color(theme::muted())
+                            .child(item.detail.clone()),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.confirm_item(Some(ix), window, cx);
+                        }),
+                    )
+            });
         Some(
             deferred(
                 anchored().position(position).child(
@@ -399,7 +472,7 @@ impl EditorView {
                         .border_color(theme::border())
                         .rounded_md()
                         .shadow_lg()
-                        .font_family(theme::EDITOR_FONT)
+                        .font_family(theme::editor_font())
                         .text_size(px(13.))
                         .children(rows),
                 ),
@@ -411,5 +484,8 @@ impl EditorView {
 }
 
 fn relative(root: &std::path::Path, path: &std::path::Path) -> String {
-    path.strip_prefix(root).unwrap_or(path).display().to_string()
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }

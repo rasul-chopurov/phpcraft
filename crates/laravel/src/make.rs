@@ -1000,7 +1000,7 @@ mod tests {
         let files = maker.plan(MakeKind::Model, "Blog/Post", &maker.extras(MakeKind::Model), None);
         let rel: Vec<String> = files
             .iter()
-            .map(|f| f.path.strip_prefix(&root).unwrap().display().to_string())
+            .map(|f| f.path.strip_prefix(&root).unwrap().display().to_string().replace('\\', "/"))
             .map(|p| if p.starts_with("database/migrations/") { "database/migrations/*_create_posts_table.php".into() } else { p })
             .collect();
         assert_eq!(
@@ -1080,7 +1080,7 @@ mod tests {
         assert!(maker.kinds().contains(&MakeKind::FilamentResource));
 
         let files = maker.plan(MakeKind::Model, "Post", &[Extra::Factory, Extra::Controller], Some("Blog"));
-        let rel = |f: &PlannedFile| f.path.strip_prefix(&root).unwrap().display().to_string();
+        let rel = |f: &PlannedFile| f.path.strip_prefix(&root).unwrap().display().to_string().replace('\\', "/");
         assert_eq!(rel(&files[0]), "Modules/Blog/app/Models/Post.php");
         assert!(files[0].contents.contains("namespace Modules\\Blog\\Models;"));
         assert_eq!(rel(&files[1]), "Modules/Blog/database/factories/PostFactory.php");

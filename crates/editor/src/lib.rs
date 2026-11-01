@@ -417,6 +417,166 @@ impl Buffer {
             head: self.len_chars(),
         };
     }
+
+    // --- words and lines -------------------------------------------------
+
+    /// The identifier-like word around `ix` (PHP variables include `$`).
+    pub fn word_range_at(&self, ix: usize) -> Range<usize> {
+        let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+        let len = self.len_chars();
+        let mut start = ix.min(len);
+        while start > 0 && is_word(self.rope.char(start - 1)) {
+            start -= 1;
+        }
+        let mut end = ix.min(len);
+        while end < len && is_word(self.rope.char(end)) {
+            end += 1;
+        }
+        start..end
+    }
+
+    /// The whole line containing `ix`, including its line break.
+    pub fn line_range_at(&self, ix: usize) -> Range<usize> {
+        let line = self.rope.char_to_line(ix.min(self.len_chars()));
+        let start = self.rope.line_to_char(line);
+        start..start + self.rope.line(line).len_chars()
+    }
+
+    /// Lines touched by the selection (a selection ending at column 0 excludes that line).
+    fn selected_lines(&self) -> Range<usize> {
+        let range = self.selection.range();
+        let first = self.rope.char_to_line(range.start);
+        let mut last = self.rope.char_to_line(range.end);
+        if last > first && self.char_to_line_col(range.end).1 == 0 {
+            last -= 1;
+        }
+        first..last + 1
+    }
+
+    /// Toggles a line comment (`//`, `#`, `--`) or a wrapping comment (`<!-- -->`) on the
+    /// selected lines: comments them unless all non-blank lines are already commented.
+    pub fn toggle_comment(&mut self, prefix: &str, suffix: &str) {
+        let lines = self.selected_lines();
+        let texts: Vec<String> = lines.clone().map(|l| self.line(l)).collect();
+        let non_blank: Vec<&String> = texts.iter().filter(|t| !t.trim().is_empty()).collect();
+        if non_blank.is_empty() {
+            return;
+        }
+        let commented = non_blank.iter().all(|t| {
+            let t = t.trim();
+            t.starts_with(prefix.trim_end()) && (suffix.is_empty() || t.ends_with(suffix.trim_start()))
+        });
+        let indent = non_blank.iter().map(|t| t.len() - t.trim_start().len()).min().unwrap_or(0);
+        let mut edits = Vec::new();
+        for (offset, text) in texts.iter().enumerate() {
+            if text.trim().is_empty() {
+                continue;
+            }
+            let line_byte = self.line_to_byte(lines.start + offset);
+            let new = if commented {
+                let lead = text.len() - text.trim_start().len();
+                let body = &text[lead..];
+                let body = body.strip_prefix(prefix).or_else(|| body.strip_prefix(prefix.trim_end())).unwrap_or(body);
+                let body = if suffix.is_empty() {
+                    body
+                } else {
+                    body.strip_suffix(suffix).or_else(|| body.strip_suffix(suffix.trim_start())).unwrap_or(body)
+                };
+                format!("{}{body}", &text[..lead])
+            } else {
+                format!("{}{prefix}{}{suffix}", &text[..indent], &text[indent..])
+            };
+            edits.push((line_byte..line_byte + text.len(), new));
+        }
+        let selection = self.selection;
+        let caret = self.char_to_byte(selection.head);
+        self.apply_edits(edits, caret);
+        // Keep the same lines selected.
+        let start = self.line_to_char(lines.start);
+        let end_line = lines.end - 1;
+        let end = self.line_to_char(end_line) + self.line_len(end_line);
+        if !selection.is_empty() {
+            self.selection = Selection { anchor: start, head: end };
+        } else {
+            let (_, col) = self.char_to_line_col(selection.head);
+            let line_len = self.line_len(lines.start);
+            self.selection = Selection::caret(start + col.min(line_len));
+        }
+    }
+
+    /// Duplicates the selection, or the current line when nothing is selected.
+    pub fn duplicate(&mut self) {
+        if self.selection.is_empty() {
+            let line = self.char_to_line_col(self.selection.head).0;
+            let text = self.line(line);
+            let end = self.line_to_char(line) + self.line_len(line);
+            let col = self.selection.head - self.line_to_char(line);
+            self.replace(end..end, &format!("\n{text}"));
+            let start = self.line_to_char(line + 1);
+            self.move_to(start + col, false);
+        } else {
+            let range = self.selection.range();
+            let text = self.slice(range.clone());
+            self.replace(range.end..range.end, &text);
+            self.selection = Selection { anchor: range.end, head: range.end + text.chars().count() };
+        }
+    }
+
+    /// Deletes the selected lines (or the current line).
+    pub fn delete_lines(&mut self) {
+        let lines = self.selected_lines();
+        let start = self.line_to_char(lines.start);
+        let end = if lines.end < self.len_lines() { self.line_to_char(lines.end) } else { self.len_chars() };
+        // Deleting the last line also removes the break before it.
+        let start = if end == self.len_chars() && start > 0 && lines.end >= self.len_lines() { start - 1 } else { start };
+        self.replace(start..end, "");
+        let line = self.char_to_line_col(start.min(self.len_chars())).0;
+        let target = self.line_to_char(line);
+        self.move_to(target, false);
+    }
+
+    /// Moves the selected lines up (`-1`) or down (`1`).
+    pub fn move_lines(&mut self, delta: isize) {
+        let lines = self.selected_lines();
+        let total = self.len_lines();
+        if (delta < 0 && lines.start == 0) || (delta > 0 && lines.end >= total) {
+            return;
+        }
+        let block: Vec<String> = lines.clone().map(|l| self.line(l)).collect();
+        let other_line = if delta < 0 { lines.start - 1 } else { lines.end };
+        let other = self.line(other_line);
+        let first = lines.start.min(other_line);
+        let last = (lines.end - 1).max(other_line);
+        let start = self.line_to_char(first);
+        let end = self.line_to_char(last) + self.line_len(last);
+        let new = if delta < 0 {
+            format!("{}\n{other}", block.join("\n"))
+        } else {
+            format!("{other}\n{}", block.join("\n"))
+        };
+        let selection = self.selection;
+        let (head_line, head_col) = self.char_to_line_col(selection.head);
+        let (anchor_line, anchor_col) = self.char_to_line_col(selection.anchor);
+        self.replace(start..end, &new);
+        let shift = |line: usize| (line as isize + delta) as usize;
+        self.selection = Selection {
+            anchor: self.line_col_to_char(shift(anchor_line), anchor_col),
+            head: self.line_col_to_char(shift(head_line), head_col),
+        };
+    }
+}
+
+/// Line comment markers for a language: (prefix, suffix); suffix is empty for line comments.
+pub fn comment_tokens(lang: php_syntax::Lang) -> (&'static str, &'static str) {
+    use php_syntax::Lang;
+    match lang {
+        Lang::Blade => ("{{-- ", " --}}"),
+        Lang::Html | Lang::Xml | Lang::Markdown => ("<!-- ", " -->"),
+        Lang::Css => ("/* ", " */"),
+        Lang::Yaml | Lang::Env | Lang::Ini | Lang::Shell | Lang::Dockerfile | Lang::Ignore => ("# ", ""),
+        Lang::Sql => ("-- ", ""),
+        _ => ("// ", ""),
+    }
 }
 
 #[cfg(test)]
@@ -472,6 +632,42 @@ mod tests {
         assert_eq!(b.selection.head, b.len_chars());
         b.undo();
         assert_eq!(b.text(), src);
+    }
+
+    #[test]
+    fn comments_lines() {
+        let mut b = Buffer::new("<?php\n    $a = 1;\n\n    $b = 2;\n");
+        b.selection = Selection { anchor: 6, head: b.line_to_char(3) + 3 };
+        b.toggle_comment("// ", "");
+        assert_eq!(b.text(), "<?php\n    // $a = 1;\n\n    // $b = 2;\n");
+        b.toggle_comment("// ", "");
+        assert_eq!(b.text(), "<?php\n    $a = 1;\n\n    $b = 2;\n");
+        let mut html = Buffer::new("<div></div>");
+        html.toggle_comment("<!-- ", " -->");
+        assert_eq!(html.text(), "<!-- <div></div> -->");
+        html.toggle_comment("<!-- ", " -->");
+        assert_eq!(html.text(), "<div></div>");
+    }
+
+    #[test]
+    fn line_operations() {
+        let mut b = Buffer::new("one\ntwo\nthree");
+        b.move_to(5, false); // "two", column 1
+        b.duplicate();
+        assert_eq!(b.text(), "one\ntwo\ntwo\nthree");
+        assert_eq!(b.char_to_line_col(b.selection.head), (2, 1));
+        b.move_lines(1);
+        assert_eq!(b.text(), "one\ntwo\nthree\ntwo");
+        assert_eq!(b.char_to_line_col(b.selection.head), (3, 1));
+        b.move_lines(-1);
+        b.move_lines(-1);
+        assert_eq!(b.text(), "one\ntwo\ntwo\nthree");
+        b.delete_lines();
+        assert_eq!(b.text(), "one\ntwo\nthree");
+        assert_eq!(b.word_range_at(5), 4..7);
+        assert_eq!(b.line_range_at(5), 4..8);
+        b.undo();
+        assert_eq!(b.text(), "one\ntwo\ntwo\nthree");
     }
 
     #[test]

@@ -190,3 +190,25 @@ fn string_args_are_detected() {
     assert_eq!(arg.arg_index, 1);
     assert!(arg.is_method(&["view"]));
 }
+
+#[test]
+fn string_paths_resolve_to_files() {
+    let root = std::env::temp_dir().join(format!("phpcraft-paths-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("public")).unwrap();
+    std::fs::create_dir_all(root.join("bootstrap")).unwrap();
+    std::fs::create_dir_all(root.join("routes")).unwrap();
+    std::fs::write(root.join("bootstrap/app.php"), "<?php").unwrap();
+    std::fs::write(root.join("routes/web.php"), "<?php").unwrap();
+    let index_php = root.join("public/index.php");
+    let src = "<?php\n$app = require_once __DIR__.'/../bootstrap/app.php';\n$r = base_path('routes/web.php');\n$x = dirname(__DIR__) . '/routes/web.php';\n$n = 'not a path';\n";
+    let doc = Document::parse(&index_php, src).unwrap();
+    let helpers = [("base_path", root.clone())];
+    let at = |needle: &str| src.find(needle).unwrap() + 2;
+    let canon = |p: &str| std::fs::canonicalize(root.join(p)).unwrap();
+    assert_eq!(file_path_at(&doc, at("/../bootstrap"), &helpers, &[]), Some(canon("bootstrap/app.php")));
+    assert_eq!(file_path_at(&doc, at("routes/web.php')"), &helpers, &[]), Some(canon("routes/web.php")));
+    assert_eq!(file_path_at(&doc, at("/routes/web.php';"), &helpers, &[]), Some(canon("routes/web.php")));
+    assert_eq!(file_path_at(&doc, at("not a path"), &helpers, &[root.clone()]), None);
+    std::fs::remove_dir_all(&root).unwrap();
+}

@@ -3,11 +3,17 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use gpui::{App, Context, Entity, EventEmitter, FocusHandle, Focusable, SharedString, Subscription, Window, div, prelude::*, px};
+use gpui::{
+    App, Context, Entity, EventEmitter, FocusHandle, Focusable, SharedString, Subscription, Window,
+    div, prelude::*, px,
+};
 use php_index::Location;
 use search::{FileSearch, LineMatch, TextQuery};
 
-use super::{Cancel, Confirm, DialogEvent, FocusNext, FocusPrev, SelectNext, SelectPrev, button, card, checkbox};
+use super::{
+    Cancel, Confirm, DialogEvent, FocusNext, FocusPrev, SelectNext, SelectPrev, button, card,
+    checkbox,
+};
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
 
@@ -36,13 +42,23 @@ pub struct FindInFilesDialog {
 impl EventEmitter<DialogEvent> for FindInFilesDialog {}
 
 impl FindInFilesDialog {
-    pub fn new(root: &Path, replace: bool, seed: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        root: &Path,
+        replace: bool,
+        seed: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let query = cx.new(|cx| TextField::new("Text to find", cx));
         let replace = replace.then(|| cx.new(|cx| TextField::new("Replace with", cx)));
         let mask = cx.new(|cx| TextField::new("File mask, e.g. *.php, *.blade.php", cx));
         let subscriptions = [&query, &mask]
             .into_iter()
-            .map(|field| cx.subscribe(field, |this: &mut Self, _, _: &FieldEvent, cx| this.search(cx)))
+            .map(|field| {
+                cx.subscribe(field, |this: &mut Self, _, _: &FieldEvent, cx| {
+                    this.search(cx)
+                })
+            })
             .collect();
         window.focus(&query.focus_handle(cx));
         let dialog = Self {
@@ -96,7 +112,10 @@ impl FindInFilesDialog {
             return;
         }
         cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { search::search_files(&root, &query, &options) }).await;
+            let result = cx
+                .background_executor()
+                .spawn(async move { search::search_files(&root, &query, &options) })
+                .await;
             this.update(cx, |this, cx| {
                 if this.generation != generation {
                     return;
@@ -135,7 +154,10 @@ impl FindInFilesDialog {
     fn open(&mut self, ix: usize, cx: &mut Context<Self>) {
         if let Some(found) = self.results.get(ix) {
             let len = found.ranges.first().map_or(0, |r| r.len());
-            cx.emit(DialogEvent::OpenLocation(Location { path: found.path.clone(), range: found.offset..found.offset + len }));
+            cx.emit(DialogEvent::OpenLocation(Location {
+                path: found.path.clone(),
+                range: found.offset..found.offset + len,
+            }));
         }
     }
 
@@ -151,7 +173,10 @@ impl FindInFilesDialog {
         let mut fields = vec![self.query.clone()];
         fields.extend(self.replace.clone());
         fields.push(self.mask.clone());
-        let current = fields.iter().position(|f| f.focus_handle(cx).is_focused(window)).unwrap_or(0);
+        let current = fields
+            .iter()
+            .position(|f| f.focus_handle(cx).is_focused(window))
+            .unwrap_or(0);
         let next = (current as isize + delta).rem_euclid(fields.len() as isize) as usize;
         window.focus(&fields[next].focus_handle(cx));
     }
@@ -178,8 +203,19 @@ impl FindInFilesDialog {
         });
     }
 
-    fn render_row(&self, ix: usize, found: &LineMatch, selected: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let rel = found.path.strip_prefix(&self.root).unwrap_or(&found.path).display().to_string();
+    fn render_row(
+        &self,
+        ix: usize,
+        found: &LineMatch,
+        selected: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let rel = found
+            .path
+            .strip_prefix(&self.root)
+            .unwrap_or(&found.path)
+            .display()
+            .to_string();
         // Trim long leading whitespace and show the line with matches emphasized.
         let indent = found.text.len() - found.text.trim_start().len();
         let mut parts: Vec<gpui::AnyElement> = Vec::new();
@@ -188,7 +224,11 @@ impl FindInFilesDialog {
             if range.start < at {
                 continue;
             }
-            parts.push(div().child(SharedString::from(found.text[at..range.start].to_string())).into_any_element());
+            parts.push(
+                div()
+                    .child(SharedString::from(found.text[at..range.start].to_string()))
+                    .into_any_element(),
+            );
             parts.push(
                 div()
                     .bg(theme::find_match())
@@ -198,7 +238,11 @@ impl FindInFilesDialog {
             );
             at = range.end;
         }
-        parts.push(div().child(SharedString::from(found.text[at..].to_string())).into_any_element());
+        parts.push(
+            div()
+                .child(SharedString::from(found.text[at..].to_string()))
+                .into_any_element(),
+        );
         div()
             .id(("found", ix))
             .flex()
@@ -210,8 +254,21 @@ impl FindInFilesDialog {
             .cursor_pointer()
             .when(selected, |d| d.bg(theme::selection()))
             .hover(|d| d.bg(theme::hover()))
-            .child(div().flex().flex_1().overflow_hidden().whitespace_nowrap().text_color(theme::text()).children(parts))
-            .child(div().flex_none().text_color(theme::muted()).child(format!("{rel}:{}", found.line + 1)))
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_color(theme::text())
+                    .children(parts),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_color(theme::muted())
+                    .child(format!("{rel}:{}", found.line + 1)),
+            )
             .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
                 this.selected = ix;
                 if event.click_count() >= 2 {
@@ -239,8 +296,10 @@ impl Render for FindInFilesDialog {
                 .items_center()
                 .rounded_sm()
                 .cursor_pointer()
-                .font_family(theme::EDITOR_FONT)
-                .when(on, |d| d.bg(theme::selection()).text_color(theme::ui_text()))
+                .font_family(theme::editor_font())
+                .when(on, |d| {
+                    d.bg(theme::selection()).text_color(theme::ui_text())
+                })
                 .when(!on, |d| d.text_color(theme::muted()))
                 .hover(|d| d.bg(theme::hover()))
                 .child(label)
@@ -256,7 +315,11 @@ impl Render for FindInFilesDialog {
             (None, false) if self.query.read(cx).text().is_empty() => "".into(),
             (None, false) => format!(
                 "{}{} matches in {files} files",
-                if self.results.len() >= MAX_RESULTS { "first " } else { "" },
+                if self.results.len() >= MAX_RESULTS {
+                    "first "
+                } else {
+                    ""
+                },
                 self.results.len()
             )
             .into(),
@@ -271,7 +334,11 @@ impl Render for FindInFilesDialog {
             .take(VISIBLE_ROWS)
             .map(|(ix, found)| self.render_row(ix, found, ix == selected, cx))
             .collect();
-        let title = if self.replace.is_some() { "Replace in Files" } else { "Find in Files" };
+        let title = if self.replace.is_some() {
+            "Replace in Files"
+        } else {
+            "Find in Files"
+        };
         card(900.)
             .key_context("Dialog ArtisanDialog")
             .track_focus(&self.focus_handle)
@@ -295,7 +362,9 @@ impl Render for FindInFilesDialog {
                     .child(
                         checkbox("include-vendor", "Include vendor", self.include_vendor)
                             .text_size(px(12.))
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle(|d| d.include_vendor ^= true, cx))),
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle(|d| d.include_vendor ^= true, cx)
+                            })),
                     ),
             )
             .child(
@@ -311,9 +380,19 @@ impl Render for FindInFilesDialog {
                             .gap_2()
                             .text_size(px(12.))
                             .child(div().flex_1().child(self.query.clone()))
-                            .child(option("ff-case", "Cc", self.case_sensitive).on_click(cx.listener(|this, _, _, cx| this.toggle(|d| d.case_sensitive ^= true, cx))))
-                            .child(option("ff-word", "W", self.whole_word).on_click(cx.listener(|this, _, _, cx| this.toggle(|d| d.whole_word ^= true, cx))))
-                            .child(option("ff-regex", ".*", self.regex).on_click(cx.listener(|this, _, _, cx| this.toggle(|d| d.regex ^= true, cx))))
+                            .child(option("ff-case", "Cc", self.case_sensitive).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.toggle(|d| d.case_sensitive ^= true, cx)
+                                }),
+                            ))
+                            .child(
+                                option("ff-word", "W", self.whole_word).on_click(cx.listener(
+                                    |this, _, _, cx| this.toggle(|d| d.whole_word ^= true, cx),
+                                )),
+                            )
+                            .child(option("ff-regex", ".*", self.regex).on_click(
+                                cx.listener(|this, _, _, cx| this.toggle(|d| d.regex ^= true, cx)),
+                            ))
                             .child(div().w(px(220.)).child(self.mask.clone())),
                     )
                     .children(self.replace.clone().map(|replace| {
@@ -322,15 +401,29 @@ impl Render for FindInFilesDialog {
                             .items_center()
                             .gap_2()
                             .child(div().flex_1().child(replace))
-                            .child(button("replace-in-files", "Replace All", true).on_click(cx.listener(|this, _, _, cx| this.replace_all(cx))))
+                            .child(
+                                button("replace-in-files", "Replace All", true)
+                                    .on_click(cx.listener(|this, _, _, cx| this.replace_all(cx))),
+                            )
                     })),
             )
-            .child(div().px_3().pb_1().text_size(px(12.)).text_color(if self.error.is_some() { theme::error() } else { theme::muted() }).child(status))
+            .child(
+                div()
+                    .px_3()
+                    .pb_1()
+                    .text_size(px(12.))
+                    .text_color(if self.error.is_some() {
+                        theme::error()
+                    } else {
+                        theme::muted()
+                    })
+                    .child(status),
+            )
             .child(
                 div()
                     .min_h(px(VISIBLE_ROWS as f32 * 22.))
                     .pb_2()
-                    .font_family(theme::EDITOR_FONT)
+                    .font_family(theme::editor_font())
                     .text_size(px(12.))
                     .children(rows),
             )

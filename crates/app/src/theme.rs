@@ -1,93 +1,308 @@
-//! Darcula-like color palette.
+//! Themes: JSON files with UI and syntax colors. Built-ins ship with the app; user themes
+//! live in `<config dir>/phpcraft/themes/*.json` and use the same format.
 
-use gpui::{Hsla, rgb};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+
+use gpui::{App, Hsla, Rgba, SharedString};
 use php_syntax::Highlight;
+use serde::Deserialize;
 
-pub const EDITOR_FONT: &str = "Menlo";
-pub const UI_FONT: &str = ".SystemUIFont";
+use crate::config;
 
-pub fn editor_bg() -> Hsla {
-    rgb(0x2b2b2b).into()
+const BUILTIN: &[&str] = &[
+    include_str!("../assets/themes/phpcraft-dark.json"),
+    include_str!("../assets/themes/phpcraft-light.json"),
+    include_str!("../assets/themes/darcula.json"),
+];
+
+pub const DEFAULT_THEME: &str = "PhpCraft Dark";
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ThemeFile {
+    pub name: String,
+    #[serde(default)]
+    pub appearance: String,
+    #[serde(default)]
+    pub colors: HashMap<String, String>,
+    #[serde(default)]
+    pub syntax: HashMap<String, String>,
 }
-pub fn panel_bg() -> Hsla {
-    rgb(0x3c3f41).into()
+
+/// A theme with every color resolved (missing keys fall back to the default theme).
+pub struct Theme {
+    pub name: String,
+    colors: HashMap<String, Hsla>,
+    syntax: HashMap<String, Hsla>,
 }
-pub fn border() -> Hsla {
-    rgb(0x323232).into()
+
+struct Fonts {
+    editor: SharedString,
+    ui: SharedString,
 }
-pub fn gutter_bg() -> Hsla {
-    rgb(0x313335).into()
+
+static CURRENT: RwLock<Option<Arc<Theme>>> = RwLock::new(None);
+static FONTS: RwLock<Option<Fonts>> = RwLock::new(None);
+
+fn parse_hex(hex: &str) -> Option<Hsla> {
+    let hex = hex.trim().trim_start_matches('#');
+    let value = u32::from_str_radix(hex, 16).ok()?;
+    let rgba = match hex.len() {
+        6 => Rgba {
+            r: ((value >> 16) & 0xff) as f32 / 255.,
+            g: ((value >> 8) & 0xff) as f32 / 255.,
+            b: (value & 0xff) as f32 / 255.,
+            a: 1.,
+        },
+        8 => Rgba {
+            r: ((value >> 24) & 0xff) as f32 / 255.,
+            g: ((value >> 16) & 0xff) as f32 / 255.,
+            b: ((value >> 8) & 0xff) as f32 / 255.,
+            a: (value & 0xff) as f32 / 255.,
+        },
+        _ => return None,
+    };
+    Some(rgba.into())
 }
-pub fn line_number() -> Hsla {
-    rgb(0x606366).into()
+
+fn resolve(file: &ThemeFile, base: Option<&Theme>) -> Theme {
+    let mut colors: HashMap<String, Hsla> = base.map(|b| b.colors.clone()).unwrap_or_default();
+    let mut syntax: HashMap<String, Hsla> = base.map(|b| b.syntax.clone()).unwrap_or_default();
+    colors.extend(
+        file.colors
+            .iter()
+            .filter_map(|(k, v)| Some((k.clone(), parse_hex(v)?))),
+    );
+    syntax.extend(
+        file.syntax
+            .iter()
+            .filter_map(|(k, v)| Some((k.clone(), parse_hex(v)?))),
+    );
+    Theme {
+        name: file.name.clone(),
+        colors,
+        syntax,
+    }
 }
-pub fn current_line() -> Hsla {
-    rgb(0x323232).into()
+
+fn builtin_files() -> Vec<ThemeFile> {
+    BUILTIN
+        .iter()
+        .filter_map(|json| serde_json::from_str(json).ok())
+        .collect()
 }
-pub fn selection() -> Hsla {
-    rgb(0x214283).into()
+
+fn user_files() -> Vec<ThemeFile> {
+    let Ok(entries) = std::fs::read_dir(config::dir().join("themes")) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| serde_json::from_str(&std::fs::read_to_string(e.path()).ok()?).ok())
+        .collect()
 }
-pub fn caret() -> Hsla {
-    rgb(0xbbbbbb).into()
+
+/// Built-in themes first, then user themes (a user theme may shadow a built-in by name).
+pub fn available() -> Vec<ThemeFile> {
+    let mut themes = builtin_files();
+    for theme in user_files() {
+        themes.retain(|t| t.name != theme.name);
+        themes.push(theme);
+    }
+    themes
 }
-pub fn text() -> Hsla {
-    rgb(0xa9b7c6).into()
+
+/// Activates a theme by name (unknown names fall back to the default) and remembers it.
+pub fn set(name: &str, cx: &mut App) {
+    let files = available();
+    let default = files
+        .iter()
+        .find(|t| t.name == DEFAULT_THEME)
+        .map(|f| resolve(f, None));
+    let chosen = files
+        .iter()
+        .find(|t| t.name == name)
+        .or_else(|| files.iter().find(|t| t.name == DEFAULT_THEME));
+    if let Some(file) = chosen {
+        let theme = resolve(file, default.as_ref());
+        *CURRENT.write().unwrap() = Some(Arc::new(theme));
+    }
+    let mut settings = config::Settings::load();
+    settings.theme = name.to_string();
+    settings.save();
+    cx.refresh_windows();
 }
-pub fn ui_text() -> Hsla {
-    rgb(0xbbbbbb).into()
+
+/// First installed font from `candidates`, else the last one.
+fn pick_font(cx: &App, candidates: &[&str]) -> SharedString {
+    let installed = cx.text_system().all_font_names();
+    candidates
+        .iter()
+        .find(|c| c.starts_with('.') || installed.iter().any(|f| f.eq_ignore_ascii_case(c)))
+        .or(candidates.last())
+        .map(|c| SharedString::from(c.to_string()))
+        .unwrap_or_default()
 }
-pub fn muted() -> Hsla {
-    rgb(0x808080).into()
+
+/// Loads fonts and the saved theme. Call once at startup.
+pub fn init(cx: &mut App) {
+    let settings = config::Settings::load();
+    let editor = pick_font(
+        cx,
+        &[
+            &settings.editor_font,
+            "JetBrains Mono",
+            "Menlo",
+            "SF Mono",
+            "Consolas",
+            "Cascadia Mono",
+            "DejaVu Sans Mono",
+            "Liberation Mono",
+            "monospace",
+        ],
+    );
+    let ui = if cfg!(target_os = "macos") {
+        SharedString::from(".SystemUIFont")
+    } else {
+        pick_font(
+            cx,
+            &[
+                "Segoe UI",
+                "Inter",
+                "Ubuntu",
+                "Noto Sans",
+                "Cantarell",
+                "DejaVu Sans",
+                "sans-serif",
+            ],
+        )
+    };
+    *FONTS.write().unwrap() = Some(Fonts { editor, ui });
+    set(&settings.theme, cx);
 }
-pub fn hover() -> Hsla {
-    rgb(0x4b4d4f).into()
+
+pub fn current_name() -> String {
+    CURRENT
+        .read()
+        .unwrap()
+        .as_ref()
+        .map(|t| t.name.clone())
+        .unwrap_or_else(|| DEFAULT_THEME.into())
 }
-pub fn active_row() -> Hsla {
-    rgb(0x0d293e).into()
+
+pub fn editor_font() -> SharedString {
+    FONTS
+        .read()
+        .unwrap()
+        .as_ref()
+        .map(|f| f.editor.clone())
+        .unwrap_or_else(|| "Menlo".into())
 }
-pub fn tab_active() -> Hsla {
-    rgb(0x4e5254).into()
+
+pub fn ui_font() -> SharedString {
+    FONTS
+        .read()
+        .unwrap()
+        .as_ref()
+        .map(|f| f.ui.clone())
+        .unwrap_or_else(|| ".SystemUIFont".into())
 }
-pub fn border_strong() -> Hsla {
-    rgb(0x5e6060).into()
+
+fn color(key: &str) -> Hsla {
+    CURRENT
+        .read()
+        .unwrap()
+        .as_ref()
+        .and_then(|t| t.colors.get(key).copied())
+        .unwrap_or_else(|| gpui::hsla(0., 0., 0.5, 1.))
 }
-pub fn success() -> Hsla {
-    rgb(0x499c54).into()
+
+macro_rules! colors {
+    ($($name:ident),* $(,)?) => {
+        $(pub fn $name() -> Hsla { color(stringify!($name)) })*
+    };
 }
-pub fn overlay() -> Hsla {
-    gpui::hsla(0., 0., 0., 0.45)
-}
-pub fn find_match() -> Hsla {
-    rgb(0x32593d).into()
-}
-pub fn find_current() -> Hsla {
-    rgb(0x4c7a4d).into()
-}
-pub fn error() -> Hsla {
-    rgb(0xbc3f3c).into()
-}
-pub fn link() -> Hsla {
-    rgb(0x589df6).into()
-}
-pub fn accent() -> Hsla {
-    rgb(0x4a88c7).into()
-}
+
+colors!(
+    editor_bg,
+    panel_bg,
+    border,
+    border_strong,
+    gutter_bg,
+    line_number,
+    current_line,
+    selection,
+    caret,
+    text,
+    ui_text,
+    muted,
+    hover,
+    active_row,
+    tab_active,
+    success,
+    overlay,
+    find_match,
+    find_current,
+    error,
+    link,
+    accent,
+);
 
 pub fn syntax(highlight: Highlight) -> Hsla {
-    let color = match highlight {
-        Highlight::Keyword => 0xcc7832,
-        Highlight::String => 0x6a8759,
-        Highlight::Comment => 0x808080,
-        Highlight::Number => 0x6897bb,
-        Highlight::Function | Highlight::Method => 0xffc66d,
-        Highlight::Type | Highlight::Namespace => 0xa9b7c6,
-        Highlight::Variable | Highlight::Property | Highlight::Constant => 0x9876aa,
-        Highlight::Operator => 0xa9b7c6,
-        Highlight::Tag => 0xe8bf6a,
-        Highlight::Attribute => 0xbababa,
-        Highlight::Error => 0xff6b68,
-        Highlight::Warning => 0xe0b55b,
-        Highlight::Info => 0x6a9fb5,
+    let key = match highlight {
+        Highlight::Keyword => "keyword",
+        Highlight::String => "string",
+        Highlight::Comment => "comment",
+        Highlight::Number => "number",
+        Highlight::Function => "function",
+        Highlight::Method => "method",
+        Highlight::Type => "type",
+        Highlight::Variable => "variable",
+        Highlight::Property => "property",
+        Highlight::Constant => "constant",
+        Highlight::Operator => "operator",
+        Highlight::Tag => "tag",
+        Highlight::Attribute => "attribute",
+        Highlight::Namespace => "namespace",
+        Highlight::Error => "error",
+        Highlight::Warning => "warning",
+        Highlight::Info => "info",
     };
-    rgb(color).into()
+    CURRENT
+        .read()
+        .unwrap()
+        .as_ref()
+        .and_then(|t| t.syntax.get(key).copied())
+        .unwrap_or_else(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtins_parse_and_resolve() {
+        let files = builtin_files();
+        assert_eq!(files.len(), BUILTIN.len());
+        let dark = files.iter().find(|t| t.name == DEFAULT_THEME).unwrap();
+        let base = resolve(dark, None);
+        for key in [
+            "editor_bg",
+            "panel_bg",
+            "text",
+            "accent",
+            "overlay",
+            "selection",
+        ] {
+            assert!(base.colors.contains_key(key), "{key}");
+        }
+        // A partial user theme inherits the rest from the default.
+        let partial: ThemeFile =
+            serde_json::from_str(r##"{"name":"Mine","colors":{"accent":"#ff0000"}}"##).unwrap();
+        let mine = resolve(&partial, Some(&base));
+        assert_eq!(mine.colors["accent"], parse_hex("#ff0000").unwrap());
+        assert_eq!(mine.colors["editor_bg"], base.colors["editor_bg"]);
+        assert!(parse_hex("#0000008c").unwrap().a < 0.6);
+    }
 }

@@ -10,12 +10,23 @@ use php_index::Location;
 
 use super::Workspace;
 use super::tools::{NewModel, OpenArtisan, OpenMake, OpenRouteSearch};
-use crate::dialogs::{FindInFilesDialog, GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
+use crate::dialogs::{
+    FindInFilesDialog, GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog,
+};
 use crate::editor_view::{OptimizeImports, ShowFind, ShowReplace};
 
 actions!(
     workspace,
-    [FindInFiles, ReplaceInFiles, SearchEverywhere, GoToFile, GoToClass, GoToSymbol, RecentFiles, GoToLine]
+    [
+        FindInFiles,
+        ReplaceInFiles,
+        SearchEverywhere,
+        GoToFile,
+        GoToClass,
+        GoToSymbol,
+        RecentFiles,
+        GoToLine
+    ]
 );
 
 const DOUBLE_SHIFT: Duration = Duration::from_millis(350);
@@ -33,11 +44,21 @@ impl Workspace {
         (!text.is_empty() && !text.contains('\n')).then_some(text)
     }
 
-    pub(super) fn find_in_files(&mut self, _: &FindInFiles, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn find_in_files(
+        &mut self,
+        _: &FindInFiles,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_find_in_files(false, window, cx);
     }
 
-    pub(super) fn replace_in_files(&mut self, _: &ReplaceInFiles, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn replace_in_files(
+        &mut self,
+        _: &ReplaceInFiles,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_find_in_files(true, window, cx);
     }
 
@@ -70,6 +91,29 @@ impl Workspace {
             action("New Eloquent Model", "", Box::new(NewModel)),
             action("Route Search", "⌃⇧R", Box::new(OpenRouteSearch)),
             action("Run Artisan Command", "⌃⇧X", Box::new(OpenArtisan)),
+            action("Settings", "⌘,", Box::new(super::tools::OpenSettings)),
+            action("Keymap", "⌘K ⌘S", Box::new(super::tools::OpenKeymap)),
+            action("Select Theme", "⌘K ⌘T", Box::new(super::tools::OpenThemes)),
+            action(
+                "Generate Helper Code",
+                "⇧⌘.",
+                Box::new(super::tools::GenerateHelperCode),
+            ),
+            action(
+                "Find Unused Views",
+                "",
+                Box::new(super::tools::FindUnusedViews),
+            ),
+            action(
+                "New Eloquent Model from Database Table",
+                "",
+                Box::new(super::tools::ModelFromTable),
+            ),
+            action(
+                "Laravel Settings",
+                "",
+                Box::new(super::tools::OpenLaravelSettings),
+            ),
         ]
     }
 
@@ -101,10 +145,20 @@ impl Workspace {
             .recent
             .iter()
             .map(|path| NavItem {
-                label: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
-                detail: path.strip_prefix(root).unwrap_or(path).display().to_string(),
+                label: path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                detail: path
+                    .strip_prefix(root)
+                    .unwrap_or(path)
+                    .display()
+                    .to_string(),
                 icon: "▤",
-                target: NavTarget::Location(Location { path: path.clone(), range: 0..0 }),
+                target: NavTarget::Location(Location {
+                    path: path.clone(),
+                    range: 0..0,
+                }),
             })
             .collect();
         NavSources {
@@ -116,14 +170,24 @@ impl Workspace {
         }
     }
 
-    pub(super) fn open_navigate(&mut self, mode: NavMode, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn open_navigate(
+        &mut self,
+        mode: NavMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let root = self.project.root().to_path_buf();
         let sources = self.nav_sources();
         let dialog = cx.new(|cx| NavigateDialog::new(&root, mode, sources, window, cx));
         self.show_modal(dialog, window, cx);
     }
 
-    pub(super) fn search_everywhere(&mut self, _: &SearchEverywhere, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn search_everywhere(
+        &mut self,
+        _: &SearchEverywhere,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_navigate(NavMode::All, window, cx);
     }
 
@@ -131,20 +195,37 @@ impl Workspace {
         self.open_navigate(NavMode::Files, window, cx);
     }
 
-    pub(super) fn go_to_class(&mut self, _: &GoToClass, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn go_to_class(
+        &mut self,
+        _: &GoToClass,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_navigate(NavMode::Classes, window, cx);
     }
 
-    pub(super) fn go_to_symbol(&mut self, _: &GoToSymbol, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn go_to_symbol(
+        &mut self,
+        _: &GoToSymbol,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_navigate(NavMode::Symbols, window, cx);
     }
 
-    pub(super) fn recent_files(&mut self, _: &RecentFiles, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn recent_files(
+        &mut self,
+        _: &RecentFiles,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_navigate(NavMode::Recent, window, cx);
     }
 
     pub(super) fn go_to_line(&mut self, _: &GoToLine, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(tab) = self.tabs.get(self.active) else { return };
+        let Some(tab) = self.tabs.get(self.active) else {
+            return;
+        };
         let buffer = &tab.read(cx).buffer;
         let current = buffer.char_to_line_col(buffer.selection.head);
         let dialog = cx.new(|cx| GoToLineDialog::new(current, window, cx));
@@ -161,7 +242,14 @@ impl Workspace {
     }
 
     /// Runs Replace in Files off the UI thread, then reloads affected tabs without edits.
-    pub(super) fn run_replace_in_files(&mut self, query: search::TextQuery, replacement: String, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+    pub(super) fn run_replace_in_files(
+        &mut self,
+        query: search::TextQuery,
+        replacement: String,
+        paths: Vec<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        let task = self.begin_task("Replacing in files…", cx);
         cx.spawn(async move |this, cx| {
             let changed = paths.clone();
             let result = cx
@@ -169,8 +257,11 @@ impl Workspace {
                 .spawn(async move { search::replace_in_files(&paths, &query, &replacement) })
                 .await;
             this.update(cx, |this, cx| {
+                this.end_task(task, cx);
                 let text = match result {
-                    Ok((files, count)) => format!("Replaced {count} occurrence(s) in {files} file(s)."),
+                    Ok((files, count)) => {
+                        format!("Replaced {count} occurrence(s) in {files} file(s).")
+                    }
                     Err(err) => format!("Replace failed: {err}"),
                 };
                 for path in &changed {
@@ -179,7 +270,12 @@ impl Workspace {
                     }
                 }
                 this.reload_clean_tabs(&changed, cx);
-                this.output = Some(super::tools::Output { title: "Replace in Files".into(), text, running: false, ok: true });
+                this.output = Some(super::tools::Output {
+                    title: "Replace in Files".into(),
+                    text,
+                    running: false,
+                    ok: true,
+                });
                 cx.notify();
             })
             .ok();
@@ -201,7 +297,12 @@ impl Workspace {
     }
 
     /// ⇧⇧: two taps of Shift alone in quick succession.
-    pub(super) fn on_modifiers(&mut self, event: &ModifiersChangedEvent, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn on_modifiers(
+        &mut self,
+        event: &ModifiersChangedEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let m = event.modifiers;
         let others = m.control || m.alt || m.platform || m.function;
         if m.shift && !others {
@@ -210,7 +311,11 @@ impl Workspace {
         }
         if !m.shift && !others && std::mem::take(&mut self.shift_clean) {
             let now = Instant::now();
-            if self.last_shift_tap.is_some_and(|t| now.duration_since(t) < DOUBLE_SHIFT) && self.modal.is_none() {
+            if self
+                .last_shift_tap
+                .is_some_and(|t| now.duration_since(t) < DOUBLE_SHIFT)
+                && self.modal.is_none()
+            {
                 self.last_shift_tap = None;
                 self.search_everywhere(&SearchEverywhere, window, cx);
             } else {

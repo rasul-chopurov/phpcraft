@@ -6,19 +6,17 @@ mod tools;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use editor::Buffer;
 use gpui::{
     Context, Entity, FocusHandle, Focusable, MouseButton, SharedString, Window, actions, div,
     prelude::*, px,
 };
-use editor::Buffer;
 use project::{Project, Row};
 
 use crate::editor_view::EditorView;
 use crate::intel::Intel;
-use php_index::Location;
-pub use navigation::{FindInFiles, GoToClass, GoToFile, GoToLine, GoToSymbol, RecentFiles, ReplaceInFiles, SearchEverywhere};
-pub use tools::{GenerateHelperCode, OpenArtisan, OpenMake, OpenRouteSearch};
 use crate::theme;
+use php_index::Location;
 
 actions!(workspace, [CloseTab, NextTab, PrevTab, NavigateBack]);
 
@@ -37,6 +35,10 @@ pub struct Workspace {
     output: Option<tools::Output>,
     artisan_commands: tools::CommandCache,
     laravel_menu_open: bool,
+    prefs_menu_open: bool,
+    /// Running background work shown in the status bar: (id, label).
+    tasks: Vec<(u64, String)>,
+    next_task: u64,
     recent: Vec<PathBuf>,
     files_cache: Option<Arc<Vec<crate::dialogs::NavItem>>>,
     shift_clean: bool,
@@ -44,16 +46,29 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn new(project: Project, cx: &mut Context<Self>) -> Self {
+    pub fn new(project: Project, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let rows = project.rows();
         let intel = Intel::new(project.root());
         let scanning = intel.clone();
         cx.spawn(async move |this, cx| {
-            cx.background_executor().spawn(async move { scanning.scan() }).await;
-            this.update(cx, |_, cx| cx.notify()).ok();
+            cx.background_executor()
+                .spawn(async move { scanning.scan() })
+                .await;
+            this.update(cx, |this, cx| this.end_task(0, cx)).ok();
+        })
+        .detach();
+        // Save everything when the window loses focus (PhpStorm's "save on frame deactivation").
+        cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active()
+                && crate::config::Settings::load_cached().auto_save != crate::config::AutoSave::Off
+            {
+                this.save_all(cx);
+            }
         })
         .detach();
         Self {
+            tasks: vec![(0, "Indexing…".into())],
+            next_task: 1,
             intel,
             history: Vec::new(),
             modal: None,
@@ -61,6 +76,7 @@ impl Workspace {
             output: None,
             artisan_commands: None,
             laravel_menu_open: false,
+            prefs_menu_open: false,
             recent: Vec::new(),
             files_cache: None,
             shift_clean: false,
@@ -78,14 +94,16 @@ impl Workspace {
         format!("{} – PhpCraft", self.project.name())
     }
 
-    fn click_row(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+    fn click_row(&mut self, ix: usize, clicks: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(row) = self.rows.get(ix) else { return };
         let path = row.entry.path.clone();
         self.selected_path = Some(path.clone());
         if row.entry.is_dir {
-            self.project.toggle(&path);
-            self.rows = self.project.rows();
-        } else {
+            if clicks == 1 {
+                self.project.toggle(&path);
+                self.rows = self.project.rows();
+            }
+        } else if clicks >= 2 || crate::config::Settings::load_cached().open_on_single_click {
             self.open_file(&path, window, cx);
         }
         cx.notify();
@@ -143,7 +161,9 @@ impl Workspace {
     }
 
     fn navigate_back(&mut self, _: &NavigateBack, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((path, char_ix)) = self.history.pop() else { return };
+        let Some((path, char_ix)) = self.history.pop() else {
+            return;
+        };
         self.open_file(&path, window, cx);
         if let Some(tab) = self.active_tab_for(&path, cx) {
             tab.update(cx, |editor, cx| editor.reveal_char(char_ix, cx));
@@ -157,10 +177,43 @@ impl Workspace {
         }
     }
 
+    pub(crate) fn begin_task(&mut self, label: impl Into<String>, cx: &mut Context<Self>) -> u64 {
+        let id = self.next_task;
+        self.next_task += 1;
+        self.tasks.push((id, label.into()));
+        cx.notify();
+        id
+    }
+
+    pub(crate) fn end_task(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.tasks.retain(|(t, _)| *t != id);
+        cx.notify();
+    }
+
+    pub(crate) fn save_all(&mut self, cx: &mut Context<Self>) {
+        for tab in self.tabs.clone() {
+            tab.update(cx, |editor, cx| editor.save_now(cx));
+        }
+    }
+
     fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if ix != self.active
+            && crate::config::Settings::load_cached().auto_save != crate::config::AutoSave::Off
+            && let Some(previous) = self.tabs.get(self.active).cloned()
+        {
+            previous.update(cx, |editor, cx| editor.save_now(cx));
+        }
         self.active = ix;
         if let Some(tab) = self.tabs.get(ix) {
             window.focus(&tab.focus_handle(cx));
+            // Follow the active editor in the project tree.
+            if crate::config::Settings::load_cached().select_opened_file
+                && let Some(path) = tab.read(cx).buffer.path().map(|p| p.to_path_buf())
+            {
+                self.project.reveal(&path);
+                self.rows = self.project.rows();
+                self.selected_path = Some(path);
+            }
         }
         cx.notify();
     }
@@ -199,30 +252,37 @@ impl Workspace {
     fn render_tree(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let rows = self.rows.iter().enumerate().map(|(ix, row)| {
             let selected = self.selected_path.as_deref() == Some(row.entry.path.as_path());
-            let icon = match (row.entry.is_dir, row.expanded) {
-                (true, true) => "▾ ",
-                (true, false) => "▸ ",
-                (false, _) => "  ",
-            };
-            let label: SharedString = format!("{icon}{}", row.entry.name).into();
-            let color = if row.entry.is_dir {
-                theme::ui_text()
-            } else if row.entry.name.ends_with(".php") {
-                theme::syntax(php_syntax::Highlight::Number)
-            } else {
-                theme::ui_text()
-            };
+            let (icon, icon_color) = file_icon(&row.entry.name, row.entry.is_dir, row.expanded);
             div()
                 .id(ix)
-                .pl(px(8. + 14. * row.depth as f32))
-                .h(px(22.))
+                .mx_1()
+                .pl(px(6. + 12. * row.depth as f32))
+                .pr_2()
+                .h(px(24.))
                 .flex()
                 .items_center()
-                .text_color(color)
+                .gap_1p5()
+                .rounded_md()
+                .text_color(theme::ui_text())
                 .when(selected, |d| d.bg(theme::active_row()))
-                .hover(|d| d.bg(theme::hover()))
-                .child(label)
-                .on_click(cx.listener(move |this, _, window, cx| this.click_row(ix, window, cx)))
+                .when(!selected, |d| d.hover(|d| d.bg(theme::hover())))
+                .child(
+                    div()
+                        .w(px(10.))
+                        .flex_none()
+                        .text_size(px(9.))
+                        .text_color(theme::muted())
+                        .child(match (row.entry.is_dir, row.expanded) {
+                            (true, true) => "▼",
+                            (true, false) => "▶",
+                            _ => "",
+                        }),
+                )
+                .child(div().w(px(16.)).flex_none().flex().justify_center().text_size(px(11.)).text_color(icon_color).child(icon))
+                .child(div().overflow_hidden().whitespace_nowrap().child(SharedString::from(row.entry.name.clone())))
+                .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                    this.click_row(ix, event.click_count(), window, cx)
+                }))
         });
         div()
             .id("project-tree")
@@ -234,14 +294,16 @@ impl Workspace {
             .border_r_1()
             .border_color(theme::border())
             .text_size(px(13.))
+            .pb_2()
             .child(
                 div()
-                    .px_2()
-                    .h(px(26.))
+                    .px_3()
+                    .h(px(30.))
                     .flex()
                     .items_center()
+                    .text_size(px(11.))
                     .text_color(theme::muted())
-                    .child("Project"),
+                    .child("PROJECT"),
             )
             .children(rows)
     }
@@ -249,33 +311,46 @@ impl Workspace {
     fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let tabs = self.tabs.iter().enumerate().map(|(ix, tab)| {
             let buffer = &tab.read(cx).buffer;
-            let title: SharedString =
-                format!("{}{}", buffer.title(), if buffer.is_dirty() { " •" } else { "" }).into();
+            let title: SharedString = buffer.title().into();
+            let dirty = buffer.is_dirty();
+            let (icon, icon_color) = file_icon(&buffer.title(), false, false);
             let active = ix == self.active;
             div()
                 .id(("tab", ix))
+                .group("tab")
                 .flex()
                 .items_center()
-                .gap_2()
-                .px_3()
+                .gap_1p5()
+                .pl_3()
+                .pr_1p5()
                 .h_full()
                 .border_r_1()
                 .border_color(theme::border())
-                .when(active, |d| {
-                    d.bg(theme::tab_active()).border_b_2().border_color(theme::accent())
-                })
-                .hover(|d| d.bg(theme::hover()))
+                .when(active, |d| d.bg(theme::tab_active()).text_color(theme::ui_text()))
+                .when(!active, |d| d.text_color(theme::muted()).hover(|d| d.bg(theme::hover())))
+                .child(div().text_size(px(11.)).text_color(icon_color).child(icon))
                 .child(title)
                 .child(
                     div()
                         .id(("close", ix))
+                        .w(px(16.))
+                        .h(px(16.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_sm()
                         .text_color(theme::muted())
-                        .hover(|d| d.text_color(theme::ui_text()))
-                        .child("×")
+                        .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
+                        // A dot for unsaved changes; the close button shows on hover.
+                        .when(dirty, |d| d.child(div().group_hover("tab", |d| d.hidden()).child("●")))
+                        .child(
+                            div()
+                                .when(dirty, |d| d.hidden().group_hover("tab", |d| d.block()))
+                                .when(!dirty && !active, |d| d.invisible().group_hover("tab", |d| d.visible()))
+                                .child("×"),
+                        )
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.close_tab_at(ix, window, cx)
-                        })),
+                        .on_click(cx.listener(move |this, _, window, cx| this.close_tab_at(ix, window, cx))),
                 )
                 .on_click(cx.listener(move |this, _, window, cx| this.activate(ix, window, cx)))
         });
@@ -283,14 +358,13 @@ impl Workspace {
             .id("tabs")
             .flex()
             .flex_none()
-            .h(px(30.))
+            .h(px(32.))
             .w_full()
             .overflow_x_scroll()
             .bg(theme::panel_bg())
             .border_b_1()
             .border_color(theme::border())
             .text_size(px(13.))
-            .text_color(theme::ui_text())
             .children(tabs)
     }
 
@@ -310,21 +384,69 @@ impl Workspace {
             .justify_between()
             .items_center()
             .px_3()
-            .h(px(24.))
+            .h(px(26.))
             .bg(theme::panel_bg())
             .border_t_1()
             .border_color(theme::border())
             .text_size(px(12.))
             .text_color(theme::muted())
-            .child(SharedString::from(self.project.root().display().to_string()))
-            .child(SharedString::from(self.index_status()))
+            .child(SharedString::from(
+                self.project.root().display().to_string(),
+            ))
+            .child(
+                div()
+                    .flex()
+                    .gap_3()
+                    .children(self.tasks.first().map(|(_, label)| {
+                        let more = if self.tasks.len() > 1 {
+                            format!(" (+{})", self.tasks.len() - 1)
+                        } else {
+                            String::new()
+                        };
+                        div()
+                            .text_color(theme::accent())
+                            .child(format!("⟳ {label}{more}"))
+                    }))
+                    .when(self.tasks.is_empty(), |d| {
+                        d.child(SharedString::from(self.index_status()))
+                    }),
+            )
             .child(info)
     }
 }
 
+/// A small glyph and color per file type, Zed-style.
+fn file_icon(name: &str, is_dir: bool, expanded: bool) -> (&'static str, gpui::Hsla) {
+    use php_syntax::Highlight as H;
+    if is_dir {
+        return (if expanded { "▿" } else { "▸" }, theme::muted());
+    }
+    let lower = name.to_ascii_lowercase();
+    let (icon, color) = match () {
+        _ if lower.ends_with(".blade.php") => ("◆", theme::syntax(H::Tag)),
+        _ if lower.ends_with(".php") => ("◉", theme::syntax(H::Keyword)),
+        _ if lower.ends_with(".js") || lower.ends_with(".mjs") || lower.ends_with(".cjs") => ("◼", theme::syntax(H::Type)),
+        _ if lower.ends_with(".ts") || lower.ends_with(".tsx") => ("◼", theme::syntax(H::Function)),
+        _ if lower.ends_with(".vue") => ("▲", theme::syntax(H::String)),
+        _ if lower.ends_with(".css") || lower.ends_with(".scss") => ("#", theme::syntax(H::Function)),
+        _ if lower.ends_with(".json") || lower.ends_with(".lock") => ("{}", theme::syntax(H::Number)),
+        _ if lower.ends_with(".md") => ("¶", theme::muted()),
+        _ if lower.ends_with(".yml") || lower.ends_with(".yaml") || lower.ends_with(".xml") => ("≡", theme::syntax(H::Attribute)),
+        _ if lower.starts_with(".env") => ("⚙", theme::syntax(H::Constant)),
+        _ if lower.ends_with(".log") => ("☰", theme::muted()),
+        _ if lower == "artisan" || lower.ends_with(".sh") => ("›", theme::success()),
+        _ => ("•", theme::muted()),
+    };
+    (icon, color)
+}
+
 impl Workspace {
     fn index_status(&self) -> String {
-        let framework = if self.intel.is_laravel() { "Laravel · " } else { "" };
+        let framework = if self.intel.is_laravel() {
+            "Laravel · "
+        } else {
+            ""
+        };
         if self.intel.is_ready() {
             format!("{framework}{} classes indexed", self.intel.class_count())
         } else {
@@ -373,6 +495,10 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::remove_model_phpdocs))
             .on_action(cx.listener(Self::model_from_table))
             .on_action(cx.listener(Self::find_unused_views))
+            .on_action(cx.listener(Self::open_keymap))
+            .on_action(cx.listener(Self::open_themes))
+            .on_action(cx.listener(Self::open_settings))
+            .on_action(cx.listener(Self::toggle_prefs_menu))
             .on_action(cx.listener(Self::find_in_files))
             .on_action(cx.listener(Self::replace_in_files))
             .on_action(cx.listener(Self::search_everywhere))
@@ -388,7 +514,7 @@ impl Render for Workspace {
             .size_full()
             .flex()
             .flex_col()
-            .font_family(theme::UI_FONT)
+            .font_family(theme::ui_font())
             .bg(theme::editor_bg())
             .child(self.render_toolbar(cx))
             .child(

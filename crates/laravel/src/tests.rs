@@ -21,7 +21,7 @@ impl Fixture {
     }
 
     fn rel(&self, loc: &Location) -> String {
-        loc.path.strip_prefix(&self.0).unwrap().display().to_string()
+        loc.path.strip_prefix(&self.0).unwrap().display().to_string().replace('\\', "/")
     }
 }
 

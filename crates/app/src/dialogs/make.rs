@@ -8,13 +8,14 @@ use gpui::{
     Subscription, Window, div, prelude::*, px,
 };
 use laravel::make::{
-    COLUMN_TYPES, Extra, Field, IdType, IndexSpec, MakeKind, Maker, ModelSpec, PlannedFile, Relation, RelationKind,
+    COLUMN_TYPES, Extra, Field, IdType, IndexSpec, MakeKind, Maker, ModelSpec, PlannedFile,
+    Relation, RelationKind,
 };
 use laravel::settings::{ModelSettings, RelationColumns};
 
 use super::{
-    Cancel, Confirm, DeleteRow, DialogEvent, FocusNext, FocusPrev, MoveRowDown, MoveRowUp, SelectNext, SelectPrev, button,
-    card, checkbox,
+    Cancel, Confirm, DeleteRow, DialogEvent, FocusNext, FocusPrev, MoveRowDown, MoveRowUp,
+    SelectNext, SelectPrev, button, card, checkbox,
 };
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
@@ -101,7 +102,12 @@ impl Render for MakeChooser {
                 .cursor_pointer()
                 .when(ix == selected, |d| d.bg(theme::selection()))
                 .hover(|d| d.bg(theme::hover()))
-                .child(div().w(px(16.)).text_color(theme::syntax(php_syntax::Highlight::Keyword)).child(if kind.is_filament() { "◆" } else { "C" }))
+                .child(
+                    div()
+                        .w(px(16.))
+                        .text_color(theme::syntax(php_syntax::Highlight::Keyword))
+                        .child(if kind.is_filament() { "◆" } else { "C" }),
+                )
                 .child(kind.label())
                 .on_click(cx.listener(move |_, _, _, cx| cx.emit(DialogEvent::OpenMakeKind(kind))))
         });
@@ -112,8 +118,21 @@ impl Render for MakeChooser {
             .on_action(cx.listener(Self::cancel))
             .on_action(cx.listener(Self::select_prev))
             .on_action(cx.listener(Self::select_next))
-            .child(div().p_2().border_b_1().border_color(theme::border()).child(self.query.clone()))
-            .child(div().id("make-kinds").max_h(px(460.)).overflow_y_scroll().py_1().children(rows))
+            .child(
+                div()
+                    .p_2()
+                    .border_b_1()
+                    .border_color(theme::border())
+                    .child(self.query.clone()),
+            )
+            .child(
+                div()
+                    .id("make-kinds")
+                    .max_h(px(460.))
+                    .overflow_y_scroll()
+                    .py_1()
+                    .children(rows),
+            )
     }
 }
 
@@ -196,7 +215,13 @@ pub struct MakeDialog {
 impl EventEmitter<DialogEvent> for MakeDialog {}
 
 impl MakeDialog {
-    pub fn new(root: &Path, kind: MakeKind, models: Vec<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        root: &Path,
+        kind: MakeKind,
+        models: Vec<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let maker = Maker::new(root);
         let modules = maker.modules();
         let extras_available = maker.extras(kind);
@@ -212,9 +237,17 @@ impl MakeDialog {
             relations: Vec::new(),
             dropdown: None,
             extras: if kind == MakeKind::Model {
-                extras_available.iter().copied().filter(|e| maker.settings.model.enabled.contains(e)).collect()
+                extras_available
+                    .iter()
+                    .copied()
+                    .filter(|e| maker.settings.model.enabled.contains(e))
+                    .collect()
             } else {
-                extras_available.iter().copied().filter(|e| e.default_on()).collect()
+                extras_available
+                    .iter()
+                    .copied()
+                    .filter(|e| e.default_on())
+                    .collect()
             },
             extra_names: HashMap::new(),
             id_type: maker.settings.model.id_type,
@@ -240,7 +273,8 @@ impl MakeDialog {
             for extra in extras_available {
                 let field = dialog.new_field("", cx);
                 dialog.extra_names.insert(extra, field);
-                let template = cx.new(|cx| TextField::new(ModelSettings::default_template(extra), cx));
+                let template =
+                    cx.new(|cx| TextField::new(ModelSettings::default_template(extra), cx));
                 dialog.templates.insert(extra, template);
             }
             dialog.add_column(cx);
@@ -251,11 +285,13 @@ impl MakeDialog {
     }
 
     fn watch(&mut self, field: &Entity<TextField>, cx: &mut Context<Self>) {
-        self.subscriptions.push(cx.subscribe(field, |this: &mut Self, _, _: &FieldEvent, cx| {
-            this.error = None;
-            this.sync_placeholders(cx);
-            cx.notify();
-        }));
+        self.subscriptions.push(
+            cx.subscribe(field, |this: &mut Self, _, _: &FieldEvent, cx| {
+                this.error = None;
+                this.sync_placeholders(cx);
+                cx.notify();
+            }),
+        );
     }
 
     fn new_field(&mut self, placeholder: &str, cx: &mut Context<Self>) -> Entity<TextField> {
@@ -271,11 +307,25 @@ impl MakeDialog {
             return;
         }
         let model = self.name.read(cx).text().trim().to_string();
-        let model = if model.is_empty() { "Model".to_string() } else { model };
-        let model = model.rsplit(['/', '\\']).next().unwrap_or(&model).to_string();
+        let model = if model.is_empty() {
+            "Model".to_string()
+        } else {
+            model
+        };
+        let model = model
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(&model)
+            .to_string();
         let typed_table = self.table.read(cx).text().trim().to_string();
-        let table = if typed_table.is_empty() { laravel::make::table_name(&model) } else { typed_table };
-        self.table.update(cx, |f, cx| f.set_placeholder(laravel::make::table_name(&model), cx));
+        let table = if typed_table.is_empty() {
+            laravel::make::table_name(&model)
+        } else {
+            typed_table
+        };
+        self.table.update(cx, |f, cx| {
+            f.set_placeholder(laravel::make::table_name(&model), cx)
+        });
         for (extra, field) in &self.extra_names {
             let name = self.maker.settings.model.name_for(*extra, &model, &table);
             field.update(cx, |f, cx| f.set_placeholder(name, cx));
@@ -285,7 +335,14 @@ impl MakeDialog {
     fn add_column(&mut self, cx: &mut Context<Self>) {
         let name = self.new_field("name", cx);
         let default = self.new_field("default", cx);
-        self.columns.push(ColumnRow { name, ty: 0, nullable: false, unique: false, index: false, default });
+        self.columns.push(ColumnRow {
+            name,
+            ty: 0,
+            nullable: false,
+            unique: false,
+            index: false,
+            default,
+        });
         cx.notify();
     }
 
@@ -304,12 +361,18 @@ impl MakeDialog {
         for field in &spec.fields {
             self.add_column(cx);
             let row = self.columns.last_mut().unwrap();
-            row.ty = COLUMN_TYPES.iter().position(|t| *t == field.column).unwrap_or(0);
+            row.ty = COLUMN_TYPES
+                .iter()
+                .position(|t| *t == field.column)
+                .unwrap_or(0);
             row.nullable = field.nullable;
             row.unique = field.unique;
             row.index = field.index;
             let (name, default) = (row.name.clone(), row.default.clone());
-            let (field_name, field_default) = (field.name.clone(), field.default.clone().unwrap_or_default());
+            let (field_name, field_default) = (
+                field.name.clone(),
+                field.default.clone().unwrap_or_default(),
+            );
             name.update(cx, |f, cx| f.set_text(field_name, cx));
             default.update(cx, |f, cx| f.set_text(field_default, cx));
         }
@@ -317,7 +380,10 @@ impl MakeDialog {
         for relation in &spec.relations {
             self.add_relation(cx);
             let row = self.relations.last_mut().unwrap();
-            row.kind = RelationKind::ALL.iter().position(|k| *k == relation.kind).unwrap_or(0);
+            row.kind = RelationKind::ALL
+                .iter()
+                .position(|k| *k == relation.kind)
+                .unwrap_or(0);
             let model = row.model.clone();
             let target = relation.target.clone();
             model.update(cx, |f, cx| f.set_text(target, cx));
@@ -331,7 +397,11 @@ impl MakeDialog {
     fn add_relation(&mut self, cx: &mut Context<Self>) {
         let model = self.new_field("Model", cx);
         let extra = self.new_field("through / morph name", cx);
-        self.relations.push(RelationRow { kind: 0, model, extra });
+        self.relations.push(RelationRow {
+            kind: 0,
+            model,
+            extra,
+        });
         cx.notify();
     }
 
@@ -390,7 +460,11 @@ impl MakeDialog {
                 .indexes
                 .iter()
                 .map(|row| IndexSpec {
-                    columns: text(&row.columns).split([',', ' ']).filter(|c| !c.is_empty()).map(laravel::make::snake).collect(),
+                    columns: text(&row.columns)
+                        .split([',', ' '])
+                        .filter(|c| !c.is_empty())
+                        .map(laravel::make::snake)
+                        .collect(),
                     unique: row.unique,
                 })
                 .filter(|i| !i.columns.is_empty())
@@ -402,7 +476,13 @@ impl MakeDialog {
     fn plan(&self, cx: &App) -> Vec<PlannedFile> {
         let extras: Vec<Extra> = self.extras.iter().copied().collect();
         let module = self.module.map(|ix| self.modules[ix].as_str());
-        self.maker.plan_with(self.kind, self.name.read(cx).text(), &extras, module, &self.spec(cx))
+        self.maker.plan_with(
+            self.kind,
+            self.name.read(cx).text(),
+            &extras,
+            module,
+            &self.spec(cx),
+        )
     }
 
     fn focusable_fields(&self) -> Vec<Entity<TextField>> {
@@ -428,7 +508,10 @@ impl MakeDialog {
 
     fn cycle_focus(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
         let fields = self.focusable_fields();
-        let current = fields.iter().position(|f| f.focus_handle(cx).is_focused(window)).unwrap_or(0);
+        let current = fields
+            .iter()
+            .position(|f| f.focus_handle(cx).is_focused(window))
+            .unwrap_or(0);
         let next = (current as isize + delta).rem_euclid(fields.len() as isize) as usize;
         window.focus(&fields[next].focus_handle(cx));
     }
@@ -513,22 +596,38 @@ impl MakeDialog {
 
     fn add_index(&mut self, cx: &mut Context<Self>) {
         let columns = self.new_field("column_a, column_b", cx);
-        self.indexes.push(IndexRow { columns, unique: false });
+        self.indexes.push(IndexRow {
+            columns,
+            unique: false,
+        });
         cx.notify();
     }
 
     /// Row of the Columns/Relations table containing the focused field.
     fn focused_row(&self, window: &Window, cx: &App) -> Option<(bool, usize)> {
         let focused = |f: &Entity<TextField>| f.focus_handle(cx).is_focused(window);
-        if let Some(ix) = self.columns.iter().position(|r| focused(&r.name) || focused(&r.default)) {
+        if let Some(ix) = self
+            .columns
+            .iter()
+            .position(|r| focused(&r.name) || focused(&r.default))
+        {
             return Some((true, ix));
         }
-        self.relations.iter().position(|r| focused(&r.model) || focused(&r.extra)).map(|ix| (false, ix))
+        self.relations
+            .iter()
+            .position(|r| focused(&r.model) || focused(&r.extra))
+            .map(|ix| (false, ix))
     }
 
     fn move_row(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((is_column, ix)) = self.focused_row(window, cx) else { return };
-        let len = if is_column { self.columns.len() } else { self.relations.len() };
+        let Some((is_column, ix)) = self.focused_row(window, cx) else {
+            return;
+        };
+        let len = if is_column {
+            self.columns.len()
+        } else {
+            self.relations.len()
+        };
         let target = ix as isize + delta;
         if target < 0 || target as usize >= len {
             return;
@@ -551,7 +650,9 @@ impl MakeDialog {
     }
 
     fn delete_row(&mut self, _: &DeleteRow, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((is_column, ix)) = self.focused_row(window, cx) else { return };
+        let Some((is_column, ix)) = self.focused_row(window, cx) else {
+            return;
+        };
         if is_column {
             self.columns.remove(ix);
         } else {
@@ -565,11 +666,33 @@ impl MakeDialog {
     fn render_settings(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let d = &self.draft;
         let label = |text: &'static str| div().w(px(260.)).flex_none().child(text);
-        let ids: Vec<SharedString> = IdType::ALL.iter().map(|i| SharedString::from(i.label())).collect();
-        let relation_methods: Vec<SharedString> = vec!["foreignId/foreignUuid/foreignUlid".into(), "unsignedBigInteger".into()];
-        let relation_value: SharedString = relation_methods[(d.relation_columns == RelationColumns::UnsignedBigInteger) as usize].clone();
-        let id_select = self.select("set-id-type".into(), d.id_type.label().into(), None, Dropdown::SettingsIdType, ids, cx);
-        let rel_select = self.select("set-rel".into(), relation_value, None, Dropdown::RelationColumns, relation_methods, cx);
+        let ids: Vec<SharedString> = IdType::ALL
+            .iter()
+            .map(|i| SharedString::from(i.label()))
+            .collect();
+        let relation_methods: Vec<SharedString> = vec![
+            "foreignId/foreignUuid/foreignUlid".into(),
+            "unsignedBigInteger".into(),
+        ];
+        let relation_value: SharedString = relation_methods
+            [(d.relation_columns == RelationColumns::UnsignedBigInteger) as usize]
+            .clone();
+        let id_select = self.select(
+            "set-id-type".into(),
+            d.id_type.label().into(),
+            None,
+            Dropdown::SettingsIdType,
+            ids,
+            cx,
+        );
+        let rel_select = self.select(
+            "set-rel".into(),
+            relation_value,
+            None,
+            Dropdown::RelationColumns,
+            relation_methods,
+            cx,
+        );
         let toggle = |id: &'static str, text: &'static str, on: bool, f: fn(&mut ModelSettings)| {
             checkbox(id, text, on).on_click(cx.listener(move |this, _, _, cx| {
                 f(&mut this.draft);
@@ -600,39 +723,112 @@ impl MakeDialog {
             .flex_col()
             .gap_3()
             .p_3()
-            .child(div().flex().items_center().gap_2().child(label("\"id\" field name:")).child(div().flex_1().child(self.id_name.clone())))
-            .child(div().flex().items_center().gap_2().child(label("\"id\" field type:")).child(id_select))
-            .child(div().flex().items_center().gap_2().child(label("Migration method for relation fields:")).child(rel_select))
-            .child(toggle("set-constrained", "Add 'constrained()' calls", d.constrained, |d| d.constrained ^= true))
-            .child(toggle("set-casts", "Use 'casts()' method instead of $casts field", d.casts_method, |d| d.casts_method ^= true))
-            .child(toggle("set-tz", "Add timezones for time fields", d.timezones, |d| d.timezones ^= true))
-            .child(toggle("set-down", "Omit the \"down\" method in migrations", d.omit_down, |d| d.omit_down ^= true))
-            .child(toggle("set-helper", "Generate Helper Code after model creation", d.generate_helper_after, |d| d.generate_helper_after ^= true))
-            .child(div().mt_2().text_color(theme::muted()).child("Post Generations"))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(label("\"id\" field name:"))
+                    .child(div().flex_1().child(self.id_name.clone())),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(label("\"id\" field type:"))
+                    .child(id_select),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(label("Migration method for relation fields:"))
+                    .child(rel_select),
+            )
+            .child(toggle(
+                "set-constrained",
+                "Add 'constrained()' calls",
+                d.constrained,
+                |d| d.constrained ^= true,
+            ))
+            .child(toggle(
+                "set-casts",
+                "Use 'casts()' method instead of $casts field",
+                d.casts_method,
+                |d| d.casts_method ^= true,
+            ))
+            .child(toggle(
+                "set-tz",
+                "Add timezones for time fields",
+                d.timezones,
+                |d| d.timezones ^= true,
+            ))
+            .child(toggle(
+                "set-down",
+                "Omit the \"down\" method in migrations",
+                d.omit_down,
+                |d| d.omit_down ^= true,
+            ))
+            .child(toggle(
+                "set-helper",
+                "Generate Helper Code after model creation",
+                d.generate_helper_after,
+                |d| d.generate_helper_after ^= true,
+            ))
+            .child(
+                div()
+                    .mt_2()
+                    .text_color(theme::muted())
+                    .child("Post Generations"),
+            )
             .child(
                 div()
                     .flex()
                     .gap_3()
-                    .child(div().w(px(260.)).flex_none().border_1().border_color(theme::border()).rounded_sm().py_1().children(list))
+                    .child(
+                        div()
+                            .w(px(260.))
+                            .flex_none()
+                            .border_1()
+                            .border_color(theme::border())
+                            .rounded_sm()
+                            .py_1()
+                            .children(list),
+                    )
                     .child(
                         div()
                             .flex_1()
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .child(checkbox("set-enabled", "Enabled by default", enabled).on_click(cx.listener(move |this, _, _, cx| {
-                                if !this.draft.enabled.contains(&selected) {
-                                    this.draft.enabled.push(selected);
-                                } else {
-                                    this.draft.enabled.retain(|e| *e != selected);
-                                }
-                                cx.notify();
-                            })))
-                            .child(div().text_color(theme::muted()).child("Class name template (${MODEL}, ${TABLE_NAME}):"))
+                            .child(
+                                checkbox("set-enabled", "Enabled by default", enabled).on_click(
+                                    cx.listener(move |this, _, _, cx| {
+                                        if !this.draft.enabled.contains(&selected) {
+                                            this.draft.enabled.push(selected);
+                                        } else {
+                                            this.draft.enabled.retain(|e| *e != selected);
+                                        }
+                                        cx.notify();
+                                    }),
+                                ),
+                            )
+                            .child(
+                                div()
+                                    .text_color(theme::muted())
+                                    .child("Class name template (${MODEL}, ${TABLE_NAME}):"),
+                            )
                             .children(self.templates.get(&selected).cloned()),
                     ),
             )
-            .child(div().text_size(px(11.)).text_color(theme::muted()).child("Saved to .phpcraft/laravel.json for this project."))
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme::muted())
+                    .child("Saved to .phpcraft/laravel.json for this project."),
+            )
     }
 
     fn render_indexes(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -652,14 +848,22 @@ impl MakeDialog {
                     .items_center()
                     .gap_2()
                     .child(div().flex_1().child(row.columns.clone()))
-                    .child(checkbox(format!("idx-unique-{ix}"), "Unique", row.unique).on_click(cx.listener(move |this, _, _, cx| {
-                        this.indexes[ix].unique ^= true;
-                        cx.notify();
-                    })))
-                    .child(remove_button(format!("idx-remove-{ix}")).on_click(cx.listener(move |this, _, _, cx| {
-                        this.indexes.remove(ix);
-                        cx.notify();
-                    })))
+                    .child(
+                        checkbox(format!("idx-unique-{ix}"), "Unique", row.unique).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.indexes[ix].unique ^= true;
+                                cx.notify();
+                            }),
+                        ),
+                    )
+                    .child(
+                        remove_button(format!("idx-remove-{ix}")).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                this.indexes.remove(ix);
+                                cx.notify();
+                            },
+                        )),
+                    )
             })
             .collect();
         div()
@@ -669,15 +873,25 @@ impl MakeDialog {
             .p_3()
             .child(div().text_color(theme::muted()).child(format!(
                 "Composite indexes. Columns: {}",
-                if columns.is_empty() { "(none yet)".to_string() } else { columns.join(", ") }
+                if columns.is_empty() {
+                    "(none yet)".to_string()
+                } else {
+                    columns.join(", ")
+                }
             )))
             .children(rows)
-            .child(div().flex().child(button("add-index", "Add Index", false).on_click(cx.listener(|this, _, window, cx| {
-                this.add_index(cx);
-                if let Some(row) = this.indexes.last() {
-                    window.focus(&row.columns.focus_handle(cx));
-                }
-            }))))
+            .child(
+                div().flex().child(
+                    button("add-index", "Add Index", false).on_click(cx.listener(
+                        |this, _, window, cx| {
+                            this.add_index(cx);
+                            if let Some(row) = this.indexes.last() {
+                                window.focus(&row.columns.focus_handle(cx));
+                            }
+                        },
+                    )),
+                ),
+            )
     }
 
     fn create(&mut self, cx: &mut Context<Self>) {
@@ -699,7 +913,11 @@ impl MakeDialog {
     }
 
     fn toggle_dropdown(&mut self, dropdown: Dropdown, cx: &mut Context<Self>) {
-        self.dropdown = if self.dropdown == Some(dropdown) { None } else { Some(dropdown) };
+        self.dropdown = if self.dropdown == Some(dropdown) {
+            None
+        } else {
+            Some(dropdown)
+        };
         cx.notify();
     }
 
@@ -709,7 +927,10 @@ impl MakeDialog {
             Dropdown::IdType => self.id_type = IdType::ALL[ix],
             Dropdown::SettingsIdType => self.draft.id_type = IdType::ALL[ix],
             Dropdown::RelationColumns => {
-                self.draft.relation_columns = [RelationColumns::ForeignId, RelationColumns::UnsignedBigInteger][ix];
+                self.draft.relation_columns = [
+                    RelationColumns::ForeignId,
+                    RelationColumns::UnsignedBigInteger,
+                ][ix];
             }
             Dropdown::ColumnType(row) => self.columns[row].ty = ix,
             Dropdown::RelationKind(row) => self.relations[row].kind = ix,
@@ -789,13 +1010,19 @@ impl MakeDialog {
                     .justify_between()
                     .rounded_sm()
                     .border_1()
-                    .border_color(if open { theme::accent() } else { theme::border_strong() })
+                    .border_color(if open {
+                        theme::accent()
+                    } else {
+                        theme::border_strong()
+                    })
                     .bg(theme::editor_bg())
                     .cursor_pointer()
                     .text_size(px(12.))
                     .child(value)
                     .child(div().text_color(theme::muted()).child("⌄"))
-                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_dropdown(dropdown, cx))),
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.toggle_dropdown(dropdown, cx)),
+                    ),
             )
             .children(list)
     }
@@ -818,7 +1045,12 @@ impl MakeDialog {
     }
 
     /// Project models matching what is typed in relation row `ix`, shown while it has focus.
-    fn model_suggestions(&self, ix: usize, window: &Window, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+    fn model_suggestions(
+        &self,
+        ix: usize,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
         let field = &self.relations[ix].model;
         if !field.focus_handle(cx).is_focused(window) {
             return None;
@@ -852,18 +1084,25 @@ impl MakeDialog {
                     .items_center()
                     .cursor_pointer()
                     .hover(|d| d.bg(theme::selection()))
-                    .child(div().text_color(theme::syntax(php_syntax::Highlight::Keyword)).child("C"))
+                    .child(
+                        div()
+                            .text_color(theme::syntax(php_syntax::Highlight::Keyword))
+                            .child("C"),
+                    )
                     .child(short.clone())
                     .child(div().text_color(theme::muted()).child(namespace))
-                    .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, _, window, cx| {
-                        cx.stop_propagation();
-                        let model = this.relations[ix].model.clone();
-                        model.update(cx, |f, cx| f.set_text(short.clone(), cx));
-                        // Move on so the list closes.
-                        let next = this.relations[ix].extra.focus_handle(cx);
-                        window.focus(&next);
-                        cx.notify();
-                    }))
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            let model = this.relations[ix].model.clone();
+                            model.update(cx, |f, cx| f.set_text(short.clone(), cx));
+                            // Move on so the list closes.
+                            let next = this.relations[ix].extra.focus_handle(cx);
+                            window.focus(&next);
+                            cx.notify();
+                        }),
+                    )
             })
             .collect();
         Some(
@@ -897,7 +1136,10 @@ impl MakeDialog {
                 .text_size(px(12.))
                 .child(text)
         };
-        let types: Vec<SharedString> = COLUMN_TYPES.iter().map(|t| SharedString::from(*t)).collect();
+        let types: Vec<SharedString> = COLUMN_TYPES
+            .iter()
+            .map(|t| SharedString::from(*t))
+            .collect();
         let mut rows: Vec<AnyElement> = Vec::new();
         for (ix, row) in self.columns.iter().enumerate() {
             let check = |id: &str, on: bool| {
@@ -914,29 +1156,55 @@ impl MakeDialog {
                     .items_start()
                     .gap_2()
                     .child(div().flex_1().child(row.name.clone()))
-                    .child(self.select(format!("type-{ix}"), COLUMN_TYPES[row.ty].into(), Some(140.), Dropdown::ColumnType(ix), types.clone(), cx))
-                    .child(check("null", row.nullable).id(("null-cell", ix)).on_click(cx.listener(move |this, _, _, cx| {
-                        this.columns[ix].nullable ^= true;
-                        cx.notify();
-                    })))
-                    .child(check("unique", row.unique).id(("unique-cell", ix)).on_click(cx.listener(move |this, _, _, cx| {
-                        this.columns[ix].unique ^= true;
-                        cx.notify();
-                    })))
-                    .child(check("index", row.index).id(("index-cell", ix)).on_click(cx.listener(move |this, _, _, cx| {
-                        this.columns[ix].index ^= true;
-                        cx.notify();
-                    })))
+                    .child(self.select(
+                        format!("type-{ix}"),
+                        COLUMN_TYPES[row.ty].into(),
+                        Some(140.),
+                        Dropdown::ColumnType(ix),
+                        types.clone(),
+                        cx,
+                    ))
+                    .child(
+                        check("null", row.nullable)
+                            .id(("null-cell", ix))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.columns[ix].nullable ^= true;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        check("unique", row.unique)
+                            .id(("unique-cell", ix))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.columns[ix].unique ^= true;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        check("index", row.index)
+                            .id(("index-cell", ix))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.columns[ix].index ^= true;
+                                cx.notify();
+                            })),
+                    )
                     .child(div().w(px(90.)).flex_none().child(row.default.clone()))
-                    .child(remove_button(format!("remove-col-{ix}")).on_click(cx.listener(move |this, _, _, cx| {
-                        this.columns.remove(ix);
-                        this.dropdown = None;
-                        cx.notify();
-                    })))
+                    .child(
+                        remove_button(format!("remove-col-{ix}")).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                this.columns.remove(ix);
+                                this.dropdown = None;
+                                cx.notify();
+                            },
+                        )),
+                    )
                     .into_any_element(),
             );
         }
-        let kinds: Vec<SharedString> = RelationKind::ALL.iter().map(|k| SharedString::from(k.method())).collect();
+        let kinds: Vec<SharedString> = RelationKind::ALL
+            .iter()
+            .map(|k| SharedString::from(k.method()))
+            .collect();
         for (ix, row) in self.relations.iter().enumerate() {
             let kind = RelationKind::ALL[row.kind];
             let needs_extra = matches!(
@@ -953,14 +1221,37 @@ impl MakeDialog {
                     .flex()
                     .items_start()
                     .gap_2()
-                    .child(self.select(format!("rel-{ix}"), kind.method().into(), Some(150.), Dropdown::RelationKind(ix), kinds.clone(), cx))
-                    .child(div().flex_1().flex().flex_col().child(row.model.clone()).children(self.model_suggestions(ix, window, cx)))
-                    .child(div().w(px(200.)).flex_none().when(needs_extra, |d| d.child(row.extra.clone())))
-                    .child(remove_button(format!("remove-rel-{ix}")).on_click(cx.listener(move |this, _, _, cx| {
-                        this.relations.remove(ix);
-                        this.dropdown = None;
-                        cx.notify();
-                    })))
+                    .child(self.select(
+                        format!("rel-{ix}"),
+                        kind.method().into(),
+                        Some(150.),
+                        Dropdown::RelationKind(ix),
+                        kinds.clone(),
+                        cx,
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .child(row.model.clone())
+                            .children(self.model_suggestions(ix, window, cx)),
+                    )
+                    .child(
+                        div()
+                            .w(px(200.))
+                            .flex_none()
+                            .when(needs_extra, |d| d.child(row.extra.clone())),
+                    )
+                    .child(
+                        remove_button(format!("remove-rel-{ix}")).on_click(cx.listener(
+                            move |this, _, _, cx| {
+                                this.relations.remove(ix);
+                                this.dropdown = None;
+                                cx.notify();
+                            },
+                        )),
+                    )
                     .into_any_element(),
             );
         }
@@ -995,24 +1286,40 @@ impl MakeDialog {
                     .flex()
                     .gap_2()
                     .mt_2()
-                    .child(button("add-field", "Add New Field", false).on_click(cx.listener(|this, _, window, cx| {
-                        this.add_column(cx);
-                        if let Some(row) = this.columns.last() {
-                            window.focus(&row.name.focus_handle(cx));
-                        }
-                    })))
-                    .child(button("add-relation", "Add New Relation", false).on_click(cx.listener(|this, _, window, cx| {
-                        this.add_relation(cx);
-                        if let Some(row) = this.relations.last() {
-                            window.focus(&row.model.focus_handle(cx));
-                        }
-                    }))),
+                    .child(
+                        button("add-field", "Add New Field", false).on_click(cx.listener(
+                            |this, _, window, cx| {
+                                this.add_column(cx);
+                                if let Some(row) = this.columns.last() {
+                                    window.focus(&row.name.focus_handle(cx));
+                                }
+                            },
+                        )),
+                    )
+                    .child(button("add-relation", "Add New Relation", false).on_click(
+                        cx.listener(|this, _, window, cx| {
+                            this.add_relation(cx);
+                            if let Some(row) = this.relations.last() {
+                                window.focus(&row.model.focus_handle(cx));
+                            }
+                        }),
+                    )),
             )
     }
 
     fn render_model_options(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let ids: Vec<SharedString> = IdType::ALL.iter().map(|i| SharedString::from(i.label())).collect();
-        let id_select = self.select("id-type".into(), self.id_type.label().into(), None, Dropdown::IdType, ids, cx);
+        let ids: Vec<SharedString> = IdType::ALL
+            .iter()
+            .map(|i| SharedString::from(i.label()))
+            .collect();
+        let id_select = self.select(
+            "id-type".into(),
+            self.id_type.label().into(),
+            None,
+            Dropdown::IdType,
+            ids,
+            cx,
+        );
         let toggle = |id: &'static str, label: &'static str, on: bool, f: fn(&mut Self)| {
             checkbox(id, label, on).on_click(cx.listener(move |this, _, _, cx| {
                 f(this);
@@ -1066,17 +1373,21 @@ impl MakeDialog {
                     .items_center()
                     .gap_2()
                     .w(px(420.))
-                    .child(
-                        div().w(px(170.)).flex_none().child(
-                            checkbox(format!("extra-{extra:?}"), extra.label(), on).on_click(cx.listener(move |this, _, _, cx| {
+                    .child(div().w(px(170.)).flex_none().child(
+                        checkbox(format!("extra-{extra:?}"), extra.label(), on).on_click(
+                            cx.listener(move |this, _, _, cx| {
                                 if !this.extras.remove(&extra) {
                                     this.extras.insert(extra);
                                 }
                                 cx.notify();
-                            })),
+                            }),
                         ),
+                    ))
+                    .children(
+                        self.extra_names
+                            .get(&extra)
+                            .map(|f| div().flex_1().child(f.clone())),
                     )
-                    .children(self.extra_names.get(&extra).map(|f| div().flex_1().child(f.clone())))
                     .into_any_element()
             })
             .collect();
@@ -1086,10 +1397,23 @@ impl MakeDialog {
     fn render_files(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let plan = self.plan(cx);
         let files = plan.iter().map(|file| {
-            let rel = file.path.strip_prefix(&self.root).unwrap_or(&file.path).display().to_string();
+            let rel = file
+                .path
+                .strip_prefix(&self.root)
+                .unwrap_or(&file.path)
+                .display()
+                .to_string();
             div()
-                .text_color(if file.exists { theme::error() } else { theme::success() })
-                .child(if file.exists { format!("{rel}  (exists, skipped)") } else { rel })
+                .text_color(if file.exists {
+                    theme::error()
+                } else {
+                    theme::success()
+                })
+                .child(if file.exists {
+                    format!("{rel}  (exists, skipped)")
+                } else {
+                    rel
+                })
         });
         div()
             .id("files-preview")
@@ -1098,9 +1422,13 @@ impl MakeDialog {
             .p_2()
             .rounded_sm()
             .bg(theme::editor_bg())
-            .font_family(theme::EDITOR_FONT)
+            .font_family(theme::editor_font())
             .text_size(px(11.))
-            .child(div().text_color(theme::muted()).child(format!("{} file(s)", plan.len())))
+            .child(
+                div()
+                    .text_color(theme::muted())
+                    .child(format!("{} file(s)", plan.len())),
+            )
             .children(files)
     }
 }
@@ -1158,11 +1486,22 @@ impl Render for MakeDialog {
             body = div().child(self.render_indexes(cx));
         } else if is_model {
             body = body
-                .child(div().flex().gap_3().child(self.render_fields_table(window, cx)).child(self.render_model_options(cx)))
+                .child(
+                    div()
+                        .flex()
+                        .gap_3()
+                        .child(self.render_fields_table(window, cx))
+                        .child(self.render_model_options(cx)),
+                )
                 .child(self.render_post_generations(cx));
         } else if !self.maker.extras(self.kind).is_empty() {
             let extras = self.maker.extras(self.kind).into_iter().map(|extra| {
-                checkbox(format!("extra-{extra:?}"), extra.label(), self.extras.contains(&extra)).on_click(cx.listener(move |this, _, _, cx| {
+                checkbox(
+                    format!("extra-{extra:?}"),
+                    extra.label(),
+                    self.extras.contains(&extra),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
                     if !this.extras.remove(&extra) {
                         this.extras.insert(extra);
                     }
@@ -1174,8 +1513,11 @@ impl Render for MakeDialog {
         if self.view == View::Main {
             body = body.child(self.render_files(cx));
         }
-        body = body
-            .children(self.error.clone().map(|e| div().text_color(theme::error()).child(e)));
+        body = body.children(
+            self.error
+                .clone()
+                .map(|e| div().text_color(theme::error()).child(e)),
+        );
 
         card(if is_model { 1040. } else { 560. })
             .key_context("Dialog")
@@ -1187,7 +1529,14 @@ impl Render for MakeDialog {
             .on_action(cx.listener(Self::move_row_up))
             .on_action(cx.listener(Self::move_row_down))
             .on_action(cx.listener(Self::delete_row))
-            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(title))
+            .child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(theme::border())
+                    .child(title),
+            )
             .child(body)
             .child(
                 div()
@@ -1199,11 +1548,17 @@ impl Render for MakeDialog {
                     .border_t_1()
                     .border_color(theme::border())
                     .when(is_model && self.view == View::Main, |d| {
-                        d.child(button("settings", "Settings", false).on_click(cx.listener(|this, _, window, cx| this.open_settings(window, cx))))
+                        d.child(button("settings", "Settings", false).on_click(
+                            cx.listener(|this, _, window, cx| this.open_settings(window, cx)),
+                        ))
                     })
                     .child(div().flex_1())
-                    .child(button("cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.cancel(&Cancel, window, cx))))
-                    .child(button("create", "OK", true).on_click(cx.listener(|this, _, window, cx| this.confirm(&Confirm, window, cx)))),
+                    .child(button("cancel", "Cancel", false).on_click(
+                        cx.listener(|this, _, window, cx| this.cancel(&Cancel, window, cx)),
+                    ))
+                    .child(button("create", "OK", true).on_click(
+                        cx.listener(|this, _, window, cx| this.confirm(&Confirm, window, cx)),
+                    )),
             )
     }
 }

@@ -9,24 +9,18 @@ use std::sync::Arc;
 use editor::{Buffer, Selection};
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, FocusHandle, KeyContext, Focusable, GlobalElementId, Hsla, LayoutId, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ScrollWheelEvent,
-    ShapedLine, SharedString, Style, TextRun, UTF16Selection, Window, actions, fill, font, point,
-    prelude::*, px, relative, size,
+    EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hsla, KeyContext, LayoutId,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
+    ScrollWheelEvent, ShapedLine, SharedString, Style, TextRun, UTF16Selection, Window, actions,
+    fill, font, point, prelude::*, px, relative, size,
 };
 
 use crate::intel::Intel;
 use crate::theme;
 use crate::workspace::Workspace;
+pub use find_bar::{ShowFind, ShowReplace};
 use intel_ui::Menu;
-pub use find_bar::{
-    CloseFind, FindNext, FindPrev, ReplaceAll, ReplaceNext, ShowFind, ShowReplace, ToggleCase, ToggleRegex,
-    ToggleWord,
-};
-pub use intel_ui::{
-    GoToDeclaration, MenuCancel, MenuConfirm, MenuDown, MenuUp, OptimizeImports, ShowCompletions,
-    ShowIntentions,
-};
+pub use intel_ui::OptimizeImports;
 
 actions!(
     editor,
@@ -58,6 +52,11 @@ actions!(
         Undo,
         Redo,
         Save,
+        ToggleComment,
+        DuplicateLine,
+        DeleteLine,
+        MoveLineUp,
+        MoveLineDown,
     ]
 );
 
@@ -88,6 +87,9 @@ pub struct EditorView {
     workspace: gpui::WeakEntity<Workspace>,
     menu: Option<Menu>,
     find: Option<find_bar::FindBar>,
+    autosave: Option<gpui::Task<()>>,
+    /// Buffer version the auto-save timer was last scheduled for.
+    autosaved_version: u64,
     /// Byte range underlined while ⌘ is held over a navigable symbol.
     hover_link: Option<Range<usize>>,
     /// Unresolved class references for the buffer version they were computed for.
@@ -108,6 +110,8 @@ impl EditorView {
             workspace,
             menu: None,
             find: None,
+            autosave: None,
+            autosaved_version: 0,
             hover_link: None,
             diagnostics: None,
             caret_point: None,
@@ -128,6 +132,10 @@ impl EditorView {
 
     fn changed(&mut self, cx: &mut Context<Self>) {
         self.autoscroll = true;
+        if self.buffer.version() != self.autosaved_version {
+            self.autosaved_version = self.buffer.version();
+            self.schedule_autosave(cx);
+        }
         cx.notify();
     }
 
@@ -286,6 +294,15 @@ impl EditorView {
         }
     }
     fn save(&mut self, _: &Save, _: &mut Window, cx: &mut Context<Self>) {
+        self.save_now(cx);
+    }
+
+    /// Writes the buffer if it has unsaved changes and reindexes it.
+    pub fn save_now(&mut self, cx: &mut Context<Self>) {
+        self.autosave = None;
+        if !self.buffer.is_dirty() || self.buffer.path().is_none() {
+            return;
+        }
         if let Err(err) = self.buffer.save() {
             eprintln!("save failed: {err:#}");
         }
@@ -293,6 +310,19 @@ impl EditorView {
             self.intel.update_file(path, &self.buffer.text());
         }
         cx.notify();
+    }
+
+    /// Restarts the auto-save timer after an edit (dropping the old task cancels it).
+    fn schedule_autosave(&mut self, cx: &mut Context<Self>) {
+        let settings = crate::config::Settings::load_cached();
+        if settings.auto_save != crate::config::AutoSave::AfterDelay || !self.buffer.is_dirty() {
+            return;
+        }
+        let delay = std::time::Duration::from_millis(settings.auto_save_delay_ms.max(200));
+        self.autosave = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(delay).await;
+            this.update(cx, |editor, cx| editor.save_now(cx)).ok();
+        }));
     }
 
     // --- mouse ---------------------------------------------------------
@@ -314,35 +344,65 @@ impl EditorView {
         Some(self.buffer.line_col_to_char(line, col))
     }
 
-    fn on_mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+    fn on_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         window.focus(&self.focus_handle);
         self.close_menu();
         if self.cmd_click(event, window, cx) {
             return;
         }
         if let Some(ix) = self.char_for_position(event.position) {
-            if event.click_count >= 2 {
-                self.select_word_at(ix);
-            } else {
-                self.buffer.move_to(ix, event.modifiers.shift);
-                self.is_selecting = true;
+            match event.click_count {
+                // Triple click: the whole line.
+                n if n >= 3 => {
+                    let line = self.buffer.line_range_at(ix);
+                    self.buffer.selection = Selection { anchor: line.start, head: line.end };
+                    self.is_selecting = false;
+                }
+                // Double click: the word under the cursor.
+                2 => {
+                    let word = self.buffer.word_range_at(ix);
+                    self.buffer.selection = Selection { anchor: word.start, head: word.end };
+                    self.is_selecting = false;
+                }
+                _ => {
+                    self.buffer.move_to(ix, event.modifiers.shift);
+                    self.is_selecting = true;
+                }
             }
+            cx.stop_propagation();
             cx.notify();
         }
     }
 
-    fn select_word_at(&mut self, ix: usize) {
-        let rope = self.buffer.rope();
-        let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
-        let mut start = ix;
-        while start > 0 && is_word(rope.char(start - 1)) {
-            start -= 1;
-        }
-        let mut end = ix;
-        while end < rope.len_chars() && is_word(rope.char(end)) {
-            end += 1;
-        }
-        self.buffer.selection = Selection { anchor: start, head: end };
+    fn toggle_comment(&mut self, _: &ToggleComment, _: &mut Window, cx: &mut Context<Self>) {
+        let (prefix, suffix) = editor::comment_tokens(self.buffer.lang());
+        self.buffer.toggle_comment(prefix, suffix);
+        self.moved(cx);
+    }
+
+    fn duplicate_line(&mut self, _: &DuplicateLine, _: &mut Window, cx: &mut Context<Self>) {
+        self.buffer.duplicate();
+        self.moved(cx);
+    }
+
+    fn delete_line(&mut self, _: &DeleteLine, _: &mut Window, cx: &mut Context<Self>) {
+        self.buffer.delete_lines();
+        self.moved(cx);
+    }
+
+    fn move_line_up(&mut self, _: &MoveLineUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.buffer.move_lines(-1);
+        self.moved(cx);
+    }
+
+    fn move_line_down(&mut self, _: &MoveLineDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.buffer.move_lines(1);
+        self.moved(cx);
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
@@ -474,7 +534,10 @@ impl EntityInputHandler for EditorView {
 }
 
 fn byte_of_col(text: &str, col: usize) -> usize {
-    text.char_indices().nth(col).map(|(b, _)| b).unwrap_or(text.len())
+    text.char_indices()
+        .nth(col)
+        .map(|(b, _)| b)
+        .unwrap_or(text.len())
 }
 
 impl Focusable for EditorView {
@@ -490,7 +553,11 @@ impl Render for EditorView {
         if self.menu_open() {
             key_context.add("menu");
         }
-        let cursor = if self.hover_link.is_some() { CursorStyle::PointingHand } else { CursorStyle::IBeam };
+        let cursor = if self.hover_link.is_some() {
+            CursorStyle::PointingHand
+        } else {
+            CursorStyle::IBeam
+        };
         let find_bar = self.render_find_bar(cx);
         let editor = gpui::div()
             .key_context(key_context)
@@ -508,11 +575,13 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::menu_down))
             .on_action(cx.listener(Self::menu_confirm))
             .on_action(cx.listener(Self::menu_cancel))
-            .on_modifiers_changed(cx.listener(|this, event: &gpui::ModifiersChangedEvent, _, cx| {
-                if !event.modifiers.platform {
-                    this.clear_hover_link(cx);
-                }
-            }))
+            .on_modifiers_changed(cx.listener(
+                |this, event: &gpui::ModifiersChangedEvent, _, cx| {
+                    if !event.modifiers.platform {
+                        this.clear_hover_link(cx);
+                    }
+                },
+            ))
             .bg(theme::editor_bg())
             .on_action(cx.listener(Self::move_left))
             .on_action(cx.listener(Self::move_right))
@@ -541,6 +610,11 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::undo))
             .on_action(cx.listener(Self::redo))
             .on_action(cx.listener(Self::save))
+            .on_action(cx.listener(Self::toggle_comment))
+            .on_action(cx.listener(Self::duplicate_line))
+            .on_action(cx.listener(Self::delete_line))
+            .on_action(cx.listener(Self::move_line_up))
+            .on_action(cx.listener(Self::move_line_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -628,7 +702,7 @@ impl Element for EditorElement {
         let font_size = px(FONT_SIZE);
         let run = |len: usize, color: Hsla| TextRun {
             len,
-            font: font(theme::EDITOR_FONT),
+            font: font(theme::editor_font()),
             color,
             background_color: None,
             underline: None,
@@ -667,8 +741,11 @@ impl Element for EditorElement {
             let offset_y = bounds.top() - (view.scroll_y - line_height * first_line as f32);
             let selection = view.buffer.selection.range();
             let spans = view.buffer.highlights().to_vec();
-            let problems: Vec<Range<usize>> =
-                view.current_diagnostics().iter().map(|u| u.range.clone()).collect();
+            let problems: Vec<Range<usize>> = view
+                .current_diagnostics()
+                .iter()
+                .map(|u| u.range.clone())
+                .collect();
             let link = view.hover_link.clone();
             let mut underlines = Vec::new();
             let (find_matches, find_current) = match &view.find {
@@ -709,7 +786,11 @@ impl Element for EditorElement {
                         .shape_line(text.clone().into(), font_size, &runs, None);
                 let number: SharedString = (line + 1).to_string().into();
                 let number_len = number.len();
-                let number_color = if line == caret_line { theme::ui_text() } else { theme::line_number() };
+                let number_color = if line == caret_line {
+                    theme::ui_text()
+                } else {
+                    theme::line_number()
+                };
                 let number = window.text_system().shape_line(
                     number,
                     font_size,
@@ -732,7 +813,10 @@ impl Element for EditorElement {
                         x1 += digit_width; // show the selected line break
                     }
                     selection_quads.push(fill(
-                        Bounds::from_corners(point(text_x + x0, y), point(text_x + x1, y + line_height)),
+                        Bounds::from_corners(
+                            point(text_x + x0, y),
+                            point(text_x + x1, y + line_height),
+                        ),
                         theme::selection(),
                     ));
                 }
@@ -767,8 +851,21 @@ impl Element for EditorElement {
                     }
                     let x0 = shaped.x_for_index(found.start.max(line_start) - line_start);
                     let x1 = shaped.x_for_index(found.end.min(line_end) - line_start);
-                    let color = if Some(ix) == find_current { theme::find_current() } else { theme::find_match() };
-                    selection_quads.insert(0, fill(Bounds::from_corners(point(text_x + x0, y), point(text_x + x1, y + line_height)), color));
+                    let color = if Some(ix) == find_current {
+                        theme::find_current()
+                    } else {
+                        theme::find_match()
+                    };
+                    selection_quads.insert(
+                        0,
+                        fill(
+                            Bounds::from_corners(
+                                point(text_x + x0, y),
+                                point(text_x + x1, y + line_height),
+                            ),
+                            color,
+                        ),
+                    );
                 }
                 if let Some(link) = &link {
                     underline(link, theme::link(), &mut underlines);
@@ -777,7 +874,12 @@ impl Element for EditorElement {
                     let x = shaped.x_for_index(byte_of_col(&text, caret_col));
                     view.caret_point = Some(point(text_x + x, y + line_height));
                 }
-                lines.push(PaintLine { number, text, shaped, y });
+                lines.push(PaintLine {
+                    number,
+                    text,
+                    shaped,
+                    y,
+                });
             }
 
             let current_line_y = (caret_line >= first_line && caret_line < last_line)
@@ -806,7 +908,11 @@ impl Element for EditorElement {
     ) {
         let line_height = EditorView::line_height();
         let focus_handle = self.view.read(cx).focus_handle.clone();
-        window.handle_input(&focus_handle, ElementInputHandler::new(bounds, self.view.clone()), cx);
+        window.handle_input(
+            &focus_handle,
+            ElementInputHandler::new(bounds, self.view.clone()),
+            cx,
+        );
 
         let gutter = prepaint.gutter_width;
         let text_x = bounds.left() + gutter + px(TEXT_PADDING);
@@ -816,17 +922,28 @@ impl Element for EditorElement {
         ));
         if let Some(y) = prepaint.current_line_y {
             window.paint_quad(fill(
-                Bounds::from_corners(point(bounds.left() + gutter, y), point(bounds.right(), y + line_height)),
+                Bounds::from_corners(
+                    point(bounds.left() + gutter, y),
+                    point(bounds.right(), y + line_height),
+                ),
                 theme::current_line(),
             ));
         }
-        for quad in prepaint.selection.drain(..).chain(prepaint.underlines.drain(..)) {
+        for quad in prepaint
+            .selection
+            .drain(..)
+            .chain(prepaint.underlines.drain(..))
+        {
             window.paint_quad(quad);
         }
         for line in &prepaint.lines {
             let number_x = bounds.left() + gutter - px(GUTTER_PADDING) - line.number.width;
-            line.number.paint(point(number_x, line.y), line_height, window, cx).ok();
-            line.shaped.paint(point(text_x, line.y), line_height, window, cx).ok();
+            line.number
+                .paint(point(number_x, line.y), line_height, window, cx)
+                .ok();
+            line.shaped
+                .paint(point(text_x, line.y), line_height, window, cx)
+                .ok();
         }
         if focus_handle.is_focused(window)
             && let Some(caret) = prepaint.caret.take()
@@ -840,7 +957,12 @@ impl Element for EditorElement {
             .collect();
         let first_line = prepaint.first_line;
         self.view.update(cx, |view, _| {
-            view.layout = Some(LayoutInfo { bounds, text_x, first_line, lines });
+            view.layout = Some(LayoutInfo {
+                bounds,
+                text_x,
+                first_line,
+                lines,
+            });
         });
     }
 }

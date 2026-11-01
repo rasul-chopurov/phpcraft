@@ -137,6 +137,69 @@ pub fn string_arg_at(doc: &Document, index: &Index, offset: usize) -> Option<Str
     })
 }
 
+/// The file a string literal under `offset` points to: `__DIR__ . '/../x.php'`,
+/// `base_path('routes/web.php')` (helpers from `helper_dirs`), or a path relative to the
+/// file's directory or one of `roots`. Only existing files are returned.
+pub fn file_path_at(
+    doc: &Document,
+    offset: usize,
+    helper_dirs: &[(&str, std::path::PathBuf)],
+    roots: &[std::path::PathBuf],
+) -> Option<std::path::PathBuf> {
+    let mut node = doc.tree.root_node().descendant_for_byte_range(offset, offset)?;
+    while !matches!(node.kind(), "string" | "encapsed_string") {
+        node = node.parent()?;
+    }
+    let raw = doc.text(node);
+    let value = raw.trim_matches(['\'', '"']);
+    if value.is_empty() || value.contains('\n') || value.len() > 300 {
+        return None;
+    }
+    let dir = doc.path.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+    let mut bases: Vec<std::path::PathBuf> = Vec::new();
+    let parent = node.parent();
+    // `__DIR__ . '/x'` / `dirname(__FILE__) . '/x'`
+    if let Some(p) = parent.filter(|p| p.kind() == "binary_expression")
+        && let Some(left) = p.child_by_field_name("left")
+        && left.id() != node.id()
+    {
+        let left = doc.text(left).replace(' ', "");
+        if left == "__DIR__" || left == "dirname(__FILE__)" {
+            bases.push(dir.clone());
+        } else if let Some(rest) = left.strip_prefix("dirname(__DIR__").and_then(|r| r.strip_suffix(')')) {
+            // dirname(__DIR__) or dirname(__DIR__, 2)
+            let levels: usize = rest.trim_start_matches(',').parse().unwrap_or(1);
+            let mut base = dir.clone();
+            for _ in 0..levels {
+                base.pop();
+            }
+            bases.push(base);
+        }
+    }
+    // `base_path('routes/web.php')`
+    if let Some(call) = parent.and_then(|p| p.parent()).and_then(|args| args.parent())
+        && call.kind() == "function_call_expression"
+        && let Some(function) = call.child_by_field_name("function")
+    {
+        let name = doc.text(function).trim_start_matches('\\').to_ascii_lowercase();
+        if let Some((_, base)) = helper_dirs.iter().find(|(f, _)| *f == name) {
+            bases.push(base.clone());
+        }
+    }
+    if bases.is_empty() {
+        if !(value.contains('/') || value.contains('.')) {
+            return None;
+        }
+        bases.push(dir);
+        bases.extend(roots.iter().cloned());
+    }
+    bases.into_iter().find_map(|base| {
+        let candidate = base.join(value.trim_start_matches('/'));
+        let candidate = std::fs::canonicalize(&candidate).ok()?;
+        candidate.is_file().then_some(candidate)
+    })
+}
+
 /// Walks `a()->b()->c()` back to its first receiver and resolves its class.
 fn chain_root(doc: &Document, index: &Index, call: Node) -> Option<String> {
     let mut node = call;

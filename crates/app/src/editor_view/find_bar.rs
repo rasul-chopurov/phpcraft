@@ -3,7 +3,9 @@
 use std::ops::Range;
 
 use editor::Selection;
-use gpui::{Context, Entity, Focusable, SharedString, Subscription, Window, actions, div, prelude::*, px};
+use gpui::{
+    Context, Entity, Focusable, SharedString, Subscription, Window, actions, div, prelude::*, px,
+};
 use search::TextQuery;
 
 use super::EditorView;
@@ -12,7 +14,18 @@ use crate::theme;
 
 actions!(
     editor,
-    [ShowFind, ShowReplace, FindNext, FindPrev, CloseFind, ReplaceNext, ReplaceAll, ToggleCase, ToggleWord, ToggleRegex]
+    [
+        ShowFind,
+        ShowReplace,
+        FindNext,
+        FindPrev,
+        CloseFind,
+        ReplaceNext,
+        ReplaceAll,
+        ToggleCase,
+        ToggleWord,
+        ToggleRegex
+    ]
 );
 
 pub struct FindBar {
@@ -49,10 +62,13 @@ impl EditorView {
         if self.find.is_none() {
             let query = cx.new(|cx| TextField::new("Search", cx));
             let replace_field = cx.new(|cx| TextField::new("Replace", cx));
-            let subscriptions = vec![cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
-                this.refresh_find(cx);
-                this.select_nearest_match(cx);
-            })];
+            let subscriptions =
+                vec![
+                    cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
+                        this.refresh_find(cx);
+                        this.select_nearest_match(cx);
+                    }),
+                ];
             self.find = Some(FindBar {
                 query,
                 replace: replace_field,
@@ -82,11 +98,21 @@ impl EditorView {
         self.open_find(false, window, cx);
     }
 
-    pub(super) fn show_replace(&mut self, _: &ShowReplace, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn show_replace(
+        &mut self,
+        _: &ShowReplace,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.open_find(true, window, cx);
     }
 
-    pub(super) fn close_find(&mut self, _: &CloseFind, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn close_find(
+        &mut self,
+        _: &CloseFind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.find = None;
         window.focus(&self.focus_handle);
         cx.notify();
@@ -118,9 +144,15 @@ impl EditorView {
 
     /// While typing, jump to the first match at or after the caret.
     fn select_nearest_match(&mut self, cx: &mut Context<Self>) {
-        let caret = self.buffer.char_to_byte(self.buffer.selection.range().start);
+        let caret = self
+            .buffer
+            .char_to_byte(self.buffer.selection.range().start);
         let Some(find) = &self.find else { return };
-        let ix = find.matches.iter().position(|m| m.start >= caret).or((!find.matches.is_empty()).then_some(0));
+        let ix = find
+            .matches
+            .iter()
+            .position(|m| m.start >= caret)
+            .or((!find.matches.is_empty()).then_some(0));
         if let Some(ix) = ix {
             self.select_match(ix, cx);
         }
@@ -128,7 +160,9 @@ impl EditorView {
 
     fn select_match(&mut self, ix: usize, cx: &mut Context<Self>) {
         let Some(find) = &mut self.find else { return };
-        let Some(range) = find.matches.get(ix).cloned() else { return };
+        let Some(range) = find.matches.get(ix).cloned() else {
+            return;
+        };
         find.current = Some(ix);
         let anchor = self.buffer.byte_to_char(range.start);
         let head = self.buffer.byte_to_char(range.end);
@@ -144,16 +178,24 @@ impl EditorView {
         }
         self.refresh_find(cx);
         let caret = self.buffer.char_to_byte(self.buffer.selection.head);
-        let start = self.buffer.char_to_byte(self.buffer.selection.range().start);
+        let start = self
+            .buffer
+            .char_to_byte(self.buffer.selection.range().start);
         let Some(find) = &self.find else { return };
         let count = find.matches.len();
         if count == 0 {
             return;
         }
         let ix = if forward {
-            find.matches.iter().position(|m| m.start >= caret && m.start != start).unwrap_or(0)
+            find.matches
+                .iter()
+                .position(|m| m.start >= caret && m.start != start)
+                .unwrap_or(0)
         } else {
-            find.matches.iter().rposition(|m| m.start < start).unwrap_or(count - 1)
+            find.matches
+                .iter()
+                .rposition(|m| m.start < start)
+                .unwrap_or(count - 1)
         };
         self.select_match(ix, cx);
     }
@@ -167,14 +209,23 @@ impl EditorView {
     }
 
     /// Replaces the current match (if the selection is one) and moves to the next.
-    pub(super) fn replace_next(&mut self, _: &ReplaceNext, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn replace_next(
+        &mut self,
+        _: &ReplaceNext,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.refresh_find(cx);
         let Some(find) = &self.find else { return };
         let selection = self.buffer.selection.range();
-        let selected = self.buffer.char_to_byte(selection.start)..self.buffer.char_to_byte(selection.end);
+        let selected =
+            self.buffer.char_to_byte(selection.start)..self.buffer.char_to_byte(selection.end);
         if find.matches.contains(&selected) {
             let query = find.text_query(cx);
-            let replacement = query.expand(&self.buffer.slice(selection.clone()), find.replace.read(cx).text());
+            let replacement = query.expand(
+                &self.buffer.slice(selection.clone()),
+                find.replace.read(cx).text(),
+            );
             self.buffer.replace(selection, &replacement);
             self.refresh_find(cx);
         }
@@ -189,7 +240,10 @@ impl EditorView {
         if let Ok((replaced, count)) = query.replace_all(&text, &replacement)
             && count > 0
         {
-            let caret = self.buffer.char_to_byte(self.buffer.selection.head).min(replaced.len());
+            let caret = self
+                .buffer
+                .char_to_byte(self.buffer.selection.head)
+                .min(replaced.len());
             self.buffer.apply_edits(vec![(0..text.len(), replaced)], 0);
             let caret = self.buffer.byte_to_char(caret);
             self.buffer.move_to(caret, false);
@@ -218,7 +272,10 @@ impl EditorView {
         self.toggle(|f| f.regex ^= true, cx);
     }
 
-    pub(super) fn render_find_bar(&mut self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+    pub(super) fn render_find_bar(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
         self.refresh_find(cx);
         let find = self.find.as_ref()?;
         let option = |id: &'static str, label: &'static str, on: bool, tip: &'static str| {
@@ -230,9 +287,11 @@ impl EditorView {
                 .items_center()
                 .rounded_sm()
                 .cursor_pointer()
-                .font_family(theme::EDITOR_FONT)
+                .font_family(theme::editor_font())
                 .text_size(px(12.))
-                .when(on, |d| d.bg(theme::selection()).text_color(theme::ui_text()))
+                .when(on, |d| {
+                    d.bg(theme::selection()).text_color(theme::ui_text())
+                })
                 .when(!on, |d| d.text_color(theme::muted()))
                 .hover(|d| d.bg(theme::hover()))
                 .child(label)
@@ -292,14 +351,46 @@ impl EditorView {
                                 .when(no_results, |d| d.bg(gpui::rgb(0x5a2828)))
                                 .child(find.query.clone()),
                         )
-                        .child(option("find-case", "Cc", find.case_sensitive, "Match case (⌥C)").on_click(cx.listener(|this, _, window, cx| this.toggle_case(&ToggleCase, window, cx))))
-                        .child(option("find-word", "W", find.whole_word, "Words (⌥W)").on_click(cx.listener(|this, _, window, cx| this.toggle_word(&ToggleWord, window, cx))))
-                        .child(option("find-regex", ".*", find.regex, "Regex (⌥X)").on_click(cx.listener(|this, _, window, cx| this.toggle_regex(&ToggleRegex, window, cx))))
-                        .child(div().w(px(80.)).text_color(if no_results { theme::error() } else { theme::muted() }).child(status))
-                        .child(nav("find-prev", "↑").on_click(cx.listener(|this, _, window, cx| this.step(false, window, cx))))
-                        .child(nav("find-next", "↓").on_click(cx.listener(|this, _, window, cx| this.step(true, window, cx))))
+                        .child(
+                            option("find-case", "Cc", find.case_sensitive, "Match case (⌥C)")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.toggle_case(&ToggleCase, window, cx)
+                                })),
+                        )
+                        .child(
+                            option("find-word", "W", find.whole_word, "Words (⌥W)").on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.toggle_word(&ToggleWord, window, cx)
+                                }),
+                            ),
+                        )
+                        .child(
+                            option("find-regex", ".*", find.regex, "Regex (⌥X)").on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.toggle_regex(&ToggleRegex, window, cx)
+                                }),
+                            ),
+                        )
+                        .child(
+                            div()
+                                .w(px(80.))
+                                .text_color(if no_results {
+                                    theme::error()
+                                } else {
+                                    theme::muted()
+                                })
+                                .child(status),
+                        )
+                        .child(nav("find-prev", "↑").on_click(
+                            cx.listener(|this, _, window, cx| this.step(false, window, cx)),
+                        ))
+                        .child(nav("find-next", "↓").on_click(
+                            cx.listener(|this, _, window, cx| this.step(true, window, cx)),
+                        ))
                         .child(div().flex_1())
-                        .child(nav("find-close", "×").on_click(cx.listener(|this, _, window, cx| this.close_find(&CloseFind, window, cx)))),
+                        .child(nav("find-close", "×").on_click(cx.listener(
+                            |this, _, window, cx| this.close_find(&CloseFind, window, cx),
+                        ))),
                 )
                 .when(find.show_replace, |d| {
                     d.child(
@@ -309,8 +400,14 @@ impl EditorView {
                             .items_center()
                             .gap_2()
                             .child(div().w(px(320.)).child(find.replace.clone()))
-                            .child(text_button("replace-one", "Replace").on_click(cx.listener(|this, _, window, cx| this.replace_next(&ReplaceNext, window, cx))))
-                            .child(text_button("replace-all", "Replace All").on_click(cx.listener(|this, _, window, cx| this.replace_all(&ReplaceAll, window, cx)))),
+                            .child(text_button("replace-one", "Replace").on_click(cx.listener(
+                                |this, _, window, cx| this.replace_next(&ReplaceNext, window, cx),
+                            )))
+                            .child(text_button("replace-all", "Replace All").on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.replace_all(&ReplaceAll, window, cx)
+                                }),
+                            )),
                     )
                 })
                 .on_action(cx.listener(Self::find_next))

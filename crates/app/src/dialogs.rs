@@ -3,13 +3,14 @@
 mod find_files;
 mod make;
 mod navigate;
+mod prefs;
 
 use std::path::Path;
 use std::sync::Arc;
 
 use gpui::{
-    App, Context, Entity, EventEmitter, FocusHandle, Focusable, MouseButton,
-    SharedString, Subscription, Window, actions, div, prelude::*, px,
+    App, Context, Entity, EventEmitter, FocusHandle, Focusable, MouseButton, SharedString,
+    Subscription, Window, actions, div, prelude::*, px,
 };
 use laravel::artisan::{self, ArtisanCommand};
 use laravel::make::MakeKind;
@@ -17,12 +18,27 @@ use laravel::routes::RouteInfo;
 
 pub use find_files::FindInFilesDialog;
 pub use make::{MakeChooser, MakeDialog};
-pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog, NextMode, PrevMode};
+pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
+pub use prefs::{KeymapDialog, SettingsDialog, ThemeDialog};
 
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
 
-actions!(dialog, [Confirm, Cancel, FocusNext, FocusPrev, SelectPrev, SelectNext, Complete, MoveRowUp, MoveRowDown, DeleteRow]);
+actions!(
+    dialog,
+    [
+        Confirm,
+        Cancel,
+        FocusNext,
+        FocusPrev,
+        SelectPrev,
+        SelectNext,
+        Complete,
+        MoveRowUp,
+        MoveRowDown,
+        DeleteRow
+    ]
+);
 
 pub enum DialogEvent {
     Dismiss,
@@ -34,7 +50,11 @@ pub enum DialogEvent {
     ConfigureArtisan(ArtisanCommand),
     OpenRoute(RouteInfo),
     OpenLocation(php_index::Location),
-    ReplaceInFiles { query: search::TextQuery, replacement: String, paths: Vec<std::path::PathBuf> },
+    ReplaceInFiles {
+        query: search::TextQuery,
+        replacement: String,
+        paths: Vec<std::path::PathBuf>,
+    },
     /// The project file list was computed; the workspace caches it.
     FilesListed(Arc<Vec<NavItem>>),
     RunAction(Box<dyn gpui::Action>),
@@ -46,7 +66,11 @@ pub enum DialogEvent {
     CommandsLoaded(Arc<Vec<ArtisanCommand>>),
 }
 
-fn checkbox(id: impl Into<SharedString>, label: impl Into<SharedString>, checked: bool) -> gpui::Stateful<gpui::Div> {
+fn checkbox(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    checked: bool,
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(gpui::ElementId::Name(id.into()))
         .flex()
@@ -58,7 +82,11 @@ fn checkbox(id: impl Into<SharedString>, label: impl Into<SharedString>, checked
                 .size(px(14.))
                 .rounded_sm()
                 .border_1()
-                .border_color(if checked { theme::accent() } else { theme::border_strong() })
+                .border_color(if checked {
+                    theme::accent()
+                } else {
+                    theme::border_strong()
+                })
                 .when(checked, |d| d.bg(theme::accent()))
                 .flex()
                 .items_center()
@@ -78,7 +106,9 @@ fn button(id: &'static str, text: &'static str, primary: bool) -> gpui::Stateful
         .rounded_sm()
         .cursor_pointer()
         .when(primary, |d| d.bg(theme::accent()).text_color(gpui::white()))
-        .when(!primary, |d| d.border_1().border_color(theme::border_strong()))
+        .when(!primary, |d| {
+            d.border_1().border_color(theme::border_strong())
+        })
         .hover(|d| d.opacity(0.85))
         .child(text)
 }
@@ -89,7 +119,8 @@ fn card(width: f32) -> gpui::Div {
         .bg(theme::panel_bg())
         .border_1()
         .border_color(theme::border_strong())
-        .rounded_md()
+        .rounded_lg()
+        .overflow_hidden()
         .shadow_lg()
         .text_size(px(13.))
         .text_color(theme::ui_text())
@@ -111,8 +142,18 @@ pub struct ArtisanDialog {
 impl EventEmitter<DialogEvent> for ArtisanDialog {}
 
 impl ArtisanDialog {
-    pub fn new(root: &Path, cached: Option<Arc<Vec<ArtisanCommand>>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let query = cx.new(|cx| TextField::new("Type a command, e.g. make:model Post -mf, migrate, route:list", cx));
+    pub fn new(
+        root: &Path,
+        cached: Option<Arc<Vec<ArtisanCommand>>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let query = cx.new(|cx| {
+            TextField::new(
+                "Type a command, e.g. make:model Post -mf, migrate, route:list",
+                cx,
+            )
+        });
         let subscription = cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
             this.selected = 0;
             cx.notify();
@@ -121,7 +162,10 @@ impl ArtisanDialog {
         if cached.is_none() {
             let root = root.to_path_buf();
             cx.spawn(async move |this, cx| {
-                let result = cx.background_executor().spawn(async move { artisan::list_commands(&root) }).await;
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { artisan::list_commands(&root) })
+                    .await;
                 this.update(cx, |this, cx| {
                     match result {
                         Ok(list) => {
@@ -148,9 +192,15 @@ impl ArtisanDialog {
     }
 
     fn matches(&self, cx: &App) -> Vec<ArtisanCommand> {
-        let Some(commands) = &self.commands else { return Vec::new() };
+        let Some(commands) = &self.commands else {
+            return Vec::new();
+        };
         let query = self.query.read(cx).text();
-        let word = query.split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+        let word = query
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
         let mut found: Vec<_> = commands
             .iter()
             .filter(|c| {
@@ -160,7 +210,13 @@ impl ArtisanDialog {
             })
             .cloned()
             .collect();
-        found.sort_by_key(|c| (!c.name.starts_with(&word), !c.name.contains(&word), c.name.len()));
+        found.sort_by_key(|c| {
+            (
+                !c.name.starts_with(&word),
+                !c.name.contains(&word),
+                c.name.len(),
+            )
+        });
         found
     }
 
@@ -188,7 +244,10 @@ impl ArtisanDialog {
     fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
         let query = self.query.read(cx).text().trim().to_string();
         let first = query.split_whitespace().next().unwrap_or("");
-        let exact = self.commands.as_ref().is_some_and(|c| c.iter().any(|c| c.name == first));
+        let exact = self
+            .commands
+            .as_ref()
+            .is_some_and(|c| c.iter().any(|c| c.name == first));
         // Typed arguments mean "run as written"; otherwise configure the command first.
         if query.contains(' ') {
             cx.emit(DialogEvent::RunArtisan(query));
@@ -221,31 +280,63 @@ impl Render for ArtisanDialog {
         let matches = self.matches(cx);
         let selected = self.selected.min(matches.len().saturating_sub(1));
         let first = selected.saturating_sub(13);
-        let rows = matches.iter().enumerate().skip(first).take(14).map(|(ix, command)| {
-            div()
-                .id(("cmd", ix))
-                .flex()
-                .gap_3()
-                .px_3()
-                .h(px(24.))
-                .items_center()
-                .when(ix == selected, |d| d.bg(theme::selection()))
-                .hover(|d| d.bg(theme::hover()))
-                .cursor_pointer()
-                .child(div().text_color(theme::error()).child("◈"))
-                .child(div().w(px(220.)).flex_none().font_family(theme::EDITOR_FONT).text_color(theme::syntax(php_syntax::Highlight::Function)).child(command.name.clone()))
-                .child(div().flex_1().overflow_hidden().text_color(theme::muted()).child(command.description.clone()))
-                .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
-                    this.selected = ix;
-                    if event.click_count() >= 2 {
-                        this.confirm(&Confirm, window, cx);
-                    }
-                    cx.notify();
-                }))
-        });
+        let rows = matches
+            .iter()
+            .enumerate()
+            .skip(first)
+            .take(14)
+            .map(|(ix, command)| {
+                div()
+                    .id(("cmd", ix))
+                    .flex()
+                    .gap_3()
+                    .px_3()
+                    .h(px(24.))
+                    .items_center()
+                    .when(ix == selected, |d| d.bg(theme::selection()))
+                    .hover(|d| d.bg(theme::hover()))
+                    .cursor_pointer()
+                    .child(div().text_color(theme::error()).child("◈"))
+                    .child(
+                        div()
+                            .w(px(220.))
+                            .flex_none()
+                            .font_family(theme::editor_font())
+                            .text_color(theme::syntax(php_syntax::Highlight::Function))
+                            .child(command.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .overflow_hidden()
+                            .text_color(theme::muted())
+                            .child(command.description.clone()),
+                    )
+                    .on_click(
+                        cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                            this.selected = ix;
+                            if event.click_count() >= 2 {
+                                this.confirm(&Confirm, window, cx);
+                            }
+                            cx.notify();
+                        }),
+                    )
+            });
         let status = match (&self.commands, &self.error) {
-            (_, Some(err)) => Some(div().px_3().py_2().text_color(theme::error()).child(err.clone())),
-            (None, None) => Some(div().px_3().py_2().text_color(theme::muted()).child("Loading artisan commands…")),
+            (_, Some(err)) => Some(
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_color(theme::error())
+                    .child(err.clone()),
+            ),
+            (None, None) => Some(
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_color(theme::muted())
+                    .child("Loading artisan commands…"),
+            ),
             _ => None,
         };
         card(720.)
@@ -264,7 +355,12 @@ impl Render for ArtisanDialog {
                     .p_2()
                     .border_b_1()
                     .border_color(theme::border())
-                    .child(div().font_family(theme::EDITOR_FONT).text_color(theme::muted()).child("php artisan"))
+                    .child(
+                        div()
+                            .font_family(theme::editor_font())
+                            .text_color(theme::muted())
+                            .child("php artisan"),
+                    )
                     .child(div().flex_1().child(self.query.clone())),
             )
             .children(status)
@@ -304,7 +400,8 @@ impl ArtisanRunDialog {
     pub fn new(command: ArtisanCommand, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut subscriptions = Vec::new();
         let mut watch = |field: &Entity<TextField>, cx: &mut Context<Self>| {
-            subscriptions.push(cx.subscribe(field, |_: &mut Self, _, _: &FieldEvent, cx| cx.notify()));
+            subscriptions
+                .push(cx.subscribe(field, |_: &mut Self, _, _: &FieldEvent, cx| cx.notify()));
         };
         let arguments: Vec<_> = command
             .arguments
@@ -335,11 +432,21 @@ impl ArtisanRunDialog {
             Some(first) => window.focus(&first.focus_handle(cx)),
             None => window.focus(&focus_handle),
         }
-        Self { command, arguments, options, focus_handle, _subscriptions: subscriptions }
+        Self {
+            command,
+            arguments,
+            options,
+            focus_handle,
+            _subscriptions: subscriptions,
+        }
     }
 
     fn line(&self, cx: &App) -> String {
-        let arguments: Vec<String> = self.arguments.iter().map(|f| f.read(cx).text().to_string()).collect();
+        let arguments: Vec<String> = self
+            .arguments
+            .iter()
+            .map(|f| f.read(cx).text().to_string())
+            .collect();
         let options: Vec<(String, Option<String>)> = self
             .command
             .options
@@ -384,7 +491,10 @@ impl ArtisanRunDialog {
         if fields.is_empty() {
             return;
         }
-        let current = fields.iter().position(|f| f.focus_handle(cx).is_focused(window)).unwrap_or(0);
+        let current = fields
+            .iter()
+            .position(|f| f.focus_handle(cx).is_focused(window))
+            .unwrap_or(0);
         let next = (current as isize + delta).rem_euclid(fields.len() as isize) as usize;
         window.focus(&fields[next].focus_handle(cx));
     }
@@ -406,15 +516,30 @@ impl Focusable for ArtisanRunDialog {
 
 impl Render for ArtisanRunDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let arguments = self.command.arguments.iter().zip(&self.arguments).map(|(argument, field)| {
-            let title = format!("{}{}", argument.name, if argument.required { " *" } else { "" });
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(div().w(px(140.)).flex_none().font_family(theme::EDITOR_FONT).child(title))
-                .child(div().flex_1().child(field.clone()))
-        });
+        let arguments =
+            self.command
+                .arguments
+                .iter()
+                .zip(&self.arguments)
+                .map(|(argument, field)| {
+                    let title = format!(
+                        "{}{}",
+                        argument.name,
+                        if argument.required { " *" } else { "" }
+                    );
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .w(px(140.))
+                                .flex_none()
+                                .font_family(theme::editor_font())
+                                .child(title),
+                        )
+                        .child(div().flex_1().child(field.clone()))
+                });
         let mut flags = Vec::new();
         let mut values = Vec::new();
         for (ix, (option, input)) in self.command.options.iter().zip(&self.options).enumerate() {
@@ -427,7 +552,7 @@ impl Render for ArtisanRunDialog {
                 OptionInput::Flag(checked) => flags.push(
                     checkbox(format!("flag-{ix}"), name, *checked)
                         .text_size(px(12.))
-                        .font_family(theme::EDITOR_FONT)
+                        .font_family(theme::editor_font())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let OptionInput::Flag(checked) = &mut this.options[ix] {
                                 *checked = !*checked;
@@ -440,7 +565,14 @@ impl Render for ArtisanRunDialog {
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(div().w(px(140.)).flex_none().font_family(theme::EDITOR_FONT).text_size(px(12.)).child(format!("--{}=", option.name)))
+                        .child(
+                            div()
+                                .w(px(140.))
+                                .flex_none()
+                                .font_family(theme::editor_font())
+                                .text_size(px(12.))
+                                .child(format!("--{}=", option.name)),
+                        )
                         .child(div().flex_1().child(field.clone())),
                 ),
             }
@@ -460,8 +592,17 @@ impl Render for ArtisanRunDialog {
                     .py_2()
                     .border_b_1()
                     .border_color(theme::border())
-                    .child(div().font_family(theme::EDITOR_FONT).child(self.command.name.clone()))
-                    .child(div().text_size(px(12.)).text_color(theme::muted()).child(self.command.description.clone())),
+                    .child(
+                        div()
+                            .font_family(theme::editor_font())
+                            .child(self.command.name.clone()),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(theme::muted())
+                            .child(self.command.description.clone()),
+                    ),
             )
             .child(
                 div()
@@ -474,7 +615,17 @@ impl Render for ArtisanRunDialog {
                     .gap_2()
                     .children(arguments)
                     .children(values)
-                    .when(!flags.is_empty(), |d| d.child(div().flex().flex_wrap().gap_x_4().gap_y_2().mt_1().children(flags))),
+                    .when(!flags.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .gap_x_4()
+                                .gap_y_2()
+                                .mt_1()
+                                .children(flags),
+                        )
+                    }),
             )
             .child(
                 div()
@@ -482,7 +633,7 @@ impl Render for ArtisanRunDialog {
                     .p_2()
                     .rounded_sm()
                     .bg(theme::editor_bg())
-                    .font_family(theme::EDITOR_FONT)
+                    .font_family(theme::editor_font())
                     .text_size(px(12.))
                     .text_color(theme::success())
                     .child(format!("php artisan {line}")),
@@ -493,11 +644,16 @@ impl Render for ArtisanRunDialog {
                     .justify_end()
                     .gap_2()
                     .p_3()
-                    .child(button("artisan-cancel", "Cancel", false).on_click(cx.listener(|_, _, _, cx| cx.emit(DialogEvent::Dismiss))))
+                    .child(
+                        button("artisan-cancel", "Cancel", false)
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(DialogEvent::Dismiss))),
+                    )
                     .child(
                         button("artisan-run", "Run", true)
                             .when(blocked, |d| d.opacity(0.5))
-                            .on_click(cx.listener(|this, _, window, cx| this.confirm(&Confirm, window, cx))),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.confirm(&Confirm, window, cx)
+                            })),
                     ),
             )
     }
@@ -527,7 +683,10 @@ impl RouteSearchDialog {
         window.focus(&query.focus_handle(cx));
         let root = root.to_path_buf();
         cx.spawn(async move |this, cx| {
-            let result = cx.background_executor().spawn(async move { laravel::routes::list_routes(&root) }).await;
+            let result = cx
+                .background_executor()
+                .spawn(async move { laravel::routes::list_routes(&root) })
+                .await;
             this.update(cx, |this, cx| {
                 match result {
                     Ok(routes) => this.routes = Some(Arc::new(routes)),
@@ -538,12 +697,28 @@ impl RouteSearchDialog {
             .ok();
         })
         .detach();
-        Self { query, routes: None, error: None, selected: 0, focus_handle: cx.focus_handle(), _subscription: subscription }
+        Self {
+            query,
+            routes: None,
+            error: None,
+            selected: 0,
+            focus_handle: cx.focus_handle(),
+            _subscription: subscription,
+        }
     }
 
     fn matches(&self, cx: &App) -> Vec<RouteInfo> {
-        let Some(routes) = &self.routes else { return Vec::new() };
-        let words: Vec<String> = self.query.read(cx).text().to_ascii_lowercase().split_whitespace().map(str::to_string).collect();
+        let Some(routes) = &self.routes else {
+            return Vec::new();
+        };
+        let words: Vec<String> = self
+            .query
+            .read(cx)
+            .text()
+            .to_ascii_lowercase()
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
         routes
             .iter()
             .filter(|r| {
@@ -587,33 +762,71 @@ impl Render for RouteSearchDialog {
         let matches = self.matches(cx);
         let selected = self.selected.min(matches.len().saturating_sub(1));
         let first = selected.saturating_sub(17);
-        let rows = matches.iter().enumerate().skip(first).take(18).map(|(ix, route)| {
-            div()
-                .id(("route", ix))
-                .flex()
-                .gap_2()
-                .px_3()
-                .h(px(24.))
-                .items_center()
-                .when(ix == selected, |d| d.bg(theme::selection()))
-                .hover(|d| d.bg(theme::hover()))
-                .cursor_pointer()
-                .child(div().text_color(theme::error()).child("◈"))
-                .child(div().text_color(theme::ui_text()).child(route.method.replace('|', " | ")))
-                .child(div().text_color(theme::text()).child(format!("/{}", route.uri.trim_start_matches('/'))))
-                .children(route.name.clone().map(|n| div().text_color(theme::muted()).child(format!("[{n}]"))))
-                .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
-                    this.selected = ix;
-                    if event.click_count() >= 2 {
-                        this.confirm(&Confirm, window, cx);
-                    }
-                    cx.notify();
-                }))
-        });
+        let rows = matches
+            .iter()
+            .enumerate()
+            .skip(first)
+            .take(18)
+            .map(|(ix, route)| {
+                div()
+                    .id(("route", ix))
+                    .flex()
+                    .gap_2()
+                    .px_3()
+                    .h(px(24.))
+                    .items_center()
+                    .when(ix == selected, |d| d.bg(theme::selection()))
+                    .hover(|d| d.bg(theme::hover()))
+                    .cursor_pointer()
+                    .child(div().text_color(theme::error()).child("◈"))
+                    .child(
+                        div()
+                            .text_color(theme::ui_text())
+                            .child(route.method.replace('|', " | ")),
+                    )
+                    .child(
+                        div()
+                            .text_color(theme::text())
+                            .child(format!("/{}", route.uri.trim_start_matches('/'))),
+                    )
+                    .children(
+                        route
+                            .name
+                            .clone()
+                            .map(|n| div().text_color(theme::muted()).child(format!("[{n}]"))),
+                    )
+                    .on_click(
+                        cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                            this.selected = ix;
+                            if event.click_count() >= 2 {
+                                this.confirm(&Confirm, window, cx);
+                            }
+                            cx.notify();
+                        }),
+                    )
+            });
         let status = match (&self.routes, &self.error) {
-            (_, Some(err)) => Some(div().px_3().py_2().text_color(theme::error()).child(err.clone())),
-            (None, None) => Some(div().px_3().py_2().text_color(theme::muted()).child("Loading routes…")),
-            (Some(_), None) if matches.is_empty() => Some(div().px_3().py_2().text_color(theme::muted()).child("No routes match")),
+            (_, Some(err)) => Some(
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_color(theme::error())
+                    .child(err.clone()),
+            ),
+            (None, None) => Some(
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_color(theme::muted())
+                    .child("Loading routes…"),
+            ),
+            (Some(_), None) if matches.is_empty() => Some(
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_color(theme::muted())
+                    .child("No routes match"),
+            ),
             _ => None,
         };
         card(820.)
@@ -623,10 +836,23 @@ impl Render for RouteSearchDialog {
             .on_action(cx.listener(Self::cancel))
             .on_action(cx.listener(Self::select_prev))
             .on_action(cx.listener(Self::select_next))
-            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child("Route Search"))
+            .child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(theme::border())
+                    .child("Route Search"),
+            )
             .child(div().p_2().child(self.query.clone()))
             .children(status)
-            .child(div().pb_2().font_family(theme::EDITOR_FONT).text_size(px(12.)).children(rows))
+            .child(
+                div()
+                    .pb_2()
+                    .font_family(theme::editor_font())
+                    .text_size(px(12.))
+                    .children(rows),
+            )
     }
 }
 
@@ -648,9 +874,17 @@ impl LaravelSettingsDialog {
     pub fn new(root: &Path, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let settings = laravel::settings::LaravelSettings::load(root);
         let values = [
-            ("Laravel directory:", settings.laravel_dir.clone(), "(project root)"),
+            (
+                "Laravel directory:",
+                settings.laravel_dir.clone(),
+                "(project root)",
+            ),
             ("Default locale:", settings.default_locale.clone(), "en"),
-            ("Controller base class:", settings.controller_base.clone(), "App\\Http\\Controllers\\Controller"),
+            (
+                "Controller base class:",
+                settings.controller_base.clone(),
+                "App\\Http\\Controllers\\Controller",
+            ),
             ("Applications directory:", settings.app_dir.clone(), "app"),
             ("Config directory:", settings.config_dir.clone(), "config"),
             ("Public directory:", settings.public_dir.clone(), "public"),
@@ -669,12 +903,20 @@ impl LaravelSettingsDialog {
         window.focus(&fields[0].1.focus_handle(cx));
         let laravel_root = settings.laravel_root(root);
         let status = if laravel_root.join("artisan").is_file() {
-            let version = laravel::settings::framework_version(&laravel_root).unwrap_or_else(|| "unknown".into());
+            let version = laravel::settings::framework_version(&laravel_root)
+                .unwrap_or_else(|| "unknown".into());
             format!("Current state: Enabled. Framework: Laravel application. Version: {version}")
         } else {
             "Current state: Disabled. No artisan file in the Laravel directory.".to_string()
         };
-        Self { root: root.to_path_buf(), settings, fields, status, error: None, focus_handle: cx.focus_handle() }
+        Self {
+            root: root.to_path_buf(),
+            settings,
+            fields,
+            status,
+            error: None,
+            focus_handle: cx.focus_handle(),
+        }
     }
 
     fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
@@ -700,7 +942,11 @@ impl LaravelSettingsDialog {
     }
 
     fn cycle(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let current = self.fields.iter().position(|(_, f)| f.focus_handle(cx).is_focused(window)).unwrap_or(0);
+        let current = self
+            .fields
+            .iter()
+            .position(|(_, f)| f.focus_handle(cx).is_focused(window))
+            .unwrap_or(0);
         let next = (current as isize + delta).rem_euclid(self.fields.len() as isize) as usize;
         window.focus(&self.fields[next].1.focus_handle(cx));
     }
@@ -737,7 +983,14 @@ impl Render for LaravelSettingsDialog {
             .on_action(cx.listener(Self::cancel))
             .on_action(cx.listener(Self::focus_next))
             .on_action(cx.listener(Self::focus_prev))
-            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child("Languages & Frameworks › Laravel › General"))
+            .child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(theme::border())
+                    .child("Languages & Frameworks › Laravel › General"),
+            )
             .child(
                 div()
                     .flex()
@@ -746,7 +999,11 @@ impl Render for LaravelSettingsDialog {
                     .p_3()
                     .child(div().text_color(theme::muted()).child(self.status.clone()))
                     .children(rows)
-                    .children(self.error.clone().map(|e| div().text_color(theme::error()).child(e))),
+                    .children(
+                        self.error
+                            .clone()
+                            .map(|e| div().text_color(theme::error()).child(e)),
+                    ),
             )
             .child(
                 div()
@@ -756,8 +1013,12 @@ impl Render for LaravelSettingsDialog {
                     .p_3()
                     .border_t_1()
                     .border_color(theme::border())
-                    .child(button("settings-cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.cancel(&Cancel, window, cx))))
-                    .child(button("settings-ok", "OK", true).on_click(cx.listener(|this, _, window, cx| this.confirm(&Confirm, window, cx)))),
+                    .child(button("settings-cancel", "Cancel", false).on_click(
+                        cx.listener(|this, _, window, cx| this.cancel(&Cancel, window, cx)),
+                    ))
+                    .child(button("settings-ok", "OK", true).on_click(
+                        cx.listener(|this, _, window, cx| this.confirm(&Confirm, window, cx)),
+                    )),
             )
     }
 }
@@ -777,7 +1038,12 @@ impl HelperCodeDialog {
     pub fn new(root: &Path, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle);
-        Self { root: root.to_path_buf(), settings: laravel::settings::LaravelSettings::load(root), open: false, focus_handle }
+        Self {
+            root: root.to_path_buf(),
+            settings: laravel::settings::LaravelSettings::load(root),
+            open: false,
+            focus_handle,
+        }
     }
 
     fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
@@ -812,22 +1078,34 @@ impl Render for HelperCodeDialog {
                 .border_1()
                 .border_color(theme::border_strong())
                 .rounded_sm()
-                .children([HelperSource::Migrations, HelperSource::Database].into_iter().map(|source| {
-                    div()
-                        .id(if source == HelperSource::Migrations { "src-migrations" } else { "src-database" })
-                        .px_2()
-                        .h(px(24.))
-                        .flex()
-                        .items_center()
-                        .cursor_pointer()
-                        .hover(|d| d.bg(theme::selection()))
-                        .child(if source == HelperSource::Migrations { "Migrations" } else { "Database (php artisan model:show)" })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.settings.helper.source = source;
-                            this.open = false;
-                            cx.notify();
-                        }))
-                }))
+                .children(
+                    [HelperSource::Migrations, HelperSource::Database]
+                        .into_iter()
+                        .map(|source| {
+                            div()
+                                .id(if source == HelperSource::Migrations {
+                                    "src-migrations"
+                                } else {
+                                    "src-database"
+                                })
+                                .px_2()
+                                .h(px(24.))
+                                .flex()
+                                .items_center()
+                                .cursor_pointer()
+                                .hover(|d| d.bg(theme::selection()))
+                                .child(if source == HelperSource::Migrations {
+                                    "Migrations"
+                                } else {
+                                    "Database (php artisan model:show)"
+                                })
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.settings.helper.source = source;
+                                    this.open = false;
+                                    cx.notify();
+                                }))
+                        }),
+                )
         });
         card(520.)
             .key_context("Dialog")

@@ -3,7 +3,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use gpui::{Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, SharedString, Subscription, Window, actions, div, prelude::*, px};
+use gpui::{
+    Action, AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, SharedString,
+    Subscription, Window, actions, div, prelude::*, px,
+};
 use php_index::Location;
 
 use super::{Cancel, Confirm, DialogEvent, SelectNext, SelectPrev, card};
@@ -34,7 +37,13 @@ impl NavMode {
         matches!(self, Self::Recent | Self::UnusedViews | Self::Tables)
     }
 
-    const TABS: [NavMode; 5] = [Self::All, Self::Classes, Self::Files, Self::Symbols, Self::Actions];
+    const TABS: [NavMode; 5] = [
+        Self::All,
+        Self::Classes,
+        Self::Files,
+        Self::Symbols,
+        Self::Actions,
+    ];
 
     fn label(self) -> &'static str {
         match self {
@@ -95,7 +104,10 @@ pub fn file_items(root: &Path, files: &[PathBuf]) -> Vec<NavItem> {
                 label: rel.display().to_string(),
                 detail: String::new(),
                 icon: "▤",
-                target: NavTarget::Location(Location { path: path.clone(), range: 0..0 }),
+                target: NavTarget::Location(Location {
+                    path: path.clone(),
+                    range: 0..0,
+                }),
             }
         })
         .collect()
@@ -119,7 +131,13 @@ enum Row {
 }
 
 impl NavigateDialog {
-    pub fn new(root: &Path, mode: NavMode, sources: NavSources, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        root: &Path,
+        mode: NavMode,
+        sources: NavSources,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let query = cx.new(|cx| TextField::new("Type to search", cx));
         let subscription = cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
             this.selected = 0;
@@ -144,12 +162,23 @@ impl NavigateDialog {
             })
             .detach();
         }
-        Self { mode, query, sources, selected: 0, focus_handle: cx.focus_handle(), _subscription: subscription }
+        Self {
+            mode,
+            query,
+            sources,
+            selected: 0,
+            focus_handle: cx.focus_handle(),
+            _subscription: subscription,
+        }
     }
 
     fn ranked(items: &[NavItem], query: &str, limit: usize) -> Vec<(NavItem, Vec<usize>)> {
         if query.trim().is_empty() {
-            return items.iter().take(limit).map(|i| (i.clone(), Vec::new())).collect();
+            return items
+                .iter()
+                .take(limit)
+                .map(|i| (i.clone(), Vec::new()))
+                .collect();
         }
         search::fuzzy_rank(items.iter(), query, |i| i.label.as_str(), limit)
             .into_iter()
@@ -161,13 +190,19 @@ impl NavigateDialog {
         let query = self.query.read(cx).text().to_string();
         let empty = Arc::new(Vec::new());
         let files = self.sources.files.clone().unwrap_or(empty);
-        let section = |items: &[NavItem], limit| Self::ranked(items, &query, limit).into_iter().map(|(i, p)| Row::Item(i, p));
+        let section = |items: &[NavItem], limit| {
+            Self::ranked(items, &query, limit)
+                .into_iter()
+                .map(|(i, p)| Row::Item(i, p))
+        };
         match self.mode {
             NavMode::Classes => section(&self.sources.classes, LIMIT).collect(),
             NavMode::Files => section(&files, LIMIT).collect(),
             NavMode::Symbols => section(&self.sources.symbols, LIMIT).collect(),
             NavMode::Actions => section(&self.sources.actions, LIMIT).collect(),
-            NavMode::Recent | NavMode::UnusedViews | NavMode::Tables => section(&self.sources.recent, 500).collect(),
+            NavMode::Recent | NavMode::UnusedViews | NavMode::Tables => {
+                section(&self.sources.recent, 500).collect()
+            }
             NavMode::All => {
                 if query.trim().is_empty() {
                     let mut rows = vec![Row::Header("Recent Files")];
@@ -209,13 +244,19 @@ impl NavigateDialog {
     }
 
     fn next_mode(&mut self, _: &NextMode, _: &mut Window, cx: &mut Context<Self>) {
-        let ix = NavMode::TABS.iter().position(|m| *m == self.mode).map_or(0, |i| (i + 1) % NavMode::TABS.len());
+        let ix = NavMode::TABS
+            .iter()
+            .position(|m| *m == self.mode)
+            .map_or(0, |i| (i + 1) % NavMode::TABS.len());
         self.set_mode(NavMode::TABS[ix], cx);
     }
 
     fn prev_mode(&mut self, _: &PrevMode, _: &mut Window, cx: &mut Context<Self>) {
         let len = NavMode::TABS.len();
-        let ix = NavMode::TABS.iter().position(|m| *m == self.mode).map_or(0, |i| (i + len - 1) % len);
+        let ix = NavMode::TABS
+            .iter()
+            .position(|m| *m == self.mode)
+            .map_or(0, |i| (i + len - 1) % len);
         self.set_mode(NavMode::TABS[ix], cx);
     }
 
@@ -270,7 +311,9 @@ fn highlighted(label: &str, positions: &[usize]) -> Vec<AnyElement> {
 
 fn styled(text: String, matched: bool) -> AnyElement {
     div()
-        .when(matched, |d| d.text_color(theme::syntax(php_syntax::Highlight::Function)))
+        .when(matched, |d| {
+            d.text_color(theme::syntax(php_syntax::Highlight::Function))
+        })
         .child(SharedString::from(text))
         .into_any_element()
 }
@@ -286,7 +329,11 @@ impl Render for NavigateDialog {
         let rows = self.rows(cx);
         let item_count = rows.iter().filter(|r| matches!(r, Row::Item(..))).count();
         let selected = self.selected.min(item_count.saturating_sub(1));
-        let tabs = if self.mode.is_single() { vec![self.mode] } else { NavMode::TABS.to_vec() };
+        let tabs = if self.mode.is_single() {
+            vec![self.mode]
+        } else {
+            NavMode::TABS.to_vec()
+        };
         let tabs = tabs.into_iter().map(|mode| {
             div()
                 .id(SharedString::from(mode.label()))
@@ -294,7 +341,9 @@ impl Render for NavigateDialog {
                 .py_1()
                 .rounded_sm()
                 .cursor_pointer()
-                .when(mode == self.mode, |d| d.bg(theme::selection()).text_color(theme::ui_text()))
+                .when(mode == self.mode, |d| {
+                    d.bg(theme::selection()).text_color(theme::ui_text())
+                })
                 .when(mode != self.mode, |d| d.text_color(theme::muted()))
                 .hover(|d| d.bg(theme::hover()))
                 .child(mode.label())
@@ -307,7 +356,16 @@ impl Render for NavigateDialog {
             match row {
                 Row::Header(title) => {
                     if item_ix >= first {
-                        elements.push(div().px_3().pt_2().pb_1().text_size(px(11.)).text_color(theme::muted()).child(title).into_any_element());
+                        elements.push(
+                            div()
+                                .px_3()
+                                .pt_2()
+                                .pb_1()
+                                .text_size(px(11.))
+                                .text_color(theme::muted())
+                                .child(title)
+                                .into_any_element(),
+                        );
                     }
                 }
                 Row::Item(item, positions) => {
@@ -328,16 +386,39 @@ impl Render for NavigateDialog {
                             .cursor_pointer()
                             .when(ix == selected, |d| d.bg(theme::selection()))
                             .hover(|d| d.bg(theme::hover()))
-                            .child(div().w(px(16.)).flex_none().text_color(theme::syntax(php_syntax::Highlight::Keyword)).child(item.icon))
-                            .child(div().flex().flex_none().text_color(theme::text()).children(highlighted(&item.label, &positions)))
-                            .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_right().text_color(theme::muted()).child(item.detail.clone()))
-                            .on_click(cx.listener(move |this, _, _, cx| this.open(open_item.clone(), cx)))
+                            .child(
+                                div()
+                                    .w(px(16.))
+                                    .flex_none()
+                                    .text_color(theme::syntax(php_syntax::Highlight::Keyword))
+                                    .child(item.icon),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_none()
+                                    .text_color(theme::text())
+                                    .children(highlighted(&item.label, &positions)),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_right()
+                                    .text_color(theme::muted())
+                                    .child(item.detail.clone()),
+                            )
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.open(open_item.clone(), cx)),
+                            )
                             .into_any_element(),
                     );
                 }
             }
         }
-        let loading = self.sources.files.is_none() && matches!(self.mode, NavMode::Files | NavMode::All);
+        let loading =
+            self.sources.files.is_none() && matches!(self.mode, NavMode::Files | NavMode::All);
         card(760.)
             .key_context("ListDialog NavigateDialog")
             .track_focus(&self.focus_handle)
@@ -357,11 +438,28 @@ impl Render for NavigateDialog {
                     .text_size(px(12.))
                     .children(tabs)
                     .child(div().flex_1())
-                    .when(!self.mode.is_single(), |d| d.child(div().text_color(theme::muted()).child("Tab to switch"))),
+                    .when(!self.mode.is_single(), |d| {
+                        d.child(div().text_color(theme::muted()).child("Tab to switch"))
+                    }),
             )
             .child(div().p_2().child(self.query.clone()))
-            .when(loading, |d| d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child("Indexing files…")))
-            .child(div().pb_2().min_h(px(200.)).font_family(theme::EDITOR_FONT).text_size(px(12.)).children(elements))
+            .when(loading, |d| {
+                d.child(
+                    div()
+                        .px_3()
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child("Indexing files…"),
+                )
+            })
+            .child(
+                div()
+                    .pb_2()
+                    .min_h(px(200.))
+                    .font_family(theme::editor_font())
+                    .text_size(px(12.))
+                    .children(elements),
+            )
     }
 }
 
@@ -379,7 +477,10 @@ impl GoToLineDialog {
         let placeholder = format!("{}:{}", current.0 + 1, current.1 + 1);
         let field = cx.new(|cx| TextField::new(placeholder, cx));
         window.focus(&field.focus_handle(cx));
-        Self { field, focus_handle: cx.focus_handle() }
+        Self {
+            field,
+            focus_handle: cx.focus_handle(),
+        }
     }
 
     fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
@@ -387,7 +488,10 @@ impl GoToLineDialog {
         let mut parts = text.split(':').map(|p| p.trim().parse::<usize>().ok());
         if let Some(Some(line)) = parts.next() {
             let column = parts.next().flatten().unwrap_or(1);
-            cx.emit(DialogEvent::GoToLine(line.saturating_sub(1), column.saturating_sub(1)));
+            cx.emit(DialogEvent::GoToLine(
+                line.saturating_sub(1),
+                column.saturating_sub(1),
+            ));
         }
     }
 
