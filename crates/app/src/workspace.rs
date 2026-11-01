@@ -385,7 +385,7 @@ impl Workspace {
     fn render_project_tree(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let rows = self.rows.iter().enumerate().map(|(ix, row)| {
             let selected = self.selected_path.as_deref() == Some(row.entry.path.as_path());
-            let (icon, icon_color) = file_icon(&row.entry.name, row.entry.is_dir, row.expanded);
+            let icon = file_icon(&row.entry.name, row.entry.is_dir, row.expanded);
             div()
                 .id(ix)
                 .mx_1()
@@ -411,7 +411,7 @@ impl Workspace {
                             _ => "",
                         }),
                 )
-                .child(div().w(px(16.)).flex_none().flex().justify_center().text_size(px(11.)).text_color(icon_color).child(icon))
+                .child(div().w(px(16.)).flex_none().flex().justify_center().child(icon))
                 .child(div().overflow_hidden().whitespace_nowrap().child(SharedString::from(row.entry.name.clone())))
                 .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
                     this.click_row(ix, event.click_count(), window, cx)
@@ -434,7 +434,7 @@ impl Workspace {
             let buffer = &tab.read(cx).buffer;
             let title: SharedString = buffer.title().into();
             let dirty = buffer.is_dirty();
-            let (icon, icon_color) = file_icon(&buffer.title(), false, false);
+            let icon = file_icon(&buffer.title(), false, false);
             let active = ix == self.active;
             div()
                 .id(("tab", ix))
@@ -449,7 +449,7 @@ impl Workspace {
                 .border_color(theme::border())
                 .when(active, |d| d.bg(theme::tab_active()).text_color(theme::ui_text()))
                 .when(!active, |d| d.text_color(theme::muted()).hover(|d| d.bg(theme::hover())))
-                .child(div().text_size(px(11.)).text_color(icon_color).child(icon))
+                .child(icon)
                 .child(title)
                 .child(
                     div()
@@ -575,29 +575,15 @@ impl Workspace {
     }
 }
 
-/// A small glyph and color per file type, Zed-style.
-fn file_icon(name: &str, is_dir: bool, expanded: bool) -> (&'static str, gpui::Hsla) {
-    use php_syntax::Highlight as H;
+/// The icon element for a file or folder, coloured by file type.
+pub(crate) fn file_icon(name: &str, is_dir: bool, expanded: bool) -> gpui::Svg {
+    use crate::icons::{Icon, icon};
     if is_dir {
-        return (if expanded { "▿" } else { "▸" }, theme::muted());
+        return icon(if expanded { Icon::folder_open } else { Icon::folder }, 15., theme::muted());
     }
-    let lower = name.to_ascii_lowercase();
-    let (icon, color) = match () {
-        _ if lower.ends_with(".blade.php") => ("◆", theme::syntax(H::Tag)),
-        _ if lower.ends_with(".php") => ("◉", theme::syntax(H::Keyword)),
-        _ if lower.ends_with(".js") || lower.ends_with(".mjs") || lower.ends_with(".cjs") => ("◼", theme::syntax(H::Type)),
-        _ if lower.ends_with(".ts") || lower.ends_with(".tsx") => ("◼", theme::syntax(H::Function)),
-        _ if lower.ends_with(".vue") => ("▲", theme::syntax(H::String)),
-        _ if lower.ends_with(".css") || lower.ends_with(".scss") => ("#", theme::syntax(H::Function)),
-        _ if lower.ends_with(".json") || lower.ends_with(".lock") => ("{}", theme::syntax(H::Number)),
-        _ if lower.ends_with(".md") => ("¶", theme::muted()),
-        _ if lower.ends_with(".yml") || lower.ends_with(".yaml") || lower.ends_with(".xml") => ("≡", theme::syntax(H::Attribute)),
-        _ if lower.starts_with(".env") => ("⚙", theme::syntax(H::Constant)),
-        _ if lower.ends_with(".log") => ("☰", theme::muted()),
-        _ if lower == "artisan" || lower.ends_with(".sh") => ("›", theme::success()),
-        _ => ("•", theme::muted()),
-    };
-    (icon, color)
+    let (kind, color) = crate::icons::for_file(name);
+    let color = if kind == Icon::file { theme::muted() } else { color };
+    icon(kind, 15., color)
 }
 
 impl Workspace {

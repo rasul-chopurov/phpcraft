@@ -7,6 +7,7 @@ mod deployment;
 mod diff_view;
 mod editor_view;
 mod i18n;
+mod icons;
 mod intel;
 mod keymap;
 mod local_history;
@@ -92,7 +93,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    Application::new().run(move |cx: &mut App| {
+    Application::new().with_assets(icons::Assets).run(move |cx: &mut App| {
         theme::init(cx);
         keymap::apply(cx);
         cx.on_action(|_: &Quit, cx| cx.quit());

@@ -139,7 +139,7 @@ impl Workspace {
         let tabs = pane.tabs.iter().enumerate().map(|(tab_ix, tab)| {
             let buffer = &tab.read(cx).buffer;
             let title: SharedString = buffer.title().into();
-            let (icon, icon_color) = file_icon(&buffer.title(), false, false);
+            let icon = file_icon(&buffer.title(), false, false);
             let active = tab_ix == pane.active;
             div()
                 .id(("pane-tab", ix * 1000 + tab_ix))
@@ -153,7 +153,7 @@ impl Workspace {
                 .cursor_pointer()
                 .when(active, |d| d.bg(theme::tab_active().opacity(0.6)).text_color(theme::ui_text()))
                 .when(!active, |d| d.text_color(theme::muted()).hover(|d| d.bg(theme::hover())))
-                .child(div().text_size(px(11.)).text_color(icon_color).child(icon))
+                .child(icon)
                 .child(title)
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.focus_pane(ix, window, cx);

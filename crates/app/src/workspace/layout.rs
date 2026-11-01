@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::Workspace;
 
 gpui::actions!(workspace, [ToggleStructure]);
+use crate::icons::{Icon, icon};
 use crate::theme;
 
 pub(super) const STRIPE_WIDTH: f32 = 34.;
@@ -43,17 +44,17 @@ impl ToolWindow {
         ToolWindow::Laravel,
     ];
 
-    fn icon(self) -> &'static str {
+    fn icon(self) -> Icon {
         match self {
-            ToolWindow::Project => "▤",
-            ToolWindow::Structure => "≣",
-            ToolWindow::Modules => "⧉",
-            ToolWindow::Database => "⛁",
-            ToolWindow::Laravel => "◈",
-            ToolWindow::Commit => "✓",
-            ToolWindow::Ai => "✦",
-            ToolWindow::Terminal => "›_",
-            ToolWindow::Git => "⎇",
+            ToolWindow::Project => Icon::folder,
+            ToolWindow::Structure => Icon::structure,
+            ToolWindow::Modules => Icon::modules,
+            ToolWindow::Database => Icon::database,
+            ToolWindow::Laravel => Icon::laravel,
+            ToolWindow::Commit => Icon::commit,
+            ToolWindow::Ai => Icon::sparkles,
+            ToolWindow::Terminal => Icon::terminal,
+            ToolWindow::Git => Icon::branch,
         }
     }
 
@@ -223,7 +224,11 @@ impl Render for DragPreview {
             .border_color(theme::accent())
             .text_size(px(12.))
             .text_color(theme::ui_text())
-            .child(format!("{} {}", self.0.icon(), self.0.title()))
+            .flex()
+            .items_center()
+            .gap_1p5()
+            .child(icon(self.0.icon(), 14., theme::ui_text()))
+            .child(self.0.title())
     }
 }
 
@@ -310,10 +315,13 @@ impl Workspace {
             .justify_center()
             .rounded_md()
             .cursor_pointer()
-            .text_size(px(14.))
-            .when(open, |d| d.bg(theme::selection()).text_color(theme::ui_text()))
-            .when(!open, |d| d.text_color(theme::muted()).hover(|d| d.bg(theme::hover()).text_color(theme::ui_text())))
-            .child(tool.icon())
+            .group("stripe")
+            .when(open, |d| d.bg(theme::selection()))
+            .when(!open, |d| d.hover(|d| d.bg(theme::hover())))
+            .child(
+                icon(tool.icon(), 16., if open { theme::ui_text() } else { theme::muted() })
+                    .group_hover("stripe", |s| s.text_color(theme::ui_text())),
+            )
             .when(changes > 0, |d| {
                 d.child(div().absolute().top(px(2.)).right(px(2.)).size(px(6.)).rounded_full().bg(theme::accent()))
             })
