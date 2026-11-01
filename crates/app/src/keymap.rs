@@ -175,6 +175,8 @@ const DEFAULTS: &[Default] = &[
     both("down", "workspace::TreeDown", Some("TreeSearch")),
     both("enter", "workspace::TreeOpen", Some("TreeSearch")),
     both("escape", "workspace::TreeCancel", Some("TreeSearch")),
+    both("enter", "dialog::Confirm", Some("TerminalRename")),
+    both("escape", "dialog::Cancel", Some("TerminalRename")),
     per("cmd-alt-shift-x", "ctrl-alt-shift-x", "workspace::UploadToServer", None),
     per("cmd-t", "ctrl-shift-t", "workspace::NewTerminal", Some("Terminal")),
     per("cmd-w", "ctrl-shift-w", "workspace::CloseTerminal", Some("Terminal")),

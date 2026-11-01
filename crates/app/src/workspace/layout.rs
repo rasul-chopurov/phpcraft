@@ -201,7 +201,7 @@ impl Layout {
     }
 
     /// Moves a tool to another edge, keeping it open if it was.
-    fn dock(&mut self, tool: ToolWindow, side: Side) {
+    pub(super) fn dock(&mut self, tool: ToolWindow, side: Side) {
         if self.side(tool) == side {
             return;
         }

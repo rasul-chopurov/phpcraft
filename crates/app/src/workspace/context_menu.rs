@@ -25,6 +25,15 @@ pub(super) enum MenuCommand {
     CloseTab(usize),
     CloseOthers(usize),
     CloseAll,
+    /// Terminal tab commands (by tab index).
+    TerminalRename(usize),
+    TerminalClose(usize),
+    TerminalCloseOthers(usize),
+    TerminalCloseAll,
+    TerminalSelect(usize),
+    /// Moves a tool window to another edge.
+    Dock(super::layout::ToolWindow, super::layout::Side),
+    HideTool(super::layout::ToolWindow),
     /// Opens a submenu next to the item at this index.
     Submenu(usize, Vec<Option<(&'static str, &'static str, MenuCommand, bool)>>),
     Action(&'static str),
@@ -89,6 +98,12 @@ impl Workspace {
             Some(("Git: Rollback…", "", MenuCommand::Rollback(p.clone()), changed)),
             Some(("Reload from Disk", "", MenuCommand::ReloadFromDisk(p), !is_dir)),
         ]
+    }
+
+    /// Shows a context menu with `items` at `position`.
+    pub(super) fn open_menu_at(&mut self, position: Point<Pixels>, items: Items, cx: &mut Context<Self>) {
+        self.context_menu = Some(ContextMenu { position, items, submenu: None });
+        cx.notify();
     }
 
     pub(super) fn open_tree_menu(&mut self, path: PathBuf, is_dir: bool, position: Point<Pixels>, cx: &mut Context<Self>) {
@@ -203,6 +218,24 @@ impl Workspace {
                 for i in (0..self.tabs.len()).rev() {
                     self.close_tab_at(i, window, cx);
                 }
+            }
+            MenuCommand::TerminalRename(ix) => self.start_terminal_rename(ix, window, cx),
+            MenuCommand::TerminalClose(ix) => self.close_terminal_tab(ix, window, cx),
+            MenuCommand::TerminalCloseOthers(ix) => self.close_other_terminals(ix, cx),
+            MenuCommand::TerminalCloseAll => {
+                for i in (0..self.terminal_count()).rev() {
+                    self.close_terminal_tab(i, window, cx);
+                }
+            }
+            MenuCommand::TerminalSelect(ix) => self.select_terminal(ix, window, cx),
+            MenuCommand::Dock(tool, side) => {
+                self.layout.dock(tool, side);
+                self.layout.show(tool);
+                self.layout.save();
+            }
+            MenuCommand::HideTool(tool) => {
+                self.layout.hide(tool);
+                self.focus_active(window, cx);
             }
         }
         cx.notify();

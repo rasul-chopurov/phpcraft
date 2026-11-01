@@ -26,6 +26,8 @@ pub(super) struct TerminalState {
     active: usize,
     /// What ⌃R reruns.
     pub last_run: Option<RunConfig>,
+    /// The tab being renamed and its name field.
+    renaming: Option<(usize, Entity<crate::text_field::TextField>)>,
 }
 
 impl Workspace {
@@ -142,7 +144,84 @@ impl Workspace {
         }
     }
 
-    fn close_terminal_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn terminal_count(&self) -> usize {
+        self.terminals.tabs.len()
+    }
+
+    pub(super) fn select_terminal(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if ix < self.terminals.tabs.len() {
+            self.terminals.active = ix;
+            if let Some(view) = self.active_terminal() {
+                window.focus(&view.focus_handle(cx));
+            }
+        }
+        cx.notify();
+    }
+
+    pub(super) fn close_other_terminals(&mut self, keep: usize, cx: &mut Context<Self>) {
+        if keep < self.terminals.tabs.len() {
+            let tab = self.terminals.tabs.remove(keep);
+            self.terminals.tabs = vec![tab];
+            self.terminals.active = 0;
+        }
+        cx.notify();
+    }
+
+    pub(super) fn start_terminal_rename(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tab) = self.terminals.tabs.get(ix) else { return };
+        let title = tab.view.read(cx).title.clone();
+        let field = cx.new(|cx| {
+            let mut f = crate::text_field::TextField::new("Session name", cx);
+            f.set_text(title, cx);
+            f
+        });
+        window.focus(&field.focus_handle(cx));
+        self.terminals.renaming = Some((ix, field));
+        cx.notify();
+    }
+
+    fn finish_terminal_rename(&mut self, apply: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((ix, field)) = self.terminals.renaming.take() else { return };
+        let name = field.read(cx).text().trim().to_string();
+        if apply
+            && !name.is_empty()
+            && let Some(tab) = self.terminals.tabs.get(ix)
+        {
+            tab.view.update(cx, |view, cx| {
+                view.title = name;
+                cx.notify();
+            });
+        }
+        self.select_terminal(ix, window, cx);
+    }
+
+    /// Right-click on a terminal tab (PhpStorm's menu).
+    pub(super) fn open_terminal_menu(&mut self, ix: usize, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        use super::context_menu::MenuCommand as M;
+        use super::layout::{Side, ToolWindow};
+        let count = self.terminals.tabs.len();
+        let dock = |side: Side, label: &'static str| Some((label, "", M::Dock(ToolWindow::Terminal, side), true));
+        let items = vec![
+            Some(("Rename Session", "", M::TerminalRename(ix), true)),
+            None,
+            Some(("Close Tab", "", M::TerminalClose(ix), true)),
+            Some(("Close All Tabs", "", M::TerminalCloseAll, true)),
+            Some(("Close Other Tabs", "", M::TerminalCloseOthers(ix), count > 1)),
+            None,
+            Some(("New Session", "⌘T", M::Action("workspace::NewTerminal"), true)),
+            Some(("Select Next Tab", "", M::TerminalSelect((ix + 1) % count.max(1)), count > 1)),
+            Some(("Select Previous Tab", "", M::TerminalSelect((ix + count.max(1) - 1) % count.max(1)), count > 1)),
+            None,
+            Some(("Settings", "⌘,", M::Action("workspace::OpenSettings"), true)),
+            None,
+            Some(("Move to", "›", M::Submenu(11, vec![dock(Side::Bottom, "Bottom"), dock(Side::BottomRight, "Bottom Right"), dock(Side::Left, "Left"), dock(Side::Right, "Right")]), true)),
+            None,
+            Some(("Hide", "⇧Esc", M::HideTool(ToolWindow::Terminal), true)),
+        ];
+        self.open_menu_at(position, items, cx);
+    }
+
+    pub(super) fn close_terminal_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         if ix < self.terminals.tabs.len() {
             self.terminals.tabs.remove(ix);
         }
@@ -291,7 +370,19 @@ impl Workspace {
                 .when(ix == active, |d| d.bg(theme::active_row()).text_color(theme::ui_text()))
                 .when(ix != active, |d| d.text_color(theme::muted()).hover(|d| d.bg(theme::hover())))
                 .when(!dot.is_empty(), |d| d.child(div().text_color(color).text_size(px(10.)).child(dot)))
-                .child(SharedString::from(label))
+                .map(|d| match self.terminals.renaming.as_ref().filter(|(r, _)| *r == ix) {
+                    Some((_, field)) => d.child(
+                        div()
+                            .w(px(140.))
+                            .flex()
+                            .key_context("TerminalRename")
+                            .on_action(cx.listener(|this, _: &crate::dialogs::Confirm, window, cx| this.finish_terminal_rename(true, window, cx)))
+                            .on_action(cx.listener(|this, _: &crate::dialogs::Cancel, window, cx| this.finish_terminal_rename(false, window, cx)))
+                            .child(field.clone()),
+                    ),
+                    None => d.child(SharedString::from(label)),
+                })
+                .on_mouse_down(gpui::MouseButton::Right, cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| this.open_terminal_menu(ix, event.position, cx)))
                 .child(
                     div()
                         .id(("term-close", ix))
