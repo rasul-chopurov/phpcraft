@@ -10,6 +10,18 @@ mod laravel_panel;
 mod panes;
 mod git_window;
 pub use git_panel::ShowCommit;
+
+/// Requests to the window that hosts this workspace (project tabs).
+pub enum WorkspaceEvent {
+    /// Open another project as a tab in this window.
+    OpenTab(PathBuf),
+    /// Replace this project with another one.
+    Replace(PathBuf),
+    /// Close this project.
+    Close,
+}
+
+impl gpui::EventEmitter<WorkspaceEvent> for Workspace {}
 pub(crate) use agent_panel::{load_config as load_agent_config, save_config as save_agent_config};
 pub use tools::{OpenKeymap, OpenLaravelSettings, SyncPull, SyncPush};
 mod navigation;
@@ -226,6 +238,15 @@ impl Workspace {
         if let Some(tab) = self.active_tab_for(&path, cx) {
             tab.update(cx, |editor, cx| editor.reveal_char(char_ix, cx));
         }
+    }
+
+    /// Focuses this workspace's active editor (after switching project tabs).
+    pub fn focus_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus_active(window, cx);
+    }
+
+    pub fn project_name(&self) -> String {
+        self.project.name()
     }
 
     fn focus_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {

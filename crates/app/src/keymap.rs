@@ -152,6 +152,8 @@ const DEFAULTS: &[Default] = &[
     both("secondary-enter", "workspace::CommitChanges", None),
     both("alt-shift-h", "workspace::ShowLocalHistory", None),
     both("alt-f12", "workspace::ToggleTerminal", None),
+    per("ctrl-cmd-]", "ctrl-alt-]", "phpcraft::NextProject", None),
+    per("ctrl-cmd-[", "ctrl-alt-[", "phpcraft::PrevProject", None),
     per("cmd-\\", "ctrl-\\", "workspace::SplitRight", None),
     per("cmd-shift-\\", "ctrl-shift-\\", "workspace::UnsplitPane", None),
     per("cmd-alt-]", "ctrl-alt-]", "workspace::FocusNextPane", None),

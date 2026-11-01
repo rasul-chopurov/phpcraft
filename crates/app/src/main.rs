@@ -14,6 +14,7 @@ mod markdown_preview;
 mod menus;
 mod modules;
 mod project_info;
+mod project_window;
 mod run_configs;
 mod settings_import;
 mod structure;
@@ -31,33 +32,32 @@ use gpui::{
 };
 use project::Project;
 
-use workspace::Workspace;
 
 actions!(phpcraft, [Quit]);
 
 /// Opens a project in a new window and remembers it in Recent Projects.
 pub fn open_project_window(root: &std::path::Path, cx: &mut App) -> anyhow::Result<()> {
-    let project = Project::open(root)?;
-    config::remember_project(project.root());
+    // Fail before opening a window when the folder can't be opened.
+    Project::open(root)?;
+    let root = root.to_path_buf();
     let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
-        titlebar: Some(TitlebarOptions {
-            title: Some(format!("{} – PhpCraft", project.name()).into()),
-            ..Default::default()
-        }),
+        titlebar: Some(TitlebarOptions { title: Some("PhpCraft".into()), ..Default::default() }),
         ..Default::default()
     };
+    let mut failure = None;
     cx.open_window(options, |window, cx| {
-        let workspace = cx.new(|cx| {
-            let mut workspace = Workspace::new(project, window, cx);
-            workspace.start_git_polling(cx);
-            workspace
-        });
-        window.set_window_title(&workspace.read(cx).title());
-        workspace
+        let workspace = match project_window::new_workspace(&root, window, cx) {
+            Ok(workspace) => workspace,
+            Err(err) => {
+                failure = Some(err);
+                project_window::new_workspace(std::path::Path::new("."), window, cx).expect("current folder opens")
+            }
+        };
+        cx.new(|cx| project_window::ProjectWindow::new(workspace, window, cx))
     })?;
-    Ok(())
+    failure.map_or(Ok(()), Err)
 }
 
 /// Apps started from Finder/Dock get a minimal PATH; take the login shell's so php,

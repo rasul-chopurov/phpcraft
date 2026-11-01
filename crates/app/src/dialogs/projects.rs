@@ -108,7 +108,7 @@ impl ProjectDialog {
                 self.clone = Some((url, dir));
                 cx.notify();
             }
-            Some(Row::Project(path, false)) => cx.emit(DialogEvent::OpenProject(path, false)),
+            Some(Row::Project(path, false)) => cx.emit(DialogEvent::OpenProject(path, super::OpenMode::Replace)),
             Some(Row::Project(_, true)) => cx.emit(DialogEvent::Dismiss),
             _ => {}
         }
@@ -247,9 +247,26 @@ impl Render for ProjectDialog {
                                         .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip("Open in New Window".into())).into())
                                         .on_click(cx.listener(move |_, _, _, cx| {
                                             cx.stop_propagation();
-                                            cx.emit(DialogEvent::OpenProject(new_window.clone(), true));
+                                            cx.emit(DialogEvent::OpenProject(new_window.clone(), super::OpenMode::NewWindow));
                                         })),
                                 )
+                                .child({
+                                    let new_tab = path.clone();
+                                    div()
+                                        .id(("project-new-tab", ix))
+                                        .invisible()
+                                        .group_hover("project-row", |d| d.visible())
+                                        .px_1()
+                                        .rounded_sm()
+                                        .text_color(theme::muted())
+                                        .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
+                                        .child("⊞")
+                                        .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip("Open in New Tab".into())).into())
+                                        .on_click(cx.listener(move |_, _, _, cx| {
+                                            cx.stop_propagation();
+                                            cx.emit(DialogEvent::OpenProject(new_tab.clone(), super::OpenMode::NewTab));
+                                        }))
+                                })
                             })
                             .into_any_element()
                     }

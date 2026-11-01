@@ -83,8 +83,7 @@ pub enum DialogEvent {
     CommandsLoaded(Arc<Vec<ArtisanCommand>>),
     /// Project switcher: choose a folder to open in a new window.
     PickProjectFolder,
-    /// Open a project; `true` keeps this window and opens another one.
-    OpenProject(std::path::PathBuf, bool),
+    OpenProject(std::path::PathBuf, OpenMode),
     CloneRepository { url: String, parent: std::path::PathBuf },
     /// Run a configuration; `save` stores it in `.phpcraft/run.json`.
     Run { config: crate::run_configs::RunConfig, save: bool },
@@ -94,6 +93,15 @@ pub enum DialogEvent {
     DataSourceSaved { source: laravel::datasource::DataSource, password: String },
     /// Run a shell command in a new terminal tab (agent sign-in from Settings).
     RunInTerminal(String),
+}
+
+/// Where a project opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenMode {
+    /// Instead of the current project.
+    Replace,
+    NewTab,
+    NewWindow,
 }
 
 /// A one-line tooltip.

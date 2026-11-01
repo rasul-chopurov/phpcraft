@@ -468,8 +468,9 @@ impl Workspace {
 
     pub(super) fn close_project(&mut self, _: &CloseProject, window: &mut Window, cx: &mut Context<Self>) {
         self.save_all(cx);
-        // The welcome window comes back when the last project closes.
-        window.remove_window();
+        let _ = window;
+        // The window closes the tab (and itself with the last one).
+        cx.emit(super::WorkspaceEvent::Close);
     }
 
     pub(super) fn reload_all(&mut self, _: &ReloadAll, _: &mut Window, cx: &mut Context<Self>) {
@@ -620,17 +621,20 @@ impl Workspace {
                     tab.update(cx, |editor, cx| editor.reveal_byte(location.range.start, cx));
                 }
             }
-            DialogEvent::OpenProject(path, new_window) => {
-                let (path, new_window) = (path.clone(), *new_window);
+            DialogEvent::OpenProject(path, mode) => {
+                let (path, mode) = (path.clone(), *mode);
                 self.dismiss_modal(window, cx);
-                match crate::open_project_window(&path, cx) {
-                    // Replace this project unless asked for another window.
-                    Ok(()) if !new_window => {
-                        self.save_all(cx);
-                        window.remove_window();
+                match mode {
+                    crate::dialogs::OpenMode::NewWindow => {
+                        if let Err(err) = crate::open_project_window(&path, cx) {
+                            eprintln!("open project: {err}");
+                        }
                     }
-                    Ok(()) => {}
-                    Err(err) => eprintln!("open project: {err}"),
+                    crate::dialogs::OpenMode::NewTab => cx.emit(super::WorkspaceEvent::OpenTab(path)),
+                    crate::dialogs::OpenMode::Replace => {
+                        self.save_all(cx);
+                        cx.emit(super::WorkspaceEvent::Replace(path));
+                    }
                 }
             }
             DialogEvent::CloneRepository { url, parent } => self.clone_repository(url.clone(), parent.clone(), window, cx),
