@@ -180,7 +180,10 @@ pub fn set(cx: &mut App) {
                 Some(("Rename…", "editor::RenameSymbol")),
                 Some(("Introduce Variable", "editor::IntroduceVariable")),
                 Some(("Extract Method", "editor::ExtractMethod")),
+                Some(("Introduce Constant", "editor::IntroduceConstant")),
+                Some(("Introduce Field", "editor::IntroduceField")),
                 Some(("Inline Variable", "editor::InlineVariable")),
+                Some(("Safe Delete", "editor::SafeDelete")),
             ],
         ),
         menu(

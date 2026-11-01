@@ -113,6 +113,9 @@ actions!(
         IntroduceVariable,
         ExtractMethod,
         InlineVariable,
+        IntroduceConstant,
+        IntroduceField,
+        SafeDelete,
         NextProblem,
         PrevProblem,
         SurroundWith,
@@ -1137,6 +1140,9 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::introduce_variable))
             .on_action(cx.listener(Self::extract_method))
             .on_action(cx.listener(Self::inline_variable))
+            .on_action(cx.listener(Self::introduce_constant))
+            .on_action(cx.listener(Self::introduce_field))
+            .on_action(cx.listener(Self::safe_delete))
             .on_action(cx.listener(Self::next_problem))
             .on_action(cx.listener(Self::prev_problem))
             .on_action(cx.listener(Self::surround_with))

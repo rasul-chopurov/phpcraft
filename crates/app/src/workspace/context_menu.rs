@@ -243,6 +243,11 @@ impl Workspace {
     }
 
     /// Applies a confirmed New File / New Directory / Rename / Delete.
+    /// Moves a file to the Trash and closes its tabs (Safe Delete of a class file).
+    pub(crate) fn delete_file(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
+        self.apply_file_op(FileOp::Delete(path.to_path_buf()), "", window, cx);
+    }
+
     pub(super) fn apply_file_op(&mut self, op: FileOp, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         let result: Result<Option<PathBuf>, String> = match &op {
             FileOp::NewFile(dir) => {
