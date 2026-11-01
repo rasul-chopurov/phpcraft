@@ -620,11 +620,17 @@ impl Workspace {
                     tab.update(cx, |editor, cx| editor.reveal_byte(location.range.start, cx));
                 }
             }
-            DialogEvent::OpenProject(path) => {
-                let path = path.clone();
+            DialogEvent::OpenProject(path, new_window) => {
+                let (path, new_window) = (path.clone(), *new_window);
                 self.dismiss_modal(window, cx);
-                if let Err(err) = crate::open_project_window(&path, cx) {
-                    eprintln!("open project: {err}");
+                match crate::open_project_window(&path, cx) {
+                    // Replace this project unless asked for another window.
+                    Ok(()) if !new_window => {
+                        self.save_all(cx);
+                        window.remove_window();
+                    }
+                    Ok(()) => {}
+                    Err(err) => eprintln!("open project: {err}"),
                 }
             }
             DialogEvent::CloneRepository { url, parent } => self.clone_repository(url.clone(), parent.clone(), window, cx),

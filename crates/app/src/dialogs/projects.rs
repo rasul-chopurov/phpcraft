@@ -108,7 +108,7 @@ impl ProjectDialog {
                 self.clone = Some((url, dir));
                 cx.notify();
             }
-            Some(Row::Project(path, false)) => cx.emit(DialogEvent::OpenProject(path)),
+            Some(Row::Project(path, false)) => cx.emit(DialogEvent::OpenProject(path, false)),
             Some(Row::Project(_, true)) => cx.emit(DialogEvent::Dismiss),
             _ => {}
         }
@@ -219,17 +219,38 @@ impl Render for ProjectDialog {
                         .text_color(theme::muted())
                         .child(title)
                         .into_any_element(),
-                    Row::Project(path, _) => {
+                    Row::Project(path, current) => {
                         let name = project_name(&path);
+                        let new_window = path.clone();
                         base.py_1()
+                            .group("project-row")
                             .child(avatar(&name, 26.))
                             .child(
                                 div()
+                                    .flex_1()
                                     .flex()
                                     .flex_col()
                                     .child(div().text_color(theme::ui_text()).child(SharedString::from(name.clone())))
                                     .child(div().text_size(px(11.)).text_color(theme::muted()).child(tilde(&path))),
                             )
+                            .when(!current, |d| {
+                                d.child(
+                                    div()
+                                        .id(("project-new-window", ix))
+                                        .invisible()
+                                        .group_hover("project-row", |d| d.visible())
+                                        .px_1()
+                                        .rounded_sm()
+                                        .text_color(theme::muted())
+                                        .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
+                                        .child("↗")
+                                        .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip("Open in New Window".into())).into())
+                                        .on_click(cx.listener(move |_, _, _, cx| {
+                                            cx.stop_propagation();
+                                            cx.emit(DialogEvent::OpenProject(new_window.clone(), true));
+                                        })),
+                                )
+                            })
                             .into_any_element()
                     }
                 }

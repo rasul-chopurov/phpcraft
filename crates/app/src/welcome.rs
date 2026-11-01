@@ -161,7 +161,7 @@ impl Welcome {
             this.modal = None;
             match event {
                 DialogEvent::CloneRepository { url, parent } => this.clone_repository(url.clone(), parent.clone(), window, cx),
-                DialogEvent::OpenProject(path) => {
+                DialogEvent::OpenProject(path, _) => {
                     let path = path.clone();
                     this.open_project(&path, window, cx);
                 }
@@ -305,6 +305,27 @@ impl Welcome {
                             .child(div().text_size(px(12.)).text_color(theme::muted()).child(tilde(path)))
                             .when_some(branch.clone(), |d, b| d.child(div().text_size(px(12.)).text_color(theme::muted()).child(format!("⎇ {b}")))),
                     )
+                    .child({
+                        let new_window = path.clone();
+                        div()
+                            .id(("welcome-new-window", ix))
+                            .invisible()
+                            .group_hover("project-row", |d| d.visible())
+                            .px_1()
+                            .rounded_sm()
+                            .text_color(theme::muted())
+                            .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
+                            .child("↗")
+                            .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip("Open in New Window".into())).into())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                // Keep the welcome window open for more projects.
+                                cx.stop_propagation();
+                                if let Err(err) = crate::open_project_window(&new_window, cx) {
+                                    this.message = Some(err.to_string());
+                                }
+                                cx.notify();
+                            }))
+                    })
                     .child(
                         div()
                             .id(("welcome-forget", ix))

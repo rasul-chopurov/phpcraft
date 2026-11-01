@@ -83,7 +83,8 @@ pub enum DialogEvent {
     CommandsLoaded(Arc<Vec<ArtisanCommand>>),
     /// Project switcher: choose a folder to open in a new window.
     PickProjectFolder,
-    OpenProject(std::path::PathBuf),
+    /// Open a project; `true` keeps this window and opens another one.
+    OpenProject(std::path::PathBuf, bool),
     CloneRepository { url: String, parent: std::path::PathBuf },
     /// Run a configuration; `save` stores it in `.phpcraft/run.json`.
     Run { config: crate::run_configs::RunConfig, save: bool },
@@ -93,6 +94,24 @@ pub enum DialogEvent {
     DataSourceSaved { source: laravel::datasource::DataSource, password: String },
     /// Run a shell command in a new terminal tab (agent sign-in from Settings).
     RunInTerminal(String),
+}
+
+/// A one-line tooltip.
+pub struct TextTooltip(pub SharedString);
+
+impl Render for TextTooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .bg(theme::panel_bg())
+            .border_1()
+            .border_color(theme::border_strong())
+            .text_size(px(12.))
+            .text_color(theme::ui_text())
+            .child(self.0.clone())
+    }
 }
 
 /// The square of a checkbox, without a label.
