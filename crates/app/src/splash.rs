@@ -19,6 +19,33 @@ fn artwork() -> Arc<Image> {
 
 struct Splash;
 
+impl Splash {
+    /// Logo square, then "Path.az IDEs".
+    fn brand(&self) -> impl IntoElement {
+        let white = rgb(0xffffff);
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .size(px(24.))
+                    .rounded(px(5.))
+                    .bg(gpui::linear_gradient(
+                        135.,
+                        gpui::linear_color_stop(rgb(0x8b6cf6), 0.),
+                        gpui::linear_color_stop(rgb(0x2dd4bf), 1.),
+                    ))
+                    .flex()
+                    .items_end()
+                    .p(px(4.))
+                    .child(div().w(px(9.)).h(px(2.)).bg(white)),
+            )
+            .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).child("Path.az"))
+            .child(div().text_size(px(15.)).child("IDEs"))
+    }
+}
+
 impl Render for Splash {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let white = rgb(0xffffff);
@@ -44,26 +71,12 @@ impl Render for Splash {
                 div()
                     .absolute()
                     .left(px(40.))
-                    .bottom(px(30.))
+                    .bottom(px(22.))
                     .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .size(px(24.))
-                            .rounded(px(5.))
-                            .bg(gpui::linear_gradient(
-                                135.,
-                                gpui::linear_color_stop(rgb(0x8b6cf6), 0.),
-                                gpui::linear_color_stop(rgb(0x2dd4bf), 1.),
-                            ))
-                            .flex()
-                            .items_end()
-                            .p(px(4.))
-                            .child(div().w(px(9.)).h(px(2.)).bg(white)),
-                    )
-                    .child(div().text_size(px(15.)).font_weight(FontWeight::BOLD).child("Path.az"))
-                    .child(div().text_size(px(15.)).child("IDEs")),
+                    .flex_col()
+                    .gap_1()
+                    .child(self.brand())
+                    .child(div().pl(px(32.)).text_size(px(12.)).text_color(rgb(0x22d3ee)).child("#opensource")),
             )
             .child(
                 div()
