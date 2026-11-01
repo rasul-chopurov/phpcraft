@@ -35,6 +35,8 @@ pub enum MenuAction {
     Mnemonic(char),
     Generate(super::generate::GenerateKind),
     OverrideMethod(String),
+    /// An intention's edits (byte ranges in the current text).
+    Edits(Vec<(std::ops::Range<usize>, String)>),
     Nothing,
 }
 
@@ -302,8 +304,24 @@ impl EditorView {
     ) {
         let offset = self.caret_byte();
         let mut items = Vec::new();
+        let path = self.path();
+        let text = self.buffer.text();
         for problem in self.problems_at_caret() {
             items.push(MenuItem::new(problem.message.clone(), "", "⚠", MenuAction::Nothing));
+            if problem.id == "unused-variable"
+                && let Some(path) = &path
+                && let Some(Some(fix)) = self.intel.with_doc(path, &text, |doc, _| php_analysis::remove_unused_variable(doc, problem.range.clone()))
+            {
+                items.push(MenuItem::new(fix.label, "", "💡", MenuAction::Edits(fix.edits.into_iter().map(|e| (e.range, e.text)).collect())));
+            }
+        }
+        if self.buffer.is_php()
+            && let Some(path) = &path
+        {
+            let found = self.intel.with_doc(path, &text, |doc, _| php_analysis::intentions(doc, offset)).unwrap_or_default();
+            for intention in found {
+                items.push(MenuItem::new(intention.label, "", "💡", MenuAction::Edits(intention.edits.into_iter().map(|e| (e.range, e.text)).collect())));
+            }
         }
         let unresolved = self.current_diagnostics().to_vec();
         for problem in unresolved
@@ -457,6 +475,11 @@ impl EditorView {
             MenuAction::Mnemonic(c) => self.set_bookmark_mnemonic(c, cx),
             MenuAction::Generate(kind) => self.run_generate(kind, window, cx),
             MenuAction::OverrideMethod(name) => self.override_method(&name, cx),
+            MenuAction::Edits(edits) => {
+                let caret = self.caret_byte();
+                self.buffer.apply_edits(edits, caret);
+                self.changed(cx);
+            }
             MenuAction::Nothing => {}
         }
         cx.notify();
