@@ -33,6 +33,16 @@ pub struct Index {
     extra_mixins: HashMap<String, Vec<String>>,
     /// Classes as parsed, before `augment` added members.
     unaugmented: HashMap<String, Arc<ClassInfo>>,
+    /// Classes from generated IDE helper files (Laravel Idea's `vendor/_laravel_idea`,
+    /// barryvdh's `_ide_helper*.php`). They only contribute phpdoc members: navigation goes
+    /// to the real class when there is one.
+    stubs: HashMap<String, Arc<ClassInfo>>,
+}
+
+/// A generated helper file that redeclares real classes for IDEs.
+pub fn is_ide_helper(path: &Path) -> bool {
+    path.components().any(|c| c.as_os_str() == "_laravel_idea")
+        || path.file_name().is_some_and(|n| n.to_string_lossy().starts_with("_ide_helper"))
 }
 
 fn key(fqn: &str) -> String {
@@ -86,7 +96,16 @@ impl Index {
     pub fn remove_file(&mut self, path: &Path) {
         let Some((classes, functions)) = self.by_file.remove(path) else { return };
         for k in classes {
-            if let Some(class) = self.classes.remove(&k)
+            let mut removed = None;
+            if self.classes.get(&k).is_some_and(|c| &*c.path == path) {
+                removed = self.classes.remove(&k);
+            }
+            if self.stubs.get(&k).is_some_and(|c| &*c.path == path) {
+                removed = self.stubs.remove(&k).or(removed);
+            }
+            if let Some(class) = removed
+                && !self.classes.contains_key(&k)
+                && !self.stubs.contains_key(&k)
                 && let Some(list) = self.by_short_name.get_mut(&class.name.to_ascii_lowercase())
             {
                 list.retain(|fqn| key(fqn) != k);
@@ -103,16 +122,21 @@ impl Index {
             (None, Some(f)) => f.path.to_path_buf(),
             _ => return,
         };
+        let helper = is_ide_helper(&path);
         let entry = self.by_file.entry(path).or_default();
         for class in symbols.classes {
             let k = key(&class.fqn);
             entry.0.push(k.clone());
-            self.by_short_name
-                .entry(class.name.to_ascii_lowercase())
-                .or_default()
-                .push(class.fqn.clone());
-            self.unaugmented.remove(&k);
-            self.classes.insert(k, Arc::new(class));
+            let names = self.by_short_name.entry(class.name.to_ascii_lowercase()).or_default();
+            if !names.iter().any(|n| key(n) == k) {
+                names.push(class.fqn.clone());
+            }
+            if helper {
+                self.stubs.insert(k, Arc::new(class));
+            } else {
+                self.unaugmented.remove(&k);
+                self.classes.insert(k, Arc::new(class));
+            }
         }
         for function in symbols.functions {
             let k = key(&function.fqn);
@@ -142,7 +166,8 @@ impl Index {
     }
 
     pub fn class(&self, fqn: &str) -> Option<&Arc<ClassInfo>> {
-        self.classes.get(&key(fqn))
+        let k = key(fqn);
+        self.classes.get(&k).or_else(|| self.stubs.get(&k))
     }
 
     pub fn function(&self, fqn: &str) -> Option<&Arc<FunctionInfo>> {
@@ -157,7 +182,7 @@ impl Index {
     }
 
     pub fn classes(&self) -> impl Iterator<Item = &Arc<ClassInfo>> {
-        self.classes.values()
+        self.classes.values().chain(self.stubs.iter().filter(|(k, _)| !self.classes.contains_key(*k)).map(|(_, c)| c))
     }
 
     pub fn functions(&self) -> impl Iterator<Item = &Arc<FunctionInfo>> {
@@ -176,6 +201,12 @@ impl Index {
             }
             let Some(class) = self.class(&next) else { continue };
             out.push(class.clone());
+            // Members the IDE helper declares (columns, relations, scopes) come right after
+            // the real class's own.
+            if let Some(stub) = self.stubs.get(&key(&next)).filter(|s| !Arc::ptr_eq(s, class)) {
+                out.push(stub.clone());
+                queue.extend(stub.mixins.iter().cloned());
+            }
             // Stack order: traits pop first, then parents, interfaces and mixins.
             let next_names = class
                 .mixins
@@ -280,6 +311,29 @@ mod tests {
             index.update_file(Path::new(path), source);
         }
         index
+    }
+
+    #[test]
+    fn ide_helper_classes_never_shadow_real_ones() {
+        let mut index = Index::new();
+        let helper = Path::new("/p/vendor/_laravel_idea/_ide_helper_models_App_Models.php");
+        let helper_src = "<?php\nnamespace App\\Models;\n/** @property string $title */\nclass Post {}\n";
+        let real = Path::new("/p/app/Models/Post.php");
+        let real_src = "<?php\nnamespace App\\Models;\nclass Post { public function publish() {} }\n";
+        // Either order of scanning gives the same answer.
+        for order in [[(helper, helper_src), (real, real_src)], [(real, real_src), (helper, helper_src)]] {
+            let mut index2 = Index::new();
+            for (path, src) in order {
+                index2.update_file(path, src);
+            }
+            assert_eq!(index2.class_location("App\\Models\\Post").unwrap().path, real);
+            assert!(index2.find_member("App\\Models\\Post", "title", &[MemberKind::Property]).is_some(), "helper members still merge");
+            assert!(index2.find_member("App\\Models\\Post", "publish", &[MemberKind::Method]).is_some());
+            assert_eq!(index2.classes().filter(|c| c.name == "Post").count(), 1);
+        }
+        // A helper-only class is still known.
+        index.update_file(helper, helper_src);
+        assert!(index.class("App\\Models\\Post").is_some());
     }
 
     #[test]
