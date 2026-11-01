@@ -275,6 +275,7 @@ impl Workspace {
                     .child(div().w(px(150.)).flex_none().overflow_hidden().whitespace_nowrap().text_color(theme::muted()).child(commit.author.clone()))
                     .child(div().w(px(110.)).flex_none().text_color(theme::muted()).child(commit.date.clone()))
                     .on_click(cx.listener(move |this, _, _, cx| this.select_commit(ix, cx)))
+                    .on_mouse_down(gpui::MouseButton::Right, cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| this.open_commit_menu(ix, event.position, cx)))
             })
             .collect();
         let branch_chip = (!self.git.filter_branch.is_empty()).then(|| {

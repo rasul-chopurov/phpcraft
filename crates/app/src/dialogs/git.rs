@@ -21,6 +21,8 @@ pub enum GitCommand {
     Rollback(Vec<git::FileStatus>),
     /// Any other git command: a title for the output and its arguments.
     Raw { title: String, args: Vec<String>, changes_files: bool },
+    /// Interactive rebase onto `base` with these steps.
+    Rebase { base: String, steps: Vec<git::RebaseStep> },
 }
 
 const MAX_ROWS: usize = 5000;

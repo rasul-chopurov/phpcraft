@@ -278,8 +278,9 @@ impl Workspace {
             GitCommand::Fetch => "Fetch".into(),
             GitCommand::Rollback(files) => format!("Rollback {} file(s)", files.len()),
             GitCommand::Raw { title, .. } => title.clone(),
+            GitCommand::Rebase { .. } => "Interactive rebase".into(),
         };
-        let raw_changes = matches!(&command, GitCommand::Raw { changes_files: true, .. });
+        let raw_changes = matches!(&command, GitCommand::Raw { changes_files: true, .. } | GitCommand::Rebase { .. });
         if raw_changes {
             self.save_all(cx);
         }
@@ -292,7 +293,7 @@ impl Workspace {
         let root = repo.root().to_path_buf();
         let at_risk: Vec<std::path::PathBuf> = match &command {
             GitCommand::Rollback(files) => files.iter().map(|f| root.join(&f.path)).collect(),
-            GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::Merge(_) | GitCommand::Pull | GitCommand::CreateBranch { .. } | GitCommand::Raw { changes_files: true, .. } => self
+            GitCommand::Checkout(_) | GitCommand::CheckoutRevision(_) | GitCommand::Merge(_) | GitCommand::Pull | GitCommand::CreateBranch { .. } | GitCommand::Raw { changes_files: true, .. } | GitCommand::Rebase { .. } => self
                 .git
                 .status
                 .iter()
@@ -321,6 +322,9 @@ impl Workspace {
                         GitCommand::Fetch => repo.fetch(),
                         GitCommand::Rollback(files) => repo.discard(&files).map(|_| "Changes rolled back.".to_string()),
                         GitCommand::Raw { args, .. } => repo.run(&args),
+                        GitCommand::Rebase { base, steps } => repo.rebase_interactive(&base, &steps).map_err(|e| {
+                            format!("{e}\n\nThe rebase stopped: resolve the conflicts (Git ▸ Resolve Conflicts…), then Git ▸ Rebase ▸ Continue — or Abort.")
+                        }),
                     }
                 })
                 .await;

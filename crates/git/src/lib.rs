@@ -125,6 +125,34 @@ impl Repo {
         &self.root
     }
 
+    /// Commits from `base` (exclusive) to HEAD, oldest first: the interactive rebase list.
+    pub fn commits_since(&self, base: &str) -> Result<Vec<(String, String)>, String> {
+        let range = format!("{base}..HEAD");
+        let out = self.git(&["log", "--reverse", "--format=%H%x00%s", &range])?;
+        Ok(out.lines().filter_map(|l| l.split_once('\0')).map(|(h, s)| (h.to_string(), s.to_string())).collect())
+    }
+
+    /// Runs `git rebase -i base` with the given steps instead of opening an editor: the todo
+    /// list comes from `steps`, squash messages are kept as git combines them, and a reword
+    /// becomes an `exec git commit --amend -m …` after its pick.
+    pub fn rebase_interactive(&self, base: &str, steps: &[RebaseStep]) -> Result<String, String> {
+        let git_dir = self.git(&["rev-parse", "--absolute-git-dir"])?.trim().to_string();
+        let todo_file = Path::new(&git_dir).join("phpcraft-rebase-todo");
+        std::fs::write(&todo_file, rebase_todo(steps)).map_err(|e| e.to_string())?;
+        let copy = format!("cp '{}'", todo_file.to_string_lossy().replace('\\', "/").replace('\'', "'\\''"));
+        let output = process::command("git")
+            .args(["rebase", "-i", base])
+            .current_dir(&self.root)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_SEQUENCE_EDITOR", copy)
+            .env("GIT_EDITOR", "true")
+            .output()
+            .map_err(|e| format!("failed to run git: {e}"))?;
+        let _ = std::fs::remove_file(&todo_file);
+        let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        if output.status.success() { Ok(text) } else { Err(text) }
+    }
+
     /// Any git command in the repository (the Git menu's simpler items).
     pub fn run(&self, args: &[String]) -> Result<String, String> {
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -681,6 +709,55 @@ pub fn inline_changes(old: &str, new: &str) -> (Vec<Range<usize>>, Vec<Range<usi
     (left, right)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RebaseAction {
+    Pick,
+    Reword,
+    Squash,
+    Fixup,
+    Drop,
+}
+
+impl RebaseAction {
+    pub const ALL: [RebaseAction; 5] = [RebaseAction::Pick, RebaseAction::Reword, RebaseAction::Squash, RebaseAction::Fixup, RebaseAction::Drop];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            RebaseAction::Pick => "pick",
+            RebaseAction::Reword => "reword",
+            RebaseAction::Squash => "squash",
+            RebaseAction::Fixup => "fixup",
+            RebaseAction::Drop => "drop",
+        }
+    }
+}
+
+/// One line of an interactive rebase, in the order the commits will be applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RebaseStep {
+    pub action: RebaseAction,
+    pub hash: String,
+    pub subject: String,
+    /// The new message for `Reword`.
+    pub message: String,
+}
+
+/// The todo list git reads: rewords as a pick plus an amend with the new message.
+pub fn rebase_todo(steps: &[RebaseStep]) -> String {
+    let mut out = String::new();
+    for step in steps {
+        match step.action {
+            RebaseAction::Reword => {
+                out.push_str(&format!("pick {} {}\n", step.hash, step.subject));
+                let message = step.message.replace('\'', "'\\''");
+                out.push_str(&format!("exec git commit --amend --allow-empty --no-verify -m '{message}'\n"));
+            }
+            action => out.push_str(&format!("{} {} {}\n", action.name(), step.hash, step.subject)),
+        }
+    }
+    out
+}
+
 /// A merge conflict block in a file: byte ranges of the whole block and of each side's text
 /// (without the marker lines).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -877,5 +954,32 @@ mod tests {
         assert_eq!(&text[c.whole.clone()], "<<<<<<< HEAD\nmine\n||||||| base\nold\n=======\ntheirs\n>>>>>>> feature\n");
         assert_eq!(resolve(text, c, true, true, false), "mine\ntheirs\n");
         assert_eq!(resolve(text, c, false, true, false), "theirs\n");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn interactive_rebase() {
+        let dir = std::env::temp_dir().join(format!("phpcraft-rebase-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]);
+        run(&dir, &["config", "user.email", "t@t"]);
+        run(&dir, &["config", "user.name", "T"]);
+        for (file, msg) in [("a", "base"), ("b", "add b"), ("c", "add c"), ("d", "fix c")] {
+            std::fs::write(dir.join(file), file).unwrap();
+            run(&dir, &["add", "."]);
+            run(&dir, &["commit", "-q", "-m", msg]);
+        }
+        let repo = Repo::discover(&dir).unwrap();
+        let base = repo.git(&["rev-parse", "HEAD~3"]).unwrap().trim().to_string();
+        let commits = repo.commits_since(&base).unwrap();
+        assert_eq!(commits.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>(), ["add b", "add c", "fix c"]);
+        let step = |i: usize, action, message: &str| RebaseStep { action, hash: commits[i].0.clone(), subject: commits[i].1.clone(), message: message.into() };
+        // c first, fold "fix c" into it, reword b, applied last.
+        let steps = vec![step(1, RebaseAction::Pick, ""), step(2, RebaseAction::Fixup, ""), step(0, RebaseAction::Reword, "add b (renamed)")];
+        repo.rebase_interactive(&base, &steps).unwrap();
+        let log = repo.git(&["log", "--format=%s"]).unwrap();
+        assert_eq!(log.lines().collect::<Vec<_>>(), ["add b (renamed)", "add c", "base"]);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

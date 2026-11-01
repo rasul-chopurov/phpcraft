@@ -278,6 +278,17 @@ pub fn set(cx: &mut App) {
                 item(cx, "Resolve Conflicts…", "workspace::ResolveConflicts"),
                 item(cx, "Mark File as Resolved", "workspace::MarkResolved"),
                 item(cx, "Rebase…", "workspace::GitRebase"),
+                item(cx, "Interactive Rebase…", "workspace::GitInteractiveRebase"),
+                Some(MenuItem::submenu(menu(
+                    cx,
+                    "Rebase / Cherry-Pick / Merge in Progress",
+                    &[
+                        Some(("Continue", "workspace::GitRebaseContinue")),
+                        Some(("Skip Commit", "workspace::GitRebaseSkip")),
+                        Some(("Abort", "workspace::GitRebaseAbort")),
+                    ],
+                ))),
+                item(cx, "Undo Last Commit", "workspace::GitUndoCommit"),
                 Some(MenuItem::separator()),
                 item(cx, "Branches…", "workspace::OpenBranches"),
                 item(cx, "New Branch…", "workspace::GitNewBranch"),
