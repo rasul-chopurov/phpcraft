@@ -421,7 +421,15 @@ impl Workspace {
             if self.intel.is_laravel() {
                 menu = menu
                     .child(div().my_1().h(px(1.)).bg(theme::border()))
-                    .child(item("db-app", "Add Application Database…").on_click(cx.listener(|this, _, window, cx| this.add_application_database(window, cx))));
+                    .child(item("db-app", "Add Application Database…").on_click(cx.listener(|this, _, window, cx| this.add_application_database(window, cx))))
+                    .child(item("db-env", "Import from .env").on_click(cx.listener(|this, _, window, cx| {
+                        this.db.add_menu = false;
+                        match datasource::from_env(this.project.root()) {
+                            Ok((source, password)) => this.open_source_dialog(source, password, window, cx),
+                            Err(err) => this.db.status = Some(err),
+                        }
+                        cx.notify();
+                    })));
             }
             menu
         });

@@ -23,7 +23,7 @@ use laravel::routes::RouteInfo;
 
 pub use find_files::FindInFilesDialog;
 pub use git::{BranchDialog, ConfirmDialog, GitCommand, LocalHistoryDialog};
-pub use make::{MakeChooser, MakeDialog};
+pub use make::{GeneratorDialog, MakeChooser, MakeDialog};
 pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
 pub use prefs::{KeymapDialog, SettingsDialog, ThemeDialog};
 pub use datasource::DataSourceDialog;
@@ -54,6 +54,8 @@ pub enum DialogEvent {
     Dismiss,
     /// The chooser picked a generator; open its dialog.
     OpenMakeKind(MakeKind),
+    /// A generator that only needs a name (Laravel Idea's simple Create… actions).
+    OpenGenerator(laravel::generators::Simple),
     Created(Vec<std::path::PathBuf>),
     RunArtisan(String),
     /// Open the small arguments/options dialog for a command.

@@ -18,13 +18,14 @@ use super::{
     SelectNext, SelectPrev, button, card, checkbox,
 };
 use crate::text_field::{FieldEvent, TextField};
+use laravel::generators::{Generator, Simple};
 use crate::theme;
 
 // --- chooser ------------------------------------------------------------------
 
-/// Small list of generators, like PhpStorm's "New…" popup.
+/// Laravel Idea's action chooser (⇧⌘,): every code generation, searchable.
 pub struct MakeChooser {
-    kinds: Vec<MakeKind>,
+    items: Vec<(&'static str, Generator)>,
     query: Entity<TextField>,
     selected: usize,
     focus_handle: FocusHandle,
@@ -35,28 +36,35 @@ impl EventEmitter<DialogEvent> for MakeChooser {}
 
 impl MakeChooser {
     pub fn new(root: &Path, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let query = cx.new(|cx| TextField::new("New Laravel…", cx));
+        let query = cx.new(|cx| TextField::new("Action name", cx));
         let subscription = cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
             this.selected = 0;
             cx.notify();
         });
         window.focus(&query.focus_handle(cx));
-        Self {
-            kinds: Maker::new(root).kinds(),
-            query,
-            selected: 0,
-            focus_handle: cx.focus_handle(),
-            _subscription: subscription,
-        }
+        // Filament generators only when Filament is installed.
+        let available = Maker::new(root).kinds();
+        let items = laravel::generators::all()
+            .into_iter()
+            .filter(|(_, g)| match g {
+                Generator::Make(kind) => !kind.is_filament() || available.contains(kind),
+                Generator::Simple(_) => true,
+            })
+            .collect();
+        Self { items, query, selected: 0, focus_handle: cx.focus_handle(), _subscription: subscription }
     }
 
-    fn matches(&self, cx: &App) -> Vec<MakeKind> {
+    fn matches(&self, cx: &App) -> Vec<(&'static str, Generator)> {
         let query = self.query.read(cx).text().to_ascii_lowercase();
-        self.kinds
+        let query = query.trim();
+        let mut items: Vec<_> = self
+            .items
             .iter()
             .copied()
-            .filter(|k| k.label().to_ascii_lowercase().contains(query.trim()))
-            .collect()
+            .filter(|(label, _)| query.is_empty() || label.to_ascii_lowercase().contains(query) || php_analysis::matcher::matches(&label[7..], query))
+            .collect();
+        items.sort_by_key(|(label, _)| !label.to_ascii_lowercase()[7..].starts_with(query));
+        items
     }
 
     fn select_prev(&mut self, _: &SelectPrev, _: &mut Window, cx: &mut Context<Self>) {
@@ -70,9 +78,16 @@ impl MakeChooser {
         cx.notify();
     }
 
+    fn choose(generator: Generator, cx: &mut Context<Self>) {
+        match generator {
+            Generator::Make(kind) => cx.emit(DialogEvent::OpenMakeKind(kind)),
+            Generator::Simple(simple) => cx.emit(DialogEvent::OpenGenerator(simple)),
+        }
+    }
+
     fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(kind) = self.matches(cx).get(self.selected) {
-            cx.emit(DialogEvent::OpenMakeKind(*kind));
+        if let Some((_, generator)) = self.matches(cx).get(self.selected).copied() {
+            Self::choose(generator, cx);
         }
     }
 
@@ -91,7 +106,8 @@ impl Render for MakeChooser {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let matches = self.matches(cx);
         let selected = self.selected.min(matches.len().saturating_sub(1));
-        let rows = matches.into_iter().enumerate().map(|(ix, kind)| {
+        let rows = matches.into_iter().enumerate().map(|(ix, (label, generator))| {
+            let filament = matches!(generator, Generator::Make(kind) if kind.is_filament());
             div()
                 .id(("make-kind", ix))
                 .px_3()
@@ -102,36 +118,152 @@ impl Render for MakeChooser {
                 .cursor_pointer()
                 .when(ix == selected, |d| d.bg(theme::selection()))
                 .hover(|d| d.bg(theme::hover()))
-                .child(
-                    div()
-                        .w(px(16.))
-                        .text_color(theme::syntax(php_syntax::Highlight::Keyword))
-                        .child(if kind.is_filament() { "◆" } else { "C" }),
-                )
-                .child(kind.label())
-                .on_click(cx.listener(move |_, _, _, cx| cx.emit(DialogEvent::OpenMakeKind(kind))))
+                .child(div().w(px(16.)).text_color(theme::syntax(php_syntax::Highlight::Keyword)).child(if filament { "◆" } else { "◈" }))
+                .child(label)
+                .on_click(cx.listener(move |_, _, _, cx| Self::choose(generator, cx)))
         });
-        card(340.)
+        card(420.)
             .key_context("Dialog ArtisanDialog")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::cancel))
             .on_action(cx.listener(Self::select_prev))
             .on_action(cx.listener(Self::select_next))
+            .child(div().px_3().pt_2().text_size(px(12.)).text_color(theme::muted()).child("Laravel · All Code Generations"))
+            .child(div().p_2().border_b_1().border_color(theme::border()).child(self.query.clone()))
+            .child(div().id("make-kinds").max_h(px(520.)).overflow_y_scroll().py_1().children(rows))
+    }
+}
+
+/// Name (and module) for a generator that only needs a name.
+pub struct GeneratorDialog {
+    root: std::path::PathBuf,
+    kind: Simple,
+    name: Entity<TextField>,
+    modules: Vec<String>,
+    module: Option<String>,
+    error: Option<String>,
+    focus_handle: FocusHandle,
+    _subscription: Subscription,
+}
+
+impl EventEmitter<DialogEvent> for GeneratorDialog {}
+
+impl GeneratorDialog {
+    pub fn new(root: &Path, kind: Simple, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let name = cx.new(|cx| TextField::new("Name, e.g. Billing/InvoiceService", cx));
+        let subscription = cx.subscribe(&name, |this: &mut Self, _, _: &FieldEvent, cx| {
+            this.error = None;
+            cx.notify();
+        });
+        window.focus(&name.focus_handle(cx));
+        Self {
+            root: root.to_path_buf(),
+            kind,
+            name,
+            modules: Maker::new(root).modules(),
+            module: None,
+            error: None,
+            focus_handle: cx.focus_handle(),
+            _subscription: subscription,
+        }
+    }
+
+    fn files(&self, cx: &App) -> Vec<(std::path::PathBuf, String)> {
+        let name = self.name.read(cx).text().trim().to_string();
+        if name.is_empty() {
+            return Vec::new();
+        }
+        laravel::generators::plan(self.kind, &name, &self.root, self.module.as_deref())
+    }
+
+    fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
+        let files = self.files(cx);
+        if files.is_empty() {
+            return;
+        }
+        if let Some((path, _)) = files.iter().find(|(p, _)| p.exists()) {
+            self.error = Some(format!("{} already exists", path.strip_prefix(&self.root).unwrap_or(path).display()));
+            cx.notify();
+            return;
+        }
+        let mut created = Vec::new();
+        for (path, content) in &files {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match std::fs::write(path, content) {
+                Ok(()) => created.push(path.clone()),
+                Err(err) => {
+                    self.error = Some(err.to_string());
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+        cx.emit(DialogEvent::Created(created));
+    }
+
+    fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(DialogEvent::Dismiss);
+    }
+}
+
+impl Focusable for GeneratorDialog {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for GeneratorDialog {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let title = laravel::generators::all().into_iter().find(|(_, g)| *g == Generator::Simple(self.kind)).map(|(l, _)| l).unwrap_or("Create");
+        let files = self.files(cx);
+        let modules = std::iter::once(None).chain(self.modules.iter().cloned().map(Some)).map(|module| {
+            let active = self.module == module;
+            let label = module.clone().unwrap_or_else(|| "App".into());
+            div()
+                .id(SharedString::from(format!("gen-module-{label}")))
+                .px_2()
+                .py(px(2.))
+                .rounded_md()
+                .border_1()
+                .cursor_pointer()
+                .border_color(if active { theme::accent() } else { theme::border_strong() })
+                .when(active, |d| d.bg(theme::active_row()))
+                .child(label)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.module = module.clone();
+                    cx.notify();
+                }))
+        });
+        card(520.)
+            .key_context("Dialog")
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(Self::confirm))
+            .on_action(cx.listener(Self::cancel))
+            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(title))
             .child(
                 div()
-                    .p_2()
-                    .border_b_1()
-                    .border_color(theme::border())
-                    .child(self.query.clone()),
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .p_3()
+                    .child(self.name.clone())
+                    .when(!self.modules.is_empty(), |d| d.child(div().flex().flex_wrap().gap_1().text_size(px(12.)).children(modules)))
+                    .children(files.iter().map(|(path, _)| {
+                        div().text_size(px(12.)).text_color(theme::muted()).font_family(theme::editor_font()).child(format!("+ {}", path.strip_prefix(&self.root).unwrap_or(path).display()))
+                    }))
+                    .when_some(self.error.clone(), |d, e| d.child(div().text_size(px(12.)).text_color(theme::error()).child(e))),
             )
             .child(
                 div()
-                    .id("make-kinds")
-                    .max_h(px(460.))
-                    .overflow_y_scroll()
-                    .py_1()
-                    .children(rows),
+                    .flex()
+                    .justify_end()
+                    .gap_2()
+                    .p_3()
+                    .child(button("gen-cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.cancel(&Cancel, window, cx))))
+                    .child(button("gen-ok", "Create", true).on_click(cx.listener(|this, _, window, cx| this.confirm(&Confirm, window, cx)))),
             )
     }
 }

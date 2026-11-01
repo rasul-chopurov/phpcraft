@@ -8,6 +8,7 @@ pub mod dashboard;
 pub mod database;
 pub mod datasource;
 pub mod framework;
+pub mod generators;
 pub mod frontend;
 pub mod helper;
 pub mod make;

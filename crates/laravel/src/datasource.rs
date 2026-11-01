@@ -340,6 +340,31 @@ pub fn from_laravel(root: &Path) -> Result<(DataSource, String), String> {
     Ok((source, text("password")))
 }
 
+/// "Import from .env": a data source from the `DB_*` variables, without booting the app.
+pub fn from_env(root: &Path) -> Result<(DataSource, String), String> {
+    let env = crate::dashboard::env_values(root);
+    if env.is_empty() {
+        return Err("No .env in the project".into());
+    }
+    let get = |k: &str| crate::dashboard::env_value(&env, k).unwrap_or_default();
+    let connection = get("DB_CONNECTION");
+    let driver = Driver::from_laravel(if connection.is_empty() { "mysql" } else { &connection }).ok_or_else(|| format!("Unsupported DB_CONNECTION={connection}"))?;
+    let mut source = DataSource::new(driver);
+    if driver == Driver::Sqlite {
+        let db = get("DB_DATABASE");
+        source.path = if db.is_empty() { "database/database.sqlite".into() } else { db };
+        source.name = ".env (sqlite)".into();
+    } else {
+        let host = get("DB_HOST");
+        source.host = if host.is_empty() || host == "localhost" { "127.0.0.1".into() } else { host };
+        source.port = get("DB_PORT").parse().unwrap_or(driver.default_port());
+        source.database = get("DB_DATABASE");
+        source.user = get("DB_USERNAME");
+        source.name = format!("{}@{}", source.database, source.host);
+    }
+    Ok((source, get("DB_PASSWORD")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,6 +385,12 @@ mod tests {
         let edit = CellEdit { column: "name".into(), value: Some("Ann".into()), key: vec![("id".into(), Some("7".into()))] };
         assert_eq!(update_statement(Driver::Mysql, "users", &edit), ("UPDATE `users` SET `name` = ? WHERE `id` = ?".to_string(), vec![Some("Ann".to_string()), Some("7".to_string())]));
         assert_eq!(update_statement(Driver::Pgsql, "users", &edit).0, "UPDATE \"users\" SET \"name\" = ? WHERE \"id\" = ?");
+        let env_root = std::env::temp_dir().join(format!("phpcraft-env-{}", std::process::id()));
+        std::fs::create_dir_all(&env_root).unwrap();
+        std::fs::write(env_root.join(".env"), "DB_CONNECTION=pgsql\nDB_HOST=localhost\nDB_PORT=5433\nDB_DATABASE=shop\nDB_USERNAME=app\nDB_PASSWORD=secret\n").unwrap();
+        let (ds, password) = from_env(&env_root).unwrap();
+        assert_eq!((ds.driver, ds.host.as_str(), ds.port, ds.database.as_str(), ds.user.as_str(), password.as_str()), (Driver::Pgsql, "127.0.0.1", 5433, "shop", "app", "secret"));
+        std::fs::remove_dir_all(env_root).unwrap();
     }
 }
 

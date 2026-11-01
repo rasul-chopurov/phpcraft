@@ -588,6 +588,11 @@ impl Workspace {
                 });
             }
             DialogEvent::OpenMakeKind(kind) => self.open_make_kind(*kind, window, cx),
+            DialogEvent::OpenGenerator(kind) => {
+                let (root, kind) = (self.project.root().to_path_buf(), *kind);
+                let dialog = cx.new(|cx| crate::dialogs::GeneratorDialog::new(&root, kind, window, cx));
+                self.show_modal(dialog, window, cx);
+            }
             DialogEvent::FilesListed(files) => self.files_cache = Some(files.clone()),
             DialogEvent::ModelFromTable(table) => {
                 self.open_model_for_table(table.clone(), window, cx)
@@ -861,7 +866,7 @@ impl Workspace {
         }
         let entries: &[Option<(&'static str, &'static str, Option<Handler>)>] = &[
             Some((
-                "Code Generation",
+                "All Code Generations…",
                 "⇧⌘,",
                 Some(|w, win, cx| w.open_make(&OpenMake, win, cx)),
             )),
