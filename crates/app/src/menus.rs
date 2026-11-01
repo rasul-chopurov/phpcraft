@@ -289,6 +289,8 @@ pub fn set(cx: &mut App) {
                     ],
                 ))),
                 item(cx, "Undo Last Commit", "workspace::GitUndoCommit"),
+                item(cx, "Shelve Changes…", "workspace::GitShelve"),
+                item(cx, "Shelf…", "workspace::GitShelf"),
                 Some(MenuItem::separator()),
                 item(cx, "Branches…", "workspace::OpenBranches"),
                 item(cx, "New Branch…", "workspace::GitNewBranch"),

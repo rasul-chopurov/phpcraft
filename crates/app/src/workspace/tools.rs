@@ -475,6 +475,11 @@ impl Workspace {
     }
 
     pub(super) fn reload_all(&mut self, _: &ReloadAll, _: &mut Window, cx: &mut Context<Self>) {
+        self.reload_open_files(cx);
+    }
+
+    /// Reloads open files that changed on disk (after git operations), keeping unsaved edits.
+    pub(super) fn reload_open_files(&mut self, cx: &mut Context<Self>) {
         for tab in self.tabs.clone() {
             if let Some(path) = tab.read(cx).buffer.path().map(|p| p.to_path_buf()) {
                 tab.update(cx, |editor, cx| editor.reload_if_clean(&path, cx));
@@ -649,6 +654,14 @@ impl Workspace {
                 }
             }
             DialogEvent::CloneRepository { url, parent } => self.clone_repository(url.clone(), parent.clone(), window, cx),
+            DialogEvent::Shelve { name, files } => {
+                let (name, files) = (name.clone(), files.clone());
+                self.shelve_files(&name, &files, window, cx);
+            }
+            DialogEvent::Unshelve { id, delete_only } => {
+                let (id, delete_only) = (id.clone(), *delete_only);
+                self.unshelve(&id, delete_only, window, cx);
+            }
             DialogEvent::Git(command) => {
                 let command = command.clone();
                 self.dismiss_modal(window, cx);

@@ -23,6 +23,7 @@ mod debug_panel;
 mod services_panel;
 mod git_compare;
 mod git_rebase;
+mod git_shelf;
 pub use git_panel::ShowCommit;
 pub(crate) use db_panel::RunSql;
 
@@ -1043,6 +1044,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::git_rebase_continue))
             .on_action(cx.listener(Self::git_rebase_skip))
             .on_action(cx.listener(Self::git_rebase_abort))
+            .on_action(cx.listener(Self::git_shelve))
+            .on_action(cx.listener(Self::git_shelf))
             .on_action(cx.listener(Self::show_test_results))
             .on_action(cx.listener(Self::rerun_failed_tests))
             .on_action(cx.listener(Self::run_with_coverage))

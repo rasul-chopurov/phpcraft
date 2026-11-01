@@ -758,6 +758,92 @@ pub fn rebase_todo(steps: &[RebaseStep]) -> String {
     out
 }
 
+/// A shelved set of changes (`.phpcraft/shelf/<id>/`): `changes.patch` for tracked files,
+/// copies of new files under `new/`, and `info` with the name and file list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shelf {
+    pub id: String,
+    pub name: String,
+    pub files: Vec<String>,
+}
+
+/// Shelves in `dir`, newest first.
+pub fn shelves(dir: &Path) -> Vec<Shelf> {
+    let mut out: Vec<Shelf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let info = std::fs::read_to_string(e.path().join("info")).ok()?;
+            let mut lines = info.lines();
+            let name = lines.next()?.to_string();
+            Some(Shelf { id: e.file_name().to_string_lossy().into_owned(), name, files: lines.map(str::to_string).collect() })
+        })
+        .collect();
+    out.sort_by(|a, b| b.id.cmp(&a.id));
+    out
+}
+
+impl Repo {
+    /// Shelves `files` (relative paths): saves their changes into `dir` and reverts them.
+    pub fn shelve(&self, dir: &Path, name: &str, files: &[String]) -> Result<Shelf, String> {
+        let id = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis()));
+        let shelf = dir.join(&id);
+        std::fs::create_dir_all(shelf.join("new")).map_err(|e| e.to_string())?;
+        let untracked: Vec<String> = self.git(&["ls-files", "--others", "--exclude-standard", "--"]).unwrap_or_default().lines().map(str::to_string).collect();
+        let (new, tracked): (Vec<&String>, Vec<&String>) = files.iter().partition(|f| untracked.contains(f));
+        if !tracked.is_empty() {
+            let mut args = vec!["diff", "--binary", "HEAD", "--"];
+            args.extend(tracked.iter().map(|s| s.as_str()));
+            let patch = self.git(&args)?;
+            std::fs::write(shelf.join("changes.patch"), patch).map_err(|e| e.to_string())?;
+        }
+        for file in &new {
+            let target = shelf.join("new").join(file);
+            std::fs::create_dir_all(target.parent().unwrap()).map_err(|e| e.to_string())?;
+            std::fs::copy(self.root.join(file), &target).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(shelf.join("info"), format!("{name}\n{}", files.join("\n"))).map_err(|e| e.to_string())?;
+        // Back to HEAD.
+        if !tracked.is_empty() {
+            let mut args = vec!["checkout", "HEAD", "--"];
+            args.extend(tracked.iter().map(|s| s.as_str()));
+            self.git(&args)?;
+        }
+        for file in &new {
+            let _ = std::fs::remove_file(self.root.join(file));
+        }
+        Ok(Shelf { id, name: name.to_string(), files: files.to_vec() })
+    }
+
+    /// Applies a shelf back to the working tree; it is removed unless `keep`.
+    pub fn unshelve(&self, dir: &Path, id: &str, keep: bool) -> Result<(), String> {
+        let shelf = dir.join(id);
+        let patch = shelf.join("changes.patch");
+        if patch.is_file() {
+            self.git(&["apply", "--3way", &patch.to_string_lossy()])?;
+        }
+        let new_dir = shelf.join("new");
+        let mut stack = vec![new_dir.clone()];
+        while let Some(d) = stack.pop() {
+            for entry in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if let Ok(rel) = path.strip_prefix(&new_dir) {
+                    let target = self.root.join(rel);
+                    std::fs::create_dir_all(target.parent().unwrap()).map_err(|e| e.to_string())?;
+                    std::fs::copy(&path, &target).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        if !keep {
+            std::fs::remove_dir_all(&shelf).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+}
+
 /// A merge conflict block in a file: byte ranges of the whole block and of each side's text
 /// (without the marker lines).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -980,6 +1066,36 @@ mod tests {
         repo.rebase_interactive(&base, &steps).unwrap();
         let log = repo.git(&["log", "--format=%s"]).unwrap();
         assert_eq!(log.lines().collect::<Vec<_>>(), ["add b (renamed)", "add c", "base"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn shelve_and_unshelve() {
+        let dir = std::env::temp_dir().join(format!("phpcraft-shelf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        run(&dir, &["init", "-q", "-b", "main"]);
+        run(&dir, &["config", "user.email", "t@t"]);
+        run(&dir, &["config", "user.name", "T"]);
+        std::fs::write(dir.join("a.php"), "one\n").unwrap();
+        std::fs::write(dir.join("b.php"), "two\n").unwrap();
+        run(&dir, &["add", "."]);
+        run(&dir, &["commit", "-q", "-m", "init"]);
+        std::fs::write(dir.join("a.php"), "one changed\n").unwrap();
+        std::fs::write(dir.join("b.php"), "two changed\n").unwrap();
+        std::fs::write(dir.join("new.php"), "new\n").unwrap();
+        let repo = Repo::discover(&dir).unwrap();
+        let shelf_dir = dir.join(".phpcraft/shelf");
+        let shelf = repo.shelve(&shelf_dir, "wip", &["a.php".into(), "new.php".into()]).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("a.php")).unwrap(), "one\n");
+        assert!(!dir.join("new.php").exists());
+        assert_eq!(std::fs::read_to_string(dir.join("b.php")).unwrap(), "two changed\n", "not shelved: untouched");
+        assert_eq!(shelves(&shelf_dir)[0].name, "wip");
+        repo.unshelve(&shelf_dir, &shelf.id, false).unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("a.php")).unwrap(), "one changed\n");
+        assert_eq!(std::fs::read_to_string(dir.join("new.php")).unwrap(), "new\n");
+        assert!(shelves(&shelf_dir).is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 }
