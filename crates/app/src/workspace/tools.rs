@@ -34,7 +34,14 @@ actions!(
         OpenSettings,
         SyncPush,
         SyncPull,
-        OpenProjects
+        OpenProjects,
+        About,
+        NewProject,
+        OpenFolder,
+        CloseProject,
+        ReloadAll,
+        Reindex,
+        SaveAll
     ]
 );
 
@@ -436,6 +443,52 @@ impl Workspace {
         let root = self.project.root().to_path_buf();
         let dialog = cx.new(|cx| crate::dialogs::ProjectDialog::new(&root, window, cx));
         self.show_dropdown(dialog, 6., window, cx);
+    }
+
+    pub(super) fn about(&mut self, _: &About, _: &mut Window, cx: &mut Context<Self>) {
+        self.output = Some(Output {
+            title: "About".into(),
+            text: format!(
+                "PhpCraft {} — PhpStorm in pure Rust.\nOpen source: https://github.com/rasul-chopurov/phpcraft\nNot affiliated with JetBrains or Laravel Idea.",
+                env!("CARGO_PKG_VERSION")
+            ),
+            running: false,
+            ok: true,
+        });
+        cx.notify();
+    }
+
+    pub(super) fn new_project(&mut self, _: &NewProject, _: &mut Window, cx: &mut Context<Self>) {
+        crate::welcome::open(cx);
+    }
+
+    pub(super) fn open_folder(&mut self, _: &OpenFolder, window: &mut Window, cx: &mut Context<Self>) {
+        self.pick_project_folder(window, cx);
+    }
+
+    pub(super) fn close_project(&mut self, _: &CloseProject, window: &mut Window, cx: &mut Context<Self>) {
+        self.save_all(cx);
+        // The welcome window comes back when the last project closes.
+        window.remove_window();
+    }
+
+    pub(super) fn reload_all(&mut self, _: &ReloadAll, _: &mut Window, cx: &mut Context<Self>) {
+        for tab in self.tabs.clone() {
+            if let Some(path) = tab.read(cx).buffer.path().map(|p| p.to_path_buf()) {
+                tab.update(cx, |editor, cx| editor.reload_if_clean(&path, cx));
+            }
+        }
+        self.rows = self.project.rows();
+        cx.notify();
+    }
+
+    pub(super) fn reindex(&mut self, _: &Reindex, _: &mut Window, cx: &mut Context<Self>) {
+        self.files_cache = None;
+        self.rescan(cx);
+    }
+
+    pub(super) fn save_all_action(&mut self, _: &SaveAll, _: &mut Window, cx: &mut Context<Self>) {
+        self.save_all(cx);
     }
 
     fn pick_project_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {

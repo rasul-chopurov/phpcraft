@@ -7,6 +7,7 @@ mod intel;
 mod keymap;
 mod local_history;
 mod markdown_preview;
+mod menus;
 mod run_configs;
 mod settings_import;
 mod structure;
@@ -85,6 +86,7 @@ fn main() {
         theme::init(cx);
         keymap::apply(cx);
         cx.on_action(|_: &Quit, cx| cx.quit());
+        menus::set(cx);
         match &root {
             Some(root) => {
                 if let Err(err) = open_project_window(std::path::Path::new(root), cx) {
