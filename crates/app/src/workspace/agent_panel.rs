@@ -72,7 +72,7 @@ pub(crate) fn load_config() -> AgentConfig {
     std::fs::read_to_string(config_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 
-fn save_config(config: &AgentConfig) {
+pub(crate) fn save_config(config: &AgentConfig) {
     let _ = std::fs::create_dir_all(crate::config::dir());
     let path = config_path();
     let _ = std::fs::write(&path, serde_json::to_string_pretty(config).unwrap_or_default());

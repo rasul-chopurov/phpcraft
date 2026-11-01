@@ -10,7 +10,7 @@ mod laravel_panel;
 mod panes;
 mod git_window;
 pub use git_panel::ShowCommit;
-pub(crate) use agent_panel::load_config as load_agent_config;
+pub(crate) use agent_panel::{load_config as load_agent_config, save_config as save_agent_config};
 pub use tools::{OpenKeymap, OpenLaravelSettings, SyncPull, SyncPush};
 mod navigation;
 mod tools;

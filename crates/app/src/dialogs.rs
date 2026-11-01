@@ -91,6 +91,8 @@ pub enum DialogEvent {
     /// From [`InputDialog`]: `name` is empty for Delete.
     FileOp { op: FileOp, name: String },
     DataSourceSaved { source: laravel::datasource::DataSource, password: String },
+    /// Run a shell command in a new terminal tab (agent sign-in from Settings).
+    RunInTerminal(String),
 }
 
 /// The square of a checkbox, without a label.

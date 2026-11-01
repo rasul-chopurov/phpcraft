@@ -603,6 +603,15 @@ impl Workspace {
                 self.revert_file(&path, &content, cx);
             }
             DialogEvent::PickProjectFolder => self.pick_project_folder(window, cx),
+            DialogEvent::RunInTerminal(command) => {
+                let config = crate::run_configs::RunConfig {
+                    name: command.split_whitespace().next().unwrap_or("command").to_string(),
+                    kind: crate::run_configs::Kind::Shell { command: command.clone() },
+                    env: Default::default(),
+                };
+                self.dismiss_modal(window, cx);
+                self.start_run(config, false, cx);
+            }
             DialogEvent::OpenLocationInSplit(location) => {
                 let location = location.clone();
                 self.dismiss_modal(window, cx);

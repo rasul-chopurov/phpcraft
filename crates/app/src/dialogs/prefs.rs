@@ -456,6 +456,7 @@ enum SettingsPage {
     Terminal,
     Laravel,
     Import,
+    AiProviders,
 }
 
 /// `(page, group, title, search keywords)` in tree order.
@@ -468,6 +469,7 @@ const PAGES: &[(SettingsPage, &str, &str, &str)] = &[
     (SettingsPage::Laravel, "Languages & Frameworks", "Laravel", "laravel php artisan models"),
     (SettingsPage::Terminal, "Tools", "Terminal", "terminal shell zsh bash"),
     (SettingsPage::Import, "Tools", "Import Settings", "import vscode phpstorm zed migrate"),
+    (SettingsPage::AiProviders, "Tools", "AI Providers", "ai claude anthropic opencode gemini google antigravity codex agent api key acp"),
 ];
 
 pub struct SettingsDialog {
@@ -478,6 +480,9 @@ pub struct SettingsDialog {
     font: Entity<TextField>,
     font_size: Entity<TextField>,
     shell: Entity<TextField>,
+    api_key: Entity<TextField>,
+    model: Entity<TextField>,
+    agent: agent::AgentConfig,
     themes: Vec<String>,
     status: Option<String>,
     focus_handle: FocusHandle,
@@ -501,6 +506,9 @@ impl SettingsDialog {
         let font = field("JetBrains Mono", settings.editor_font.clone(), cx);
         let font_size = field("13.5", settings.editor_font_size.to_string(), cx);
         let shell = field("Login shell", settings.terminal_shell.clone(), cx);
+        let agent = crate::workspace::load_agent_config();
+        let api_key = field("sk-ant-… (or ANTHROPIC_API_KEY)", agent.api_key.clone(), cx);
+        let model = field(agent::DEFAULT_MODEL, agent.model.clone(), cx);
         let search = cx.new(|cx| TextField::new("Search settings", cx));
         let subscription = cx.subscribe(&search, |this: &mut Self, _, _: &FieldEvent, cx| {
             if let Some(first) = this.visible_pages(cx).first() {
@@ -518,6 +526,9 @@ impl SettingsDialog {
             font,
             font_size,
             shell,
+            api_key,
+            model,
+            agent,
             themes: theme::available().into_iter().map(|t| t.name).collect(),
             status: None,
             focus_handle,
@@ -543,6 +554,10 @@ impl SettingsDialog {
         settings.editor_font_size = self.font_size.read(cx).text().trim().parse::<f32>().unwrap_or(13.5).clamp(8., 32.);
         settings.terminal_shell = self.shell.read(cx).text().trim().to_string();
         settings.save();
+        self.agent.api_key = self.api_key.read(cx).text().trim().to_string();
+        let model = self.model.read(cx).text().trim().to_string();
+        self.agent.model = if model.is_empty() { agent::DEFAULT_MODEL.into() } else { model };
+        crate::workspace::save_agent_config(&self.agent);
         // Re-picks fonts and applies the theme.
         theme::init(cx);
         self.status = Some("Applied".into());
@@ -659,6 +674,58 @@ impl SettingsDialog {
                     window.dispatch_action(Box::new(crate::workspace::OpenLaravelSettings), cx);
                 }))))
                 .into_any_element(),
+            SettingsPage::AiProviders => {
+                let current = self.agent.provider.clone();
+                let provider_row = |id: &'static str, title: &'static str, detail: String, installed: bool, install: &'static str, login: Option<String>| {
+                    let active = current == id;
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .p_2()
+                        .rounded_md()
+                        .border_1()
+                        .border_color(if active { theme::accent() } else { theme::border() })
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(div().text_color(theme::ui_text()).child(title))
+                                .child(div().text_size(px(11.)).text_color(if installed { theme::success() } else { theme::muted() }).child(if installed { "✓ available" } else { "not installed" }))
+                                .child(div().flex_1())
+                                .when(installed && !active, |d| {
+                                    d.child(option_chip(SharedString::from(format!("ai-use-{id}")), "Use by default", false).on_click(cx.listener(move |this, _, _, cx| {
+                                        this.agent.provider = id.to_string();
+                                        cx.notify();
+                                    })))
+                                })
+                                .when(active, |d| d.child(div().text_size(px(12.)).text_color(theme::accent()).child("Default")))
+                                .when_some(login.filter(|_| installed), |d, login| {
+                                    d.child(option_chip(SharedString::from(format!("ai-login-{id}")), "Sign in…", false).on_click(cx.listener(move |_, _, _, cx| {
+                                        cx.emit(DialogEvent::RunInTerminal(login.clone()));
+                                    })))
+                                }),
+                        )
+                        .child(div().text_size(px(12.)).text_color(theme::muted()).child(detail))
+                        .when(!installed && !install.is_empty(), |d| {
+                            d.child(div().text_size(px(12.)).font_family(theme::editor_font()).text_color(theme::muted()).child(format!("Install: {install}")))
+                        })
+                };
+                let installed = |program: &str| agent::acp::which(program).is_some();
+                let key_set = !self.api_key.read(cx).text().trim().is_empty() || std::env::var("ANTHROPIC_API_KEY").is_ok_and(|k| !k.is_empty());
+                body.child(div().text_color(theme::muted()).child("Agents for the AI Assistant (⌘⌥I). ACP agents sign in with their own account; Claude API uses your key."))
+                    .child(
+                        provider_row("anthropic", "Claude API", "Anthropic Messages API with your key. Also used for inline AI completion.".into(), key_set, "", None)
+                            .child(row("API key").child(div().flex_1().child(self.api_key.clone())))
+                            .child(row("Model").child(div().flex_1().child(self.model.clone()))),
+                    )
+                    .child(provider_row("Claude Code", "Claude Code", "Your Claude subscription through the Claude Code ACP adapter.".into(), installed("claude-code-acp"), "npm install -g @zed-industries/claude-code-acp", Some("claude /login".into())))
+                    .child(provider_row("OpenCode", "OpenCode", "OpenCode (opencode acp), any model or the OpenCode subscription.".into(), installed("opencode"), "curl -fsSL https://opencode.ai/install | bash", Some("opencode auth login".into())))
+                    .child(provider_row("Gemini", "Gemini · Google AI (Antigravity)", "Your Google AI subscription through Gemini CLI (gemini --experimental-acp).".into(), installed("gemini"), "npm install -g @google/gemini-cli", Some("gemini".into())))
+                    .child(provider_row("Codex", "Codex", "OpenAI Codex through the codex-acp adapter (ChatGPT sign-in).".into(), installed("codex-acp"), "npm install -g @zed-industries/codex-acp", Some("codex login".into())))
+                    .into_any_element()
+            }
             SettingsPage::Import => {
                 let sources = crate::settings_import::Source::ALL.into_iter().map(|source| {
                     let location = source.locate();
