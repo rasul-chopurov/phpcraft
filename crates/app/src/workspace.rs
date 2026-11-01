@@ -1029,6 +1029,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::show_bookmarks))
             .on_action(cx.listener(Self::show_problems))
             .on_action(cx.listener(Self::inspect_code))
+            .on_action(cx.listener(Self::show_todo))
             .on_action(cx.listener(Self::show_test_results))
             .on_action(cx.listener(Self::rerun_failed_tests))
             .on_action(cx.listener(Self::composer_install))

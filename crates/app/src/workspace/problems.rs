@@ -1,12 +1,13 @@
 //! Problems (⌘6): the current file's inspection problems; Code ▸ Inspect Code… checks every
-//! PHP file of the project in the background. Both open as a list with a preview.
+//! PHP file of the project in the background; TODO lists `TODO` / `FIXME` comments. All open
+//! as a list with a preview.
 
 use gpui::{Context, Window, actions};
 
 use super::Workspace;
 use crate::dialogs::{NavItem, NavMode, NavTarget};
 
-actions!(workspace, [ShowProblems, InspectCode]);
+actions!(workspace, [ShowProblems, InspectCode, ShowTodo]);
 
 fn icon(severity: php_analysis::Severity) -> &'static str {
     match severity {
@@ -74,6 +75,43 @@ impl Workspace {
                 this.end_task(task, cx);
                 let items = this.problem_items(found);
                 this.open_list(NavMode::Problems, items, window, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// View ▸ TODO: `TODO` and `FIXME` comments in the project (vendor/ excluded).
+    pub(super) fn show_todo(&mut self, _: &ShowTodo, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        cx.spawn_in(window, async move |this, cx| {
+            let found = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut query = search::TextQuery::new(r"\b(TODO|FIXME)\b");
+                    query.regex = true;
+                    query.case_sensitive = true;
+                    let options = search::FileSearch { max_results: 2000, ..Default::default() };
+                    search::search_files(&root, &query, &options).unwrap_or_default().into_iter().map(|m| (root.clone(), m)).collect::<Vec<_>>()
+                })
+                .await;
+            this.update_in(cx, |this, window, cx| {
+                let items = found
+                    .into_iter()
+                    .map(|(root, m)| {
+                        // From the TODO / FIXME word to the end of the line.
+                        let at = m.ranges.first().map_or(0, |r| r.start);
+                        let label = m.text.get(at..).unwrap_or(&m.text).trim().to_string();
+                        let file = m.path.strip_prefix(&root).unwrap_or(&m.path).display().to_string();
+                        NavItem {
+                            label: label.trim_end_matches(['*', '/', ' ']).to_string(),
+                            detail: format!("{file}:{}", m.line + 1),
+                            icon: "☐",
+                            target: NavTarget::Location(php_index::Location { path: m.path, range: m.offset..m.offset }),
+                        }
+                    })
+                    .collect();
+                this.open_list(NavMode::Todo, items, window, cx);
             })
             .ok();
         })

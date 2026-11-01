@@ -120,6 +120,7 @@ pub fn set(cx: &mut App) {
                 None,
                 Some(("Markdown Preview", "editor::ToggleMarkdownPreview")),
                 Some(("Git Blame", "editor::ToggleBlame")),
+                Some(("TODO", "workspace::ShowTodo")),
                 Some(("Soft-Wrap", "editor::ToggleSoftWrap")),
                 Some(("Show Whitespaces", "editor::ToggleWhitespace")),
             ],
