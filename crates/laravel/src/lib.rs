@@ -2,6 +2,8 @@
 //! env keys, Inertia pages and Blade components — the Laravel Idea feature set.
 
 mod array_keys;
+pub mod artisan;
+pub mod make;
 
 use std::fs;
 use std::ops::Range;

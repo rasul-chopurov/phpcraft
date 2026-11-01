@@ -48,6 +48,15 @@ pub fn active_row() -> Hsla {
 pub fn tab_active() -> Hsla {
     rgb(0x4e5254).into()
 }
+pub fn border_strong() -> Hsla {
+    rgb(0x5e6060).into()
+}
+pub fn success() -> Hsla {
+    rgb(0x499c54).into()
+}
+pub fn overlay() -> Hsla {
+    gpui::hsla(0., 0., 0., 0.45)
+}
 pub fn error() -> Hsla {
     rgb(0xbc3f3c).into()
 }

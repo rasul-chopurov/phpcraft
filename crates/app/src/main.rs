@@ -1,5 +1,7 @@
+mod dialogs;
 mod editor_view;
 mod intel;
+mod text_field;
 mod theme;
 mod workspace;
 
@@ -10,7 +12,7 @@ use gpui::{
 use project::Project;
 
 use editor_view::*;
-use workspace::{CloseTab, NavigateBack, NextTab, PrevTab, Workspace};
+use workspace::{CloseTab, NavigateBack, NextTab, OpenArtisan, OpenMake, PrevTab, Workspace};
 
 actions!(phpcraft, [Quit]);
 
@@ -54,10 +56,36 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-alt-o", OptimizeImports, editor),
         KeyBinding::new("cmd-[", NavigateBack, None),
         KeyBinding::new("cmd-alt-left", NavigateBack, None),
+        KeyBinding::new("cmd-n", OpenMake, None),
+        KeyBinding::new("ctrl-shift-x", OpenArtisan, None),
         KeyBinding::new("cmd-w", CloseTab, None),
         KeyBinding::new("ctrl-tab", NextTab, None),
         KeyBinding::new("ctrl-shift-tab", PrevTab, None),
         KeyBinding::new("cmd-q", Quit, None),
+    ]);
+    let field = Some("TextField");
+    cx.bind_keys([
+        KeyBinding::new("backspace", text_field::Backspace, field),
+        KeyBinding::new("delete", text_field::Delete, field),
+        KeyBinding::new("left", text_field::Left, field),
+        KeyBinding::new("right", text_field::Right, field),
+        KeyBinding::new("home", text_field::Home, field),
+        KeyBinding::new("end", text_field::End, field),
+        KeyBinding::new("cmd-left", text_field::Home, field),
+        KeyBinding::new("cmd-right", text_field::End, field),
+        KeyBinding::new("cmd-a", text_field::SelectAll, field),
+        KeyBinding::new("cmd-v", text_field::Paste, field),
+        KeyBinding::new("cmd-c", text_field::Copy, field),
+    ]);
+    let dialog = Some("Dialog");
+    cx.bind_keys([
+        KeyBinding::new("enter", dialogs::Confirm, dialog),
+        KeyBinding::new("escape", dialogs::Cancel, dialog),
+        KeyBinding::new("tab", dialogs::FocusNext, dialog),
+        KeyBinding::new("shift-tab", dialogs::FocusPrev, dialog),
+        KeyBinding::new("up", dialogs::SelectPrev, Some("ArtisanDialog")),
+        KeyBinding::new("down", dialogs::SelectNext, Some("ArtisanDialog")),
+        KeyBinding::new("tab", dialogs::Complete, Some("ArtisanDialog")),
     ]);
     // Bound last so they win over the plain editor bindings while a popup is open.
     let menu = Some("Editor && menu");

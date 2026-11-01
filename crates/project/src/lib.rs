@@ -55,6 +55,16 @@ impl Project {
         }
     }
 
+    /// Expands every directory between the root and `path` so it becomes visible.
+    pub fn reveal(&mut self, path: &Path) {
+        for ancestor in path.ancestors().skip(1) {
+            if !ancestor.starts_with(&self.root) {
+                break;
+            }
+            self.expanded.insert(ancestor.to_path_buf());
+        }
+    }
+
     /// Flattens the expanded part of the tree into display rows.
     pub fn rows(&self) -> Vec<Row> {
         let mut rows = vec![Row {

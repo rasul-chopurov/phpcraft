@@ -1,5 +1,7 @@
 //! Main window: project tree, editor tabs and status bar.
 
+mod tools;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -13,6 +15,7 @@ use project::{Project, Row};
 use crate::editor_view::EditorView;
 use crate::intel::Intel;
 use php_index::Location;
+pub use tools::{OpenArtisan, OpenMake};
 use crate::theme;
 
 actions!(workspace, [CloseTab, NextTab, PrevTab, NavigateBack]);
@@ -27,6 +30,10 @@ pub struct Workspace {
     intel: Arc<Intel>,
     /// Positions to return to with ⌘[ (file, caret char index).
     history: Vec<(PathBuf, usize)>,
+    modal: Option<gpui::AnyView>,
+    modal_subscription: Option<gpui::Subscription>,
+    output: Option<tools::Output>,
+    artisan_commands: tools::CommandCache,
 }
 
 impl Workspace {
@@ -42,6 +49,10 @@ impl Workspace {
         Self {
             intel,
             history: Vec::new(),
+            modal: None,
+            modal_subscription: None,
+            output: None,
+            artisan_commands: None,
             project,
             rows,
             tabs: Vec::new(),
@@ -123,6 +134,13 @@ impl Workspace {
         self.open_file(&path, window, cx);
         if let Some(tab) = self.active_tab_for(&path, cx) {
             tab.update(cx, |editor, cx| editor.reveal_char(char_ix, cx));
+        }
+    }
+
+    fn focus_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.tabs.get(self.active) {
+            Some(tab) => window.focus(&tab.focus_handle(cx)),
+            None => window.focus(&self.focus_handle),
         }
     }
 
@@ -331,11 +349,16 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::next_tab))
             .on_action(cx.listener(Self::prev_tab))
             .on_action(cx.listener(Self::navigate_back))
+            .on_action(cx.listener(Self::open_make))
+            .on_action(cx.listener(Self::open_artisan))
+            .on_action(cx.listener(Self::close_output))
+            .relative()
             .size_full()
             .flex()
             .flex_col()
             .font_family(theme::UI_FONT)
             .bg(theme::editor_bg())
+            .child(self.render_toolbar(cx))
             .child(
                 div()
                     .flex_1()
@@ -349,9 +372,11 @@ impl Render for Workspace {
                             .flex_col()
                             .overflow_hidden()
                             .child(self.render_tabs(cx))
-                            .child(editor),
+                            .child(editor)
+                            .children(self.render_output(cx)),
                     ),
             )
             .child(self.render_status(cx))
+            .children(self.render_modal(cx))
     }
 }
