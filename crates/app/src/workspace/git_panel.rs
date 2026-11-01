@@ -372,11 +372,11 @@ impl Workspace {
             .iter()
             .map(|status| {
                 let full = repo.root().join(&status.path);
+                let (repo2, rel, disk) = (repo.clone(), status.path.clone(), full.clone());
                 crate::diff_view::DiffSource {
                     title: status.path.rsplit('/').next().unwrap_or(&status.path).to_string(),
                     subtitle: status.path.clone(),
-                    old: repo.show("HEAD", &status.path).unwrap_or_default(),
-                    new: std::fs::read_to_string(&full).unwrap_or_default(),
+                    load: std::sync::Arc::new(move || (repo2.show("HEAD", &rel).unwrap_or_default(), std::fs::read_to_string(&disk).unwrap_or_default())),
                     left_label: "HEAD".into(),
                     right_label: "Your version".into(),
                     open_path: Some(full),
@@ -401,8 +401,10 @@ impl Workspace {
             .map(|(_, file)| crate::diff_view::DiffSource {
                 title: file.rsplit('/').next().unwrap_or(file).to_string(),
                 subtitle: file.clone(),
-                old: repo.show(&format!("{hash}^"), file).unwrap_or_default(),
-                new: repo.show(hash, file).unwrap_or_default(),
+                load: {
+                    let (repo, hash, file) = (repo.clone(), hash.to_string(), file.clone());
+                    std::sync::Arc::new(move || (repo.show(&format!("{hash}^"), &file).unwrap_or_default(), repo.show(&hash, &file).unwrap_or_default()))
+                },
                 left_label: format!("{short}^"),
                 right_label: short.to_string(),
                 open_path: Some(repo.root().join(file)),

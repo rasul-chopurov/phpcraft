@@ -7,9 +7,14 @@ use gpui::{
     App, Context, FocusHandle, Focusable, ScrollHandle, SharedString, Window, actions, div, prelude::*, px,
 };
 
+use std::sync::Arc;
+
 use crate::theme;
 
 actions!(diff, [NextChange, PrevChange, NextFile, PrevFile]);
+
+/// Reads `(old, new)` contents; runs on a background thread when the file is shown.
+pub type Loader = Arc<dyn Fn() -> (String, String) + Send + Sync>;
 
 /// One file to compare.
 #[derive(Clone)]
@@ -18,8 +23,9 @@ pub struct DiffSource {
     pub title: String,
     /// `2d2e7232 app/Filament/Pages/Dashboard.php` or `HEAD · …`.
     pub subtitle: String,
-    pub old: String,
-    pub new: String,
+    /// Fetches the two versions (git show / disk) lazily, so opening a commit with many
+    /// files doesn't block.
+    pub load: Loader,
     pub left_label: String,
     pub right_label: String,
     /// File to open from the diff (working tree version).
@@ -41,6 +47,8 @@ pub struct DiffView {
     /// Row indices where a change block starts.
     changes: Vec<usize>,
     current_change: Option<usize>,
+    loading: bool,
+    _load: Option<gpui::Task<()>>,
     scroll: ScrollHandle,
     focus_handle: FocusHandle,
 }
@@ -54,10 +62,12 @@ impl DiffView {
             rows: Vec::new(),
             changes: Vec::new(),
             current_change: None,
+            loading: false,
+            _load: None,
             scroll: ScrollHandle::new(),
             focus_handle: cx.focus_handle(),
         };
-        view.show(index);
+        view.show(index, cx);
         view
     }
 
@@ -66,24 +76,42 @@ impl DiffView {
         format!("{}: {name}", self.kind)
     }
 
-    fn show(&mut self, index: usize) {
+    /// Shows file `index`: its versions and diff are computed in the background.
+    fn show(&mut self, index: usize, cx: &mut Context<Self>) {
         self.index = index.min(self.files.len().saturating_sub(1));
         let Some(file) = self.files.get(self.index) else { return };
-        self.rows = git::side_by_side(&file.old, &file.new);
-        self.changes = self
-            .rows
-            .iter()
-            .enumerate()
-            .filter(|(i, r)| r.tag != git::RowTag::Equal && (*i == 0 || self.rows_tag(*i - 1) == git::RowTag::Equal))
-            .map(|(i, _)| i)
-            .collect();
+        let load = file.load.clone();
+        self.loading = true;
+        self.rows.clear();
+        self.changes.clear();
         self.current_change = None;
-        self.scroll.scroll_to_item(0);
+        let shown = self.index;
+        self._load = Some(cx.spawn(async move |this, cx| {
+            let rows = cx
+                .background_spawn(async move {
+                    let (old, new) = load();
+                    git::side_by_side(&old, &new)
+                })
+                .await;
+            let _ = this.update(cx, |view, cx| {
+                if view.index != shown {
+                    return;
+                }
+                view.changes = rows
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, r)| r.tag != git::RowTag::Equal && (*i == 0 || rows[*i - 1].tag == git::RowTag::Equal))
+                    .map(|(i, _)| i)
+                    .collect();
+                view.rows = rows;
+                view.loading = false;
+                view.scroll.scroll_to_item(0);
+                cx.notify();
+            });
+        }));
+        cx.notify();
     }
 
-    fn rows_tag(&self, i: usize) -> git::RowTag {
-        self.rows[i].tag
-    }
 
     fn jump(&mut self, forward: bool, cx: &mut Context<Self>) {
         if self.changes.is_empty() {
@@ -111,15 +139,13 @@ impl DiffView {
 
     fn next_file(&mut self, _: &NextFile, _: &mut Window, cx: &mut Context<Self>) {
         if self.index + 1 < self.files.len() {
-            self.show(self.index + 1);
-            cx.notify();
+            self.show(self.index + 1, cx);
         }
     }
 
     fn prev_file(&mut self, _: &PrevFile, _: &mut Window, cx: &mut Context<Self>) {
         if self.index > 0 {
-            self.show(self.index - 1);
-            cx.notify();
+            self.show(self.index - 1, cx);
         }
     }
 }
@@ -210,7 +236,7 @@ impl Render for DiffView {
                     .child(div().text_color(theme::accent()).child(format!("{}/{} files", self.index + 1, self.files.len().max(1))))
                     .child(nav("next-file", "→", has_next).on_click(cx.listener(|this, _, w, cx| this.next_file(&NextFile, w, cx))))
                     .child(div().flex_1())
-                    .child(div().text_color(theme::muted()).child(format!("{} differences", self.changes.len())))
+                    .child(div().text_color(theme::muted()).child(if self.loading { "Loading…".to_string() } else { format!("{} differences", self.changes.len()) }))
                     .when_some(file.as_ref().and_then(|f| f.open_path.clone()), |d, path| {
                         d.child(nav("diff-open", "Open in Editor", true).on_click(cx.listener(move |_, _, _, cx| cx.emit(DiffEvent::Open(path.clone())))))
                     }),

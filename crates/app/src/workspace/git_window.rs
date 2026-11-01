@@ -89,10 +89,26 @@ impl Workspace {
     fn select_commit(&mut self, ix: usize, cx: &mut Context<Self>) {
         self.git.log_selected = Some(ix);
         let Some(hash) = self.git.log.get(ix).map(|c| c.hash.clone()) else { return };
-        let repo = self.intel.repo();
-        self.git.log_files = repo.and_then(|r| r.commit_files(&hash).ok()).unwrap_or_default();
-        self.git.log_details = repo.and_then(|r| r.commit_details(&hash));
+        let Some(repo) = self.intel.repo().cloned() else { return };
         cx.notify();
+        // git show/diff-tree run off the UI thread; a newer selection wins.
+        cx.spawn(async move |this, cx| {
+            let (files, details) = cx
+                .background_executor()
+                .spawn({
+                    let hash = hash.clone();
+                    async move { (repo.commit_files(&hash).ok().unwrap_or_default(), repo.commit_details(&hash)) }
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.git.log_selected == Some(ix) {
+                    this.git.log_files = files;
+                    this.git.log_details = details;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     fn filter_branch(&mut self, branch: String, cx: &mut Context<Self>) {
