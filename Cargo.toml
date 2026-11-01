@@ -19,7 +19,7 @@ git = { path = "crates/git" }
 history = { path = "crates/history" }
 terminal = { path = "crates/terminal" }
 agent = { path = "crates/agent" }
-gpui = { version = "0.2.2", features = ["runtime_shaders"] }
+gpui = "0.2.2"
 ropey = "1.6"
 tree-sitter = "0.25"
 tree-sitter-php = "0.25.1"

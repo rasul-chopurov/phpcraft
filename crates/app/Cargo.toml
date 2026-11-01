@@ -28,5 +28,10 @@ serde = { version = "1", features = ["derive"] }
 sys-locale = "0.3.2"
 trash = "5.2.9"
 
+# macOS compiles the Metal shaders when the app starts (no Xcode toolchain needed to build).
+# Windows gets them precompiled with fxc.exe: compiling HLSL on every launch made startup slow.
+[target."cfg(target_os = \"macos\")".dependencies]
+gpui = { workspace = true, features = ["runtime_shaders"] }
+
 [target."cfg(windows)".build-dependencies]
 winresource = "0.1.34"
