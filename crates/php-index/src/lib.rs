@@ -3,6 +3,7 @@
 mod cache;
 pub mod extract;
 pub mod names;
+pub mod stubs;
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -64,6 +65,14 @@ impl Index {
     /// Like `scan`, reusing `cache_file` for files whose modification time and size haven't
     /// changed, and rewriting it when anything did.
     pub fn scan_cached(root: &Path, cache_file: Option<&Path>) -> Self {
+        let mut index = Self::new();
+        index.add_dir(root, cache_file);
+        index
+    }
+
+    /// Indexes every PHP file under `dir` into this index (the project, or the unpacked
+    /// stubs of PHP's built-ins), with the same cache as `scan_cached`.
+    pub fn add_dir(&mut self, root: &Path, cache_file: Option<&Path>) {
         let cached = cache_file.map(cache::load).unwrap_or_default();
         let reused = std::sync::atomic::AtomicUsize::new(0);
         let found = std::sync::Mutex::new(Vec::new());
@@ -80,11 +89,9 @@ impl Index {
             let file = file.to_path_buf();
             std::thread::spawn(move || cache::write(&file, &bytes));
         }
-        let mut index = Self::new();
         for (_, entry) in results {
-            index.insert(FileSymbols { classes: entry.classes, functions: entry.functions, ..Default::default() });
+            self.insert(FileSymbols { classes: entry.classes, functions: entry.functions, ..Default::default() });
         }
-        index
     }
 
     /// Re-indexes one file from (possibly unsaved) source.

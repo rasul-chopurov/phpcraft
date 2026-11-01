@@ -67,6 +67,10 @@ impl Intel {
     pub fn scan(&self) {
         let started = Instant::now();
         let mut index = Index::scan_cached(&self.root, Some(&index_cache_file(&self.root)));
+        // PHP's own classes and functions (phpstorm-stubs), unpacked once next to the caches.
+        if let Some(stubs) = php_index::stubs::unpack(&crate::config::dir().join("stubs")) {
+            index.add_dir(&stubs, Some(&crate::config::dir().join("index").join("stubs.bin")));
+        }
         if self.is_laravel() {
             laravel::register_mixins(&mut index);
         }

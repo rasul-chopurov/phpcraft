@@ -463,7 +463,10 @@ mod tests {
     fn survey() {
         let Some(root) = std::env::var_os("INSPECT_ROOT") else { return };
         let root = std::path::PathBuf::from(root);
-        let index = Index::scan(&root);
+        let mut index = Index::scan(&root);
+        if let Some(stubs) = php_index::stubs::unpack(&std::env::temp_dir().join("phpcraft-stubs-survey")) {
+            index.add_dir(&stubs, None);
+        }
         let builtins = Builtins::default();
         let mut counts: HashMap<&str, usize> = HashMap::new();
         let mut samples: Vec<String> = Vec::new();

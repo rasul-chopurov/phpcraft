@@ -205,6 +205,24 @@ fn collect_declarations(node: Node, source: &str, ctx: &NameContext, path: &Arc<
                 });
             }
         }
+        // `namespace X { ... }` blocks: their own namespace and imports (stubs, generated
+        // helpers and some libraries put several in one file).
+        "namespace_definition" if node.child_by_field_name("body").is_some() => {
+            let body = node.child_by_field_name("body").unwrap();
+            let namespace = node.child_by_field_name("name").map(|n| text(n, source).to_string()).unwrap_or_default();
+            let mut uses = Vec::new();
+            let mut cursor = body.walk();
+            for child in body.named_children(&mut cursor) {
+                if child.kind() == "namespace_use_declaration" {
+                    collect_uses(child, source, &mut uses);
+                }
+            }
+            let block_ctx = NameContext::new(&namespace, &uses);
+            let mut cursor = body.walk();
+            for child in body.named_children(&mut cursor) {
+                collect_declarations(child, source, &block_ctx, path, out);
+            }
+        }
         // Declarations wrapped in `if (!function_exists(...)) { ... }` (common in helpers).
         "if_statement" | "compound_statement" | "namespace_definition" => {
             let mut cursor = node.walk();
@@ -382,10 +400,48 @@ fn collect_member(item: Node, source: &str, ctx: &NameContext, class_fqn: &str, 
     }
 }
 
+/// `#[Attribute(...)]` groups removed (the stubs annotate parameters heavily).
+fn without_attributes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("#[") {
+        out.push_str(&rest[..start]);
+        let mut depth = 0;
+        let mut end = rest.len();
+        for (i, c) in rest[start..].char_indices() {
+            match c {
+                '[' => depth += 1,
+                ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = start + i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn signature(node: Node, source: &str) -> String {
     let params = node
         .child_by_field_name("parameters")
-        .map(|p| text(p, source).split_whitespace().collect::<Vec<_>>().join(" "))
+        .map(|list| {
+            let mut cursor = list.walk();
+            let params: Vec<String> = list
+                .named_children(&mut cursor)
+                .filter(|p| p.kind() != "comment")
+                .map(|p| text(p, source))
+                // The stubs list parameters that only old PHP versions had (`to: '7.4'`).
+                .filter(|p| !(p.contains("PhpStormStubsElementAvailable") && p.contains("to:")))
+                .map(|p| without_attributes(p).split_whitespace().collect::<Vec<_>>().join(" "))
+                .collect();
+            format!("({})", params.join(", "))
+        })
         .unwrap_or_else(|| "()".into());
     match node.child_by_field_name("return_type") {
         Some(ret) => format!("{params}: {}", text(ret, source)),

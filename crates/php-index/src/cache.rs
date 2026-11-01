@@ -12,7 +12,7 @@ use std::sync::Arc;
 use crate::extract::{ClassInfo, ClassKind, FunctionInfo, Member, MemberKind};
 
 const MAGIC: &[u8; 4] = b"PCIX";
-const FORMAT: u32 = 1;
+const FORMAT: u32 = 2;
 
 /// A file's modification time (ns since the epoch) and size.
 pub type Stamp = (u64, u64);
