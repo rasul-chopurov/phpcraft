@@ -3926,6 +3926,7 @@ dependencies = [
  "agent",
  "anyhow",
  "async-channel 2.5.0",
+ "dbgp",
  "dirs 6.0.0",
  "editor",
  "git",

@@ -19,6 +19,7 @@ mod refactor;
 mod problems;
 mod tests_view;
 mod composer;
+mod debug_panel;
 pub use git_panel::ShowCommit;
 pub(crate) use db_panel::RunSql;
 
@@ -83,6 +84,8 @@ pub struct Workspace {
     panes: Vec<Option<panes::Pane>>,
     /// Files of closed tabs, newest last (Reopen Closed Tab).
     closed_tabs: Vec<PathBuf>,
+    /// The Xdebug session, while listening.
+    debug: Option<debug_panel::DebugState>,
     /// Results of the last test run (JUnit report).
     test_results: Vec<crate::test_results::TestCase>,
     /// Pinned tabs (kept by Close Others / Close All but Pinned).
@@ -166,6 +169,7 @@ impl Workspace {
             panes: vec![None],
             closed_tabs: Vec::new(),
             test_results: Vec::new(),
+            debug: None,
             pinned: Default::default(),
             focused_pane: 0,
             tables: Vec::new(),
@@ -1030,6 +1034,14 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::composer_dump_autoload))
             .on_action(cx.listener(Self::composer_validate))
             .on_action(cx.listener(Self::composer_outdated))
+            .on_action(cx.listener(Self::toggle_debug_listen))
+            .on_action(cx.listener(Self::debug_resume))
+            .on_action(cx.listener(Self::debug_step_over))
+            .on_action(cx.listener(Self::debug_step_into))
+            .on_action(cx.listener(Self::debug_step_out))
+            .on_action(cx.listener(Self::debug_stop))
+            .on_action(cx.listener(Self::debug_evaluate))
+            .on_action(cx.listener(Self::debug_context))
             .on_action(cx.listener(Self::go_to_bookmark_0))
             .on_action(cx.listener(Self::go_to_bookmark_1))
             .on_action(cx.listener(Self::go_to_bookmark_2))

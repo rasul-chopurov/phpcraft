@@ -303,7 +303,7 @@ impl Workspace {
     }
 
     /// The test or script under the caret of the active editor.
-    fn context_run_config(&self, cx: &Context<Self>) -> Option<RunConfig> {
+    pub(super) fn context_run_config(&self, cx: &Context<Self>) -> Option<RunConfig> {
         let editor = self.tabs.get(self.active)?.read(cx);
         let path = editor.buffer.path()?.to_path_buf();
         let text = editor.buffer.text();

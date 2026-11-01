@@ -2,7 +2,9 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod bookmarks;
+mod breakpoints;
 mod config;
+mod debugger;
 mod dialogs;
 mod deployment;
 mod diff_view;

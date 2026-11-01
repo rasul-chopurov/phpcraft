@@ -1,6 +1,7 @@
 //! Code editor view: renders a [`Buffer`] with gutter, highlighting, caret and selection.
 
 mod bookmarks;
+mod breakpoints;
 mod find_bar;
 mod folding;
 mod format;
@@ -116,6 +117,7 @@ actions!(
         SurroundWith,
         ReformatCode,
         AutoIndentLines,
+        ToggleBreakpoint,
         ExtendSelection,
         ShrinkSelection,
         JoinLines,
@@ -204,6 +206,10 @@ pub struct EditorView {
     external_problems: Option<(u64, Vec<php_analysis::Problem>)>,
     /// Lines with a ▶ run mark (test files), for a buffer version.
     test_marks: Option<(u64, Vec<usize>)>,
+    /// Breakpoints in this file: (line anchor, condition).
+    breakpoints: Vec<(usize, Option<String>)>,
+    /// Where the debugger is stopped in this file (0-based line).
+    execution_line: Option<usize>,
 }
 
 impl EditorView {
@@ -237,6 +243,8 @@ impl EditorView {
             problems: None,
             external_problems: None,
             test_marks: None,
+            breakpoints: Vec::new(),
+            execution_line: None,
             buffer,
             focus_handle: cx.focus_handle(),
             scroll_y: px(0.),
@@ -257,6 +265,7 @@ impl EditorView {
 
     fn with_bookmarks(mut self) -> Self {
         self.load_bookmarks();
+        self.load_breakpoints();
         self
     }
 
@@ -550,6 +559,17 @@ impl EditorView {
         if self.blame.is_some() { px(theme::editor_font_size() * 0.6 * BLAME_CHARS as f32) } else { px(0.) }
     }
 
+    /// A click on a line number (toggles a breakpoint): its buffer line.
+    fn line_number_at(&self, position: Point<Pixels>) -> Option<usize> {
+        let layout = self.layout.as_ref()?;
+        let numbers_start = layout.bounds.left() + self.blame_offset() + if self.test_marks.as_ref().is_some_and(|(_, l)| !l.is_empty()) { px(RUN_MARK_WIDTH + GUTTER_PADDING) } else { px(GUTTER_PADDING / 2.) };
+        if self.plain || !self.buffer.is_php() || position.x < numbers_start || position.x >= layout.fold_x {
+            return None;
+        }
+        let (_, Some((row, ..))) = self.row_at(position)? else { return None };
+        row.first.then_some(row.line)
+    }
+
     /// A click in the fold-arrow column: the buffer line of that row.
     fn fold_arrow_at(&self, position: Point<Pixels>) -> Option<usize> {
         let layout = self.layout.as_ref()?;
@@ -615,6 +635,11 @@ impl EditorView {
         }
         if let Some(line) = self.run_mark_at(event.position) {
             self.run_test_on_line(line, cx);
+            cx.stop_propagation();
+            return;
+        }
+        if let Some(line) = self.line_number_at(event.position) {
+            self.toggle_breakpoint_on_line(line, cx);
             cx.stop_propagation();
             return;
         }
@@ -1102,6 +1127,7 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::surround_with))
             .on_action(cx.listener(Self::reformat_code))
             .on_action(cx.listener(Self::auto_indent_lines))
+            .on_action(cx.listener(Self::toggle_breakpoint))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -1244,6 +1270,8 @@ impl Element for EditorElement {
             let markers = view.git_markers();
             let bookmark_lines = view.bookmark_lines();
             let test_lines = view.test_lines();
+            let breakpoint_lines = view.breakpoint_lines();
+            let execution_line = view.execution_line;
             let indent_cols = match view.buffer.indent_unit() {
                 "\t" => 4,
                 unit => unit.len().max(1),
@@ -1492,6 +1520,16 @@ impl Element for EditorElement {
                             window.text_system().shape_line(label.into(), px(theme::editor_font_size() - 1.5), &[run(len, theme::muted())], None),
                             y,
                         ));
+                    }
+                    // The debugger stopped here: the whole line is tinted.
+                    if execution_line == Some(line) {
+                        gutter_quads.push(fill(Bounds::from_corners(point(bounds.left() + gutter_width, y), point(bounds.right(), y + line_height)), theme::accent().opacity(0.22)));
+                    }
+                    // A breakpoint: a red dot over the line number.
+                    if breakpoint_lines.contains(&line) {
+                        let d = line_height * 0.55;
+                        let x = bounds.left() + gutter_width - fold_width - px(GUTTER_PADDING) - digit_width * digits as f32 + px(2.);
+                        gutter_quads.push(gpui::PaintQuad { corner_radii: gpui::Corners::all(d / 2.), ..fill(Bounds::new(point(x, y + (line_height - d) / 2.), size(d, d)), theme::error()) });
                     }
                     // ▶ runs the test on this line; it sits left of the line number.
                     if test_lines.contains(&line) {

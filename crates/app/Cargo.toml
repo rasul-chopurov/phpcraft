@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 process.workspace = true
+dbgp.workspace = true
 anyhow.workspace = true
 gpui.workspace = true
 editor.workspace = true
