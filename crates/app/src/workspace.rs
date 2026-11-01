@@ -11,6 +11,7 @@ mod laravel_panel;
 mod panes;
 mod git_window;
 pub use git_panel::ShowCommit;
+pub(crate) use db_panel::RunSql;
 
 /// Requests to the window that hosts this workspace (project tabs).
 pub enum WorkspaceEvent {
@@ -755,7 +756,7 @@ impl Workspace {
     pub(crate) fn open_table_tab(&mut self, source: laravel::datasource::DataSource, password: String, table: String, window: &mut Window, cx: &mut Context<Self>) {
         let existing = self.tables.iter().position(|t| {
             let t = t.read(cx);
-            t.table == table && t.title().ends_with(&format!("[{}]", source.name))
+            !t.is_console() && t.table == table && t.source_name() == source.name
         });
         let ix = match existing {
             Some(ix) => ix,
@@ -769,8 +770,23 @@ impl Workspace {
         self.diff_active = false;
         self.table_active = Some(ix);
         if let Some(view) = self.tables.get(ix) {
-            window.focus(&view.focus_handle(cx));
+            let focus = view.read(cx).focus_target(cx);
+            window.focus(&focus);
         }
+        cx.notify();
+    }
+
+    /// Opens a SQL console on `source` as an editor tab.
+    pub(crate) fn open_console_tab(&mut self, source: laravel::datasource::DataSource, password: String, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let intel = self.intel.clone();
+        let workspace = cx.entity().downgrade();
+        let view = cx.new(|cx| crate::table_view::TableView::console(root, source, password, intel, workspace, cx));
+        self.tables.push(view.clone());
+        self.diff_active = false;
+        self.table_active = Some(self.tables.len() - 1);
+        let focus = view.read(cx).focus_target(cx);
+        window.focus(&focus);
         cx.notify();
     }
 
@@ -794,7 +810,11 @@ impl Workspace {
                     .cursor_pointer()
                     .when(active, |d| d.bg(theme::tab_active()).text_color(theme::ui_text()))
                     .when(!active, |d| d.text_color(theme::muted()).hover(|d| d.bg(theme::hover())))
-                    .child(div().text_size(px(11.)).text_color(theme::syntax(php_syntax::Highlight::Type)).child("▦"))
+                    .child(if view.read(cx).is_console() {
+                        crate::icons::icon(crate::icons::Icon::terminal, 14., theme::syntax(php_syntax::Highlight::Keyword))
+                    } else {
+                        crate::icons::icon(crate::icons::Icon::database, 14., theme::syntax(php_syntax::Highlight::Type))
+                    })
                     .child(SharedString::from(view.read(cx).title()))
                     .child(
                         div()
@@ -818,9 +838,13 @@ impl Workspace {
                                 cx.notify();
                             })),
                     )
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_click(cx.listener(move |this, _, window, cx| {
                         this.diff_active = false;
                         this.table_active = Some(ix);
+                        if let Some(view) = this.tables.get(ix) {
+                            let focus = view.read(cx).focus_target(cx);
+                            window.focus(&focus);
+                        }
                         cx.notify();
                     }))
                     .into_any_element()

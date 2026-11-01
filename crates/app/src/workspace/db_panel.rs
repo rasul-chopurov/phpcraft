@@ -234,6 +234,23 @@ impl Workspace {
         .detach();
     }
 
+
+    fn open_console_in_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(source) = self.db.selected.clone().and_then(|id| self.source(&id)) else {
+            self.db.status = Some("Add a data source first (+).".into());
+            cx.notify();
+            return;
+        };
+        let password = load_password(self.project.root(), &source.id);
+        let sql = self.db.console.as_ref().map(|c| c.read(cx).buffer.text()).unwrap_or_default();
+        self.open_console_tab(source, password, window, cx);
+        if let Some(view) = self.tables.last().cloned()
+            && !sql.trim().is_empty()
+        {
+            view.update(cx, |view, cx| view.set_console_text(&sql, cx));
+        }
+    }
+
     pub(super) fn run_sql(&mut self, _: &RunSql, _: &mut Window, cx: &mut Context<Self>) {
         self.execute_sql(cx);
     }
@@ -716,6 +733,7 @@ impl Workspace {
                             .items_center()
                             .gap_2()
                             .child(div().flex_1().text_size(px(11.)).text_color(theme::muted()).child(crate::keymap::display("secondary-enter") + " runs the query (or the selection)"))
+                            .child(small("db-console-tab", "Open in Editor").on_click(cx.listener(|this, _, window, cx| this.open_console_in_editor(window, cx))))
                             .child(small("db-copy", "Copy TSV").on_click(cx.listener(|this, _, _, cx| this.copy_result(cx))))
                             .child(small("db-run", if running { "Running…" } else { "▶ Run" }).on_click(cx.listener(|this, _, _, cx| this.execute_sql(cx)))),
                     ),

@@ -1,5 +1,6 @@
 //! Table editor tab (PhpStorm's data editor): a database table's rows with WHERE / ORDER BY
 //! filters, paging, cell editing, added and deleted rows, and Submit in one transaction.
+//! In console mode the tab is a SQL console: a query editor above the result grid.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -9,6 +10,7 @@ use gpui::{App, AppContext, ClipboardItem, Context, Entity, FocusHandle, Focusab
 use laravel::database::{DbColumn, QueryResult};
 use laravel::datasource::{self, DataSource, Driver, Statement};
 
+use crate::editor_view::EditorView;
 use crate::text_field::TextField;
 use crate::theme;
 
@@ -34,6 +36,8 @@ pub struct TableView {
     loading: bool,
     status: Option<String>,
     focus_handle: FocusHandle,
+    /// The query editor of a console tab.
+    console: Option<Entity<EditorView>>,
 }
 
 fn laravel_driver(driver: Driver) -> &'static str {
@@ -66,13 +70,72 @@ impl TableView {
             loading: false,
             status: None,
             focus_handle: cx.focus_handle(),
+            console: None,
         };
         view.load_columns(cx);
         view.reload(cx);
         view
     }
 
+    /// A SQL console tab on `source`.
+    pub fn console(
+        root: PathBuf,
+        source: DataSource,
+        password: String,
+        intel: Arc<crate::intel::Intel>,
+        workspace: gpui::WeakEntity<crate::workspace::Workspace>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let console = cx.new(|cx| EditorView::plain(intel, workspace, cx));
+        console.update(cx, |editor, cx| editor.replace_all_text("SELECT 1", cx));
+        Self {
+            root,
+            source,
+            password,
+            table: String::new(),
+            columns: Vec::new(),
+            result: None,
+            where_field: cx.new(|cx| TextField::new("WHERE", cx)),
+            order_field: cx.new(|cx| TextField::new("ORDER BY", cx)),
+            offset: 0,
+            edits: HashMap::new(),
+            deleted: HashSet::new(),
+            added: Vec::new(),
+            editing: None,
+            selected: None,
+            loading: false,
+            status: None,
+            focus_handle: cx.focus_handle(),
+            console: Some(console),
+        }
+    }
+
+    pub fn set_console_text(&mut self, text: &str, cx: &mut Context<Self>) {
+        if let Some(console) = &self.console {
+            console.update(cx, |editor, cx| editor.replace_all_text(text, cx));
+        }
+    }
+
+    pub fn is_console(&self) -> bool {
+        self.console.is_some()
+    }
+
+    pub fn source_name(&self) -> &str {
+        &self.source.name
+    }
+
+    /// Where focus goes when the tab is activated.
+    pub fn focus_target(&self, cx: &App) -> FocusHandle {
+        match &self.console {
+            Some(console) => console.focus_handle(cx),
+            None => self.focus_handle.clone(),
+        }
+    }
+
     pub fn title(&self) -> String {
+        if self.is_console() {
+            return format!("console [{}]", self.source.name);
+        }
         format!("{} [{}]", self.table, self.source.name)
     }
 
@@ -89,6 +152,12 @@ impl TableView {
     }
 
     fn sql(&self, cx: &App) -> String {
+        if let Some(console) = &self.console {
+            let editor = console.read(cx);
+            let selected = editor.buffer.selected_text();
+            let sql = if selected.trim().is_empty() { editor.buffer.text() } else { selected };
+            return sql.trim().trim_end_matches(';').to_string();
+        }
         let quote = |n: &str| laravel::database::quote_ident(laravel_driver(self.source.driver), n);
         let filter = self.where_field.read(cx).text().trim().to_string();
         let order = self.order_field.read(cx).text().trim().to_string();
@@ -105,6 +174,9 @@ impl TableView {
 
     fn reload(&mut self, cx: &mut Context<Self>) {
         let sql = self.sql(cx);
+        if sql.is_empty() {
+            return;
+        }
         let (root, source, password) = (self.root.clone(), self.source.clone(), self.password.clone());
         self.loading = true;
         self.edits.clear();
@@ -158,6 +230,11 @@ impl TableView {
     fn start_edit(&mut self, row: usize, col: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(Ok(result)) = &self.result else { return };
         let rows = result.rows.len();
+        if self.is_console() {
+            self.status = Some("Console results are read-only; open the table to edit rows.".into());
+            cx.notify();
+            return;
+        }
         if row < rows && self.keys().is_empty() {
             self.status = Some("Rows can't be edited: the table has no primary key.".into());
             cx.notify();
@@ -294,6 +371,57 @@ impl Render for TableView {
         };
         let pending = self.pending();
         let has_result = matches!(self.result, Some(Ok(_)));
+        let console = self.console.clone();
+        if let Some(console) = console {
+            let toolbar = div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .px_2()
+                .h(px(32.))
+                .border_b_1()
+                .border_color(theme::border())
+                .child(
+                    div()
+                        .id("tv-run")
+                        .px_2()
+                        .h(px(22.))
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .bg(theme::accent())
+                        .text_color(gpui::white())
+                        .child(if self.loading { "Running…".to_string() } else { format!("▶ Run  {}", crate::keymap::display("secondary-enter")) })
+                        .on_click(cx.listener(|this, _, _, cx| this.reload(cx))),
+                )
+                .child(div().text_size(px(12.)).text_color(theme::muted()).child(format!("{} · runs the query or the selection", self.source.name)))
+                .child(div().flex_1())
+                .when_some(self.status.clone(), |d, s| d.child(div().text_size(px(12.)).text_color(theme::muted()).child(s)))
+                .child(tool("tv-csv", "CSV", "Copy all rows as CSV", has_result).on_click(cx.listener(|this, _, _, cx| this.copy_csv(cx))));
+            let grid = self.render_grid(cx);
+            return div()
+                .track_focus(&self.focus_handle)
+                .size_full()
+                .flex()
+                .flex_col()
+                .bg(theme::editor_bg())
+                .text_size(px(13.))
+                .child(toolbar)
+                .child(
+                    div()
+                        .key_context("DbConsole")
+                        .on_action(cx.listener(|this, _: &crate::workspace::RunSql, _, cx| this.reload(cx)))
+                        .h(px(220.))
+                        .flex_none()
+                        .border_b_1()
+                        .border_color(theme::border())
+                        .child(console),
+                )
+                .child(div().flex_1().min_h(px(0.)).child(grid))
+                .into_any_element();
+        }
         let toolbar = div()
             .flex()
             .items_center()
@@ -378,7 +506,26 @@ impl Render for TableView {
                     .child(div().text_color(theme::muted()).text_size(px(12.)).child("ORDER BY"))
                     .child(div().flex_1().child(self.order_field.clone())),
             );
-        let grid: gpui::AnyElement = match &self.result {
+        let grid = self.render_grid(cx);
+        div()
+            .track_focus(&self.focus_handle)
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(theme::editor_bg())
+            .text_size(px(13.))
+            .child(toolbar)
+            .child(filters)
+            .child(div().flex_1().min_h(px(0.)).child(grid))
+            .when(self.loading, |d| d.child(div().px_2().py_1().text_size(px(11.)).text_color(theme::muted()).child("Loading…")))
+            .into_any_element()
+    }
+}
+
+impl TableView {
+    fn render_grid(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        match &self.result {
+            None if self.is_console() && !self.loading => div().p_3().text_color(theme::muted()).child("Run a query to see its result.").into_any_element(),
             None => div().p_3().text_color(theme::muted()).child("Loading…").into_any_element(),
             Some(Err(err)) => div().p_3().text_color(theme::error()).child(SharedString::from(err.clone())).into_any_element(),
             Some(Ok(result)) => {
@@ -492,17 +639,6 @@ impl Render for TableView {
                     .child(div().flex().flex_col().min_w(number_width + width * result.columns.len().max(1) as f32).child(header).children(rows))
                     .into_any_element()
             }
-        };
-        div()
-            .track_focus(&self.focus_handle)
-            .size_full()
-            .flex()
-            .flex_col()
-            .bg(theme::editor_bg())
-            .text_size(px(13.))
-            .child(toolbar)
-            .child(filters)
-            .child(div().flex_1().min_h(px(0.)).child(grid))
-            .when(self.loading, |d| d.child(div().px_2().py_1().text_size(px(11.)).text_color(theme::muted()).child("Loading…")))
+        }
     }
 }
