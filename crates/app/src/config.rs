@@ -46,6 +46,10 @@ pub struct Settings {
     pub check_for_updates: bool,
     /// Unix seconds of the last automatic check.
     pub last_update_check: u64,
+    /// A release the user chose to skip ("Skip This Version").
+    pub skipped_version: String,
+    /// The version that last ran, so the first run after an update shows What's New.
+    pub last_seen_version: String,
     /// AI inline completion (ghost text) in the editor.
     pub ai_inline_completion: bool,
 }
@@ -65,6 +69,8 @@ impl Default for Settings {
             terminal_shell: String::new(),
             check_for_updates: true,
             last_update_check: 0,
+            skipped_version: String::new(),
+            last_seen_version: String::new(),
             ai_inline_completion: true,
         }
     }

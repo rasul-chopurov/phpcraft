@@ -146,6 +146,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Release notes (commits since the previous tag; shown in the app's What's New)
+        run: |
+          prev=$(git tag --sort=-v:refname | grep -vx "$GITHUB_REF_NAME" | head -1)
+          {
+            echo "## What's new in ${GITHUB_REF_NAME#v}"
+            echo
+            git log --no-merges --pretty='- %s' ${prev:+$prev..}"$GITHUB_REF_NAME" | grep -v '^- Release ' || true
+            echo
+            echo "Made with ❤️ in Azerbaijan · https://path.az"
+          } > notes.md
+          cat notes.md
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -154,4 +168,4 @@ jobs:
         with:
           files: dist/*
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
+          body_path: notes.md

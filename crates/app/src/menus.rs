@@ -27,6 +27,7 @@ pub fn set(cx: &mut App) {
             name: "PhpCraft".into(),
             items: [
                 item(cx, "About PhpCraft", "workspace::About"),
+                item(cx, "Check for Updates…", "phpcraft::CheckForUpdates"),
                 Some(MenuItem::separator()),
                 item(cx, "Settings…", "workspace::OpenSettings"),
                 item(cx, "Keymap…", "workspace::OpenKeymap"),
@@ -179,7 +180,16 @@ pub fn set(cx: &mut App) {
                 Some(("Show Git Log", "workspace::ToggleGitLog")),
             ],
         ),
-        menu(cx, "Help", &[Some(("About PhpCraft", "workspace::About"))]),
+        menu(
+            cx,
+            "Help",
+            &[
+                Some(("What's New", "phpcraft::ShowChangelog")),
+                Some(("Check for Updates…", "phpcraft::CheckForUpdates")),
+                None,
+                Some(("About PhpCraft", "workspace::About")),
+            ],
+        ),
     ];
     cx.set_menus(menus);
 }

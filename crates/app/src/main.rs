@@ -28,6 +28,7 @@ mod sync;
 mod terminal_view;
 mod text_field;
 mod theme;
+mod updates;
 mod welcome;
 mod window_state;
 mod workspace;
@@ -103,6 +104,7 @@ fn main() {
         theme::init(cx);
         keymap::apply(cx);
         cx.on_action(|_: &Quit, cx| cx.quit());
+        updates::init(cx);
         menus::set(cx);
         cx.activate(true);
         splash::show(cx, move |cx| {
@@ -113,6 +115,7 @@ fn main() {
                 welcome::open(cx);
             }
             open_paths::handle(opened, cx);
+            updates::check_at_startup(cx);
                 // Closing the last window quits, except after Close Project, which goes back to
             // the welcome window.
             cx.on_window_closed(|cx| {

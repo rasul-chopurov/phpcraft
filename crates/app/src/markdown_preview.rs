@@ -250,11 +250,12 @@ fn render_block(block: &Block) -> AnyElement {
             .child(styled(text))
             .into_any_element(),
         Block::Item { depth, marker, content } => div()
+            .w_full()
             .flex()
             .gap_2()
             .pl(px(*depth as f32 * 18. - 8.))
             .child(div().flex_none().min_w(px(14.)).text_color(theme::muted()).child(marker.clone()))
-            .child(div().flex_1().child(styled(content)))
+            .child(div().flex_1().min_w(px(0.)).child(styled(content)))
             .into_any_element(),
         Block::Code { lang, text } => div()
             .relative()
