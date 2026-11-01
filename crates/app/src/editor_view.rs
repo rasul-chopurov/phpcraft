@@ -10,6 +10,7 @@ mod rows;
 mod ghost;
 mod intel_ui;
 mod multicaret;
+mod problems;
 mod refactor;
 mod text_ops;
 mod usages;
@@ -107,6 +108,8 @@ actions!(
         IntroduceVariable,
         ExtractMethod,
         InlineVariable,
+        NextProblem,
+        PrevProblem,
         ExtendSelection,
         ShrinkSelection,
         JoinLines,
@@ -187,6 +190,8 @@ pub struct EditorView {
     usage_highlights: Option<(u64, Vec<Range<usize>>)>,
     /// Quick Documentation / Parameter Info popup.
     info: Option<info::Info>,
+    /// Inspection problems for a buffer version.
+    problems: Option<(u64, Vec<php_analysis::Problem>)>,
 }
 
 impl EditorView {
@@ -217,6 +222,7 @@ impl EditorView {
             show_whitespace: false,
             usage_highlights: None,
             info: None,
+            problems: None,
             buffer,
             focus_handle: cx.focus_handle(),
             scroll_y: px(0.),
@@ -1049,6 +1055,8 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::introduce_variable))
             .on_action(cx.listener(Self::extract_method))
             .on_action(cx.listener(Self::inline_variable))
+            .on_action(cx.listener(Self::next_problem))
+            .on_action(cx.listener(Self::prev_problem))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -1238,11 +1246,19 @@ impl Element for EditorElement {
                 .filter(|_| view.buffer.selection.is_empty())
                 .map(|(a, b)| vec![a, b]).unwrap_or_default();
             let spans = view.buffer.highlights().to_vec();
-            let problems: Vec<Range<usize>> = view
+            let mut problems: Vec<(Range<usize>, Hsla)> = view
                 .current_diagnostics()
                 .iter()
-                .map(|u| u.range.clone())
+                .map(|u| (u.range.clone(), theme::error()))
                 .collect();
+            problems.extend(view.current_problems().into_iter().map(|p| {
+                let color = match p.severity {
+                    php_analysis::Severity::Error => theme::error(),
+                    php_analysis::Severity::Warning => theme::syntax(php_syntax::Highlight::Warning),
+                    php_analysis::Severity::Weak => theme::muted(),
+                };
+                (p.range, color)
+            }));
             let link = view.hover_link.clone();
             let mut underlines = Vec::new();
             let (mut find_matches, find_current) = match &view.find {
@@ -1361,8 +1377,8 @@ impl Element for EditorElement {
                         ));
                     }
                 };
-                for problem in &problems {
-                    underline(problem, theme::error(), &mut underlines);
+                for (problem, color) in &problems {
+                    underline(problem, *color, &mut underlines);
                 }
                 let row_start = view.buffer.char_to_byte(row.start());
                 let row_end = view.buffer.char_to_byte(row.end());

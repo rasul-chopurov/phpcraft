@@ -130,7 +130,7 @@ pub fn unresolved_classes(doc: &Document, index: &Index) -> Vec<Unresolved> {
 }
 
 /// Names (lowercased first segments) referenced in code or docblocks.
-fn used_names(doc: &Document) -> HashSet<String> {
+pub(crate) fn used_names(doc: &Document) -> HashSet<String> {
     let mut used = HashSet::new();
     visit(doc.tree.root_node(), &mut |node| {
         match node.kind() {

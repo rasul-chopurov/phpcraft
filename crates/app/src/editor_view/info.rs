@@ -10,6 +10,8 @@ use crate::theme;
 pub(super) enum Info {
     Doc { signature: String, comment: String, file: String },
     Params { params: String, active: usize },
+    /// A problem's message (F2).
+    Message(String),
 }
 
 impl EditorView {
@@ -60,6 +62,7 @@ impl EditorView {
                 .when(!comment.is_empty(), |d| {
                     d.child(div().text_color(theme::ui_text()).children(comment.lines().map(|l| div().child(l.to_string()))))
                 }),
+            Info::Message(text) => div().text_color(theme::ui_text()).child(text.clone()),
             Info::Params { params, active } => {
                 // Bold the parameter being typed.
                 let mut start = 0;

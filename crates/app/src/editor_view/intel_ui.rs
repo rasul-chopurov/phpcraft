@@ -302,6 +302,9 @@ impl EditorView {
     ) {
         let offset = self.caret_byte();
         let mut items = Vec::new();
+        for problem in self.problems_at_caret() {
+            items.push(MenuItem::new(problem.message.clone(), "", "⚠", MenuAction::Nothing));
+        }
         let unresolved = self.current_diagnostics().to_vec();
         for problem in unresolved
             .iter()

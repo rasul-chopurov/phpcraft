@@ -21,6 +21,24 @@ pub struct Intel {
     repo: Option<git::Repo>,
 }
 
+/// PHP's built-in functions, asked from the `php` binary once (in the background: until then,
+/// and without PHP, undefined functions aren't reported).
+pub fn builtins() -> &'static php_analysis::Builtins {
+    static BUILTINS: std::sync::OnceLock<php_analysis::Builtins> = std::sync::OnceLock::new();
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    static EMPTY: std::sync::LazyLock<php_analysis::Builtins> = std::sync::LazyLock::new(Default::default);
+    STARTED.call_once(|| {
+        std::thread::spawn(|| {
+            let output = process::command(laravel::php_binary())
+                .args(["-r", "echo implode(\"\\n\", get_defined_functions()['internal']);"])
+                .output();
+            let functions = output.ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).lines().map(|l| l.trim().to_lowercase()).filter(|l| !l.is_empty()).collect()).unwrap_or_default();
+            let _ = BUILTINS.set(php_analysis::Builtins { functions });
+        });
+    });
+    BUILTINS.get().unwrap_or(&EMPTY)
+}
+
 /// Where the on-disk index cache for `root` lives (one file per project).
 fn index_cache_file(root: &std::path::Path) -> std::path::PathBuf {
     use std::hash::{Hash, Hasher};
@@ -344,6 +362,15 @@ impl Intel {
         Document::parse(path, source)
             .map(|doc| self.with_providers(|p| php_analysis::complete(&doc, &index, offset, p)))
             .unwrap_or_default()
+    }
+
+    /// Inspection problems in a PHP file (none until the index is ready, none for Blade).
+    pub fn problems(&self, path: &Path, source: &str) -> Vec<php_analysis::Problem> {
+        if !self.is_ready() || is_blade(path) {
+            return Vec::new();
+        }
+        let index = self.index.read().unwrap();
+        Document::parse(path, source).map(|doc| php_analysis::inspect(&doc, &index, builtins())).unwrap_or_default()
     }
 
     pub fn unresolved(&self, path: &Path, source: &str) -> Vec<Unresolved> {

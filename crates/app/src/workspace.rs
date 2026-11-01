@@ -16,6 +16,7 @@ mod panes;
 mod git_window;
 mod tabs;
 mod refactor;
+mod problems;
 pub use git_panel::ShowCommit;
 pub(crate) use db_panel::RunSql;
 
@@ -1013,6 +1014,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::close_other_tabs))
             .on_action(cx.listener(Self::close_all_tabs))
             .on_action(cx.listener(Self::show_bookmarks))
+            .on_action(cx.listener(Self::show_problems))
+            .on_action(cx.listener(Self::inspect_code))
             .on_action(cx.listener(Self::go_to_bookmark_0))
             .on_action(cx.listener(Self::go_to_bookmark_1))
             .on_action(cx.listener(Self::go_to_bookmark_2))
