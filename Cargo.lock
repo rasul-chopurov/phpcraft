@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "agent"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "search",
  "serde",
@@ -1514,7 +1514,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "editor"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "anyhow",
  "php-syntax",
@@ -2097,7 +2097,7 @@ dependencies = [
 
 [[package]]
 name = "git"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "similar",
 ]
@@ -2535,7 +2535,7 @@ dependencies = [
 
 [[package]]
 name = "history"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "serde",
  "serde_json",
@@ -3029,7 +3029,7 @@ dependencies = [
 
 [[package]]
 name = "laravel"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "php-analysis",
  "php-index",
@@ -3878,7 +3878,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "php-analysis"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "php-index",
  "php-syntax",
@@ -3887,7 +3887,7 @@ dependencies = [
 
 [[package]]
 name = "php-index"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "php-syntax",
  "rayon",
@@ -3896,7 +3896,7 @@ dependencies = [
 
 [[package]]
 name = "php-syntax"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "streaming-iterator",
  "tree-sitter",
@@ -3911,7 +3911,7 @@ dependencies = [
 
 [[package]]
 name = "phpcraft"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "agent",
  "anyhow",
@@ -4145,7 +4145,7 @@ dependencies = [
 
 [[package]]
 name = "project"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "anyhow",
 ]
@@ -4932,7 +4932,7 @@ checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
 
 [[package]]
 name = "search"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "ignore",
  "regex",
@@ -5660,7 +5660,7 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "0.0.3-alpha"
+version = "0.0.4-alpha"
 dependencies = [
  "alacritty_terminal",
  "async-channel 2.5.0",
