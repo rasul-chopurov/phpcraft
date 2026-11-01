@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon/phpcraft.svg" width="128" height="128" alt="PhpCraft icon: a code window and a hammer on a violet tile">
+  <img src="assets/icon/phpcraft.svg" width="128" height="128" alt="PhpCraft icon: “Php Craft” on a dark tile over a violet-teal frame">
 </p>
 
 <h1 align="center">PhpCraft</h1>
