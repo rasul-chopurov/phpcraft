@@ -278,6 +278,10 @@ function phpcraft_connect(string $key, string $name, bool $networked) {
 $t = microtime(true);
 try {
     $connection = phpcraft_connect($key, $name, $networked);
+    if ($mode === 'config') {
+        echo json_encode(config($key));
+        exit;
+    }
     if ($mode === 'info') {
         echo json_encode(['driver' => $connection->getDriverName(), 'database' => $connection->getDatabaseName(), 'name' => $name, 'host' => config("$key.host"), 'port' => config("$key.port")]);
         exit;
@@ -335,6 +339,15 @@ fn run_php(root: &Path, args: &[&str], stdin: &str) -> Result<serde_json::Value,
     Ok(value)
 }
 
+/// The default connection's settings from `config/database.php` (including the password).
+pub fn laravel_connection_config(root: &Path) -> Result<serde_json::Value, String> {
+    run_php_raw(root, &["config"])
+}
+
+fn run_php_raw(root: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
+    run_php(root, args, "")
+}
+
 /// `mysql · shop` for the default connection.
 pub fn connection_info(root: &Path) -> Result<(String, String), String> {
     let value = run_php(root, &["info"], "")?;
@@ -347,7 +360,7 @@ pub fn run_query(root: &Path, sql: &str) -> Result<QueryResult, String> {
     Ok(parse_result(&value))
 }
 
-fn parse_result(value: &serde_json::Value) -> QueryResult {
+pub(crate) fn parse_result(value: &serde_json::Value) -> QueryResult {
     let text = |v: &serde_json::Value| match v {
         serde_json::Value::Null => None,
         serde_json::Value::String(s) => Some(s.clone()),
