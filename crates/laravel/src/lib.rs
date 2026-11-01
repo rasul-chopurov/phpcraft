@@ -5,6 +5,7 @@ mod array_keys;
 pub mod artisan;
 pub mod make;
 pub mod routes;
+pub mod settings;
 
 use std::fs;
 use std::ops::Range;
@@ -30,7 +31,7 @@ pub enum Kind {
 }
 
 pub fn is_laravel_project(root: &Path) -> bool {
-    root.join("artisan").is_file()
+    settings::LaravelSettings::load(root).laravel_root(root).join("artisan").is_file()
 }
 
 /// Teaches the index Laravel's magic forwarding (`User::where(...)` lives on the query builder).
@@ -41,11 +42,28 @@ pub fn register_mixins(index: &mut Index) {
 
 pub struct Laravel {
     root: PathBuf,
+    config_dir: String,
+    /// Translations for this locale are listed first.
+    locale: String,
 }
 
 impl Laravel {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self { root: root.into(), config_dir: "config".into(), locale: "en".into() }
+    }
+
+    /// Laravel support for a project, honouring `.phpcraft/laravel.json`.
+    pub fn for_project(project_root: &Path) -> Self {
+        let settings = settings::LaravelSettings::load(project_root);
+        Self {
+            root: settings.laravel_root(project_root),
+            config_dir: if settings.config_dir.trim().is_empty() { "config".into() } else { settings.config_dir.trim().to_string() },
+            locale: settings.default_locale.trim().to_string(),
+        }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
     }
 
     /// Classifies a string argument by the call it is passed to.
@@ -216,7 +234,7 @@ impl Laravel {
 
     pub fn config_key(&self, key: &str) -> Option<Location> {
         let (file, rest) = key.split_once('.').unwrap_or((key, ""));
-        let path = self.root.join("config").join(format!("{file}.php"));
+        let path = self.root.join(&self.config_dir).join(format!("{file}.php"));
         if !path.is_file() {
             return None;
         }
@@ -230,7 +248,7 @@ impl Laravel {
 
     fn config_keys(&self) -> Vec<(String, String)> {
         let mut out = Vec::new();
-        for path in php_files_in(&self.root.join("config")) {
+        for path in php_files_in(&self.root.join(&self.config_dir)) {
             let Some(file) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else { continue };
             out.push((file.clone(), "config".into()));
             let Ok(source) = fs::read_to_string(&path) else { continue };
@@ -274,6 +292,12 @@ impl Laravel {
                 }
             }
         }
+        // Default locale first, like PhpStorm shows the primary translation.
+        let locale = format!("/{}", self.locale);
+        out.sort_by_key(|l| {
+            let path = l.path.to_string_lossy();
+            !(path.contains(&format!("{locale}/")) || path.ends_with(&format!("{locale}.json")))
+        });
         out
     }
 

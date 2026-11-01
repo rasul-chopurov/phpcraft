@@ -2,8 +2,9 @@
 //! columns and relations. Drives the model, migration, factory and pivot-table output.
 
 use super::{plural, snake};
+use crate::settings::RelationColumns;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum IdType {
     #[default]
     Id,
@@ -128,6 +129,15 @@ pub struct ModelSpec {
     pub relations: Vec<Relation>,
     /// Class/file names typed for post-generations, overriding the derived ones.
     pub class_names: std::collections::HashMap<super::Extra, String>,
+    /// Composite indexes from the Index Editor.
+    pub indexes: Vec<IndexSpec>,
+    pub settings: crate::settings::ModelSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexSpec {
+    pub columns: Vec<String>,
+    pub unique: bool,
 }
 
 impl Default for ModelSpec {
@@ -142,6 +152,8 @@ impl Default for ModelSpec {
             fields: Vec::new(),
             relations: Vec::new(),
             class_names: Default::default(),
+            indexes: Vec::new(),
+            settings: Default::default(),
         }
     }
 }
@@ -309,10 +321,15 @@ pub fn model_source(namespace: &str, name: &str, factory: bool, spec: &ModelSpec
             Some(format!("            '{}' => '{cast}',\n", f.name))
         })
         .collect();
-    if !casts.is_empty() {
+    if !casts.is_empty() && spec.settings.casts_method {
         body.push(format!(
             "    /**\n     * Get the attributes that should be cast.\n     *\n     * @return array<string, string>\n     */\n    protected function casts(): array\n    {{\n        return [\n{}        ];\n    }}\n",
             casts.concat()
+        ));
+    } else if !casts.is_empty() {
+        let entries = casts.iter().map(|c| c.replacen("            ", "        ", 1)).collect::<String>();
+        body.push(format!(
+            "    /**\n     * The attributes that should be cast.\n     *\n     * @var array<string, string>\n     */\n    protected $casts = [\n{entries}    ];\n"
         ));
     }
     for relation in &spec.relations {
@@ -350,8 +367,19 @@ pub fn model_source(namespace: &str, name: &str, factory: bool, spec: &ModelSpec
     )
 }
 
+#[cfg(test)]
 fn column_line(field: &Field) -> String {
-    let mut line = match field.column.as_str() {
+    column_line_with(field, false)
+}
+
+fn column_line_with(field: &Field, timezones: bool) -> String {
+    let column = match (field.column.as_str(), timezones) {
+        ("dateTime", true) => "dateTimeTz",
+        ("timestamp", true) => "timestampTz",
+        ("time", true) => "timeTz",
+        (column, _) => column,
+    };
+    let mut line = match column {
         "decimal" => format!("$table->decimal('{}', 10, 2)", field.name),
         "foreignId" => format!("$table->foreignId('{}')->constrained()", field.name),
         column => format!("$table->{column}('{}')", field.name),
@@ -372,20 +400,31 @@ fn column_line(field: &Field) -> String {
 
 /// The `Schema::create` body for the model's table.
 pub fn create_columns(spec: &ModelSpec) -> String {
+    let settings = &spec.settings;
+    let id_name = if settings.id_name.trim().is_empty() { "id" } else { settings.id_name.trim() };
     let mut out = String::new();
     if spec.with_id {
-        out.push_str(match spec.id {
-            IdType::Id => "            $table->id();\n",
-            IdType::Uuid => "            $table->uuid('id')->primary();\n",
-            IdType::Ulid => "            $table->ulid('id')->primary();\n",
+        out.push_str(&match (spec.id, id_name) {
+            (IdType::Id, "id") => "            $table->id();\n".to_string(),
+            (IdType::Id, name) => format!("            $table->id('{name}');\n"),
+            (IdType::Uuid, name) => format!("            $table->uuid('{name}')->primary();\n"),
+            (IdType::Ulid, name) => format!("            $table->ulid('{name}')->primary();\n"),
         });
     }
     for relation in &spec.relations {
         match relation.kind {
-            RelationKind::BelongsTo => out.push_str(&format!(
-                "            $table->foreignId('{}')->constrained()->cascadeOnDelete();\n",
-                foreign_key(&relation.target)
-            )),
+            RelationKind::BelongsTo => {
+                let key = foreign_key(&relation.target);
+                let table = super::table_name(&relation.target);
+                out.push_str(&match (settings.relation_columns, settings.constrained) {
+                    (RelationColumns::ForeignId, true) => format!("            $table->foreignId('{key}')->constrained()->cascadeOnDelete();\n"),
+                    (RelationColumns::ForeignId, false) => format!("            $table->foreignId('{key}');\n"),
+                    (RelationColumns::UnsignedBigInteger, false) => format!("            $table->unsignedBigInteger('{key}');\n"),
+                    (RelationColumns::UnsignedBigInteger, true) => format!(
+                        "            $table->unsignedBigInteger('{key}');\n            $table->foreign('{key}')->references('id')->on('{table}')->cascadeOnDelete();\n"
+                    ),
+                });
+            }
             RelationKind::MorphTo => {
                 let method = match spec.id {
                     IdType::Id => "morphs",
@@ -398,13 +437,18 @@ pub fn create_columns(spec: &ModelSpec) -> String {
         }
     }
     for field in &spec.fields {
-        out.push_str(&column_line(field));
+        out.push_str(&column_line_with(field, settings.timezones));
+    }
+    for index in spec.indexes.iter().filter(|i| !i.columns.is_empty()) {
+        let columns = index.columns.iter().map(|c| format!("'{c}'")).collect::<Vec<_>>().join(", ");
+        let method = if index.unique { "unique" } else { "index" };
+        out.push_str(&format!("            $table->{method}([{columns}]);\n"));
     }
     if spec.timestamps {
-        out.push_str("            $table->timestamps();\n");
+        out.push_str(if settings.timezones { "            $table->timestampsTz();\n" } else { "            $table->timestamps();\n" });
     }
     if spec.soft_deletes {
-        out.push_str("            $table->softDeletes();\n");
+        out.push_str(if settings.timezones { "            $table->softDeletesTz();\n" } else { "            $table->softDeletes();\n" });
     }
     out
 }

@@ -11,7 +11,7 @@ mod filament;
 #[path = "make_model.rs"]
 pub mod model_spec;
 
-pub use model_spec::{COLUMN_TYPES, Field, IdType, ModelSpec, Relation, RelationKind, parse_fields, parse_relations};
+pub use model_spec::{IndexSpec, COLUMN_TYPES, Field, IdType, ModelSpec, Relation, RelationKind, parse_fields, parse_relations};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MakeKind {
@@ -136,7 +136,7 @@ impl MakeKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum Extra {
     Migration,
     Factory,
@@ -245,6 +245,7 @@ impl ClassName {
 
 pub struct Maker {
     root: PathBuf,
+    pub settings: crate::settings::LaravelSettings,
     /// PSR-4 namespace for `app/`, usually `App`.
     app_namespace: String,
     uses_pest: bool,
@@ -320,7 +321,10 @@ impl Target {
 }
 
 impl Maker {
-    pub fn new(root: &Path) -> Self {
+    pub fn new(project_root: &Path) -> Self {
+        let settings = crate::settings::LaravelSettings::load(project_root);
+        let root_buf = settings.laravel_root(project_root);
+        let root = root_buf.as_path();
         let composer = fs::read_to_string(root.join("composer.json")).unwrap_or_default();
         let lock = fs::read_to_string(root.join("composer.lock")).unwrap_or_default();
         let app_namespace = composer
@@ -334,11 +338,22 @@ impl Maker {
             .unwrap_or_else(|| "App".into());
         Self {
             root: root.to_path_buf(),
+            settings,
             app_namespace,
             // `pestphp/pest-plugin` alone (allow-plugins config) doesn't mean Pest is installed.
             uses_pest: composer.contains("\"pestphp/pest\":") || root.join("vendor/pestphp/pest").is_dir(),
             uses_filament: has_filament(root, &composer, &lock),
             filament_v3: package_version(&lock, "filament/filament").is_some_and(|v| v.starts_with('3')),
+        }
+    }
+
+    /// Base controller for new controllers: the setting, mapped into a module when targeting one.
+    fn controller_base(&self, t: &Target) -> String {
+        let base = self.settings.controller_base.trim();
+        let base = if base.is_empty() { "App\\Http\\Controllers\\Controller" } else { base };
+        match base.strip_prefix(&format!("{}\\", self.app_namespace)) {
+            Some(rest) => format!("{}\\{rest}", t.app_namespace),
+            None => base.to_string(),
         }
     }
 
@@ -420,24 +435,28 @@ impl Maker {
         match kind {
             MakeKind::Model => {
                 let model_fqn = class.fqn(&t.app("Models"));
-                // A name typed in the dialog overrides the derived one.
+                let table = spec.table.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| table_name(&class.name));
+                // A name typed in the dialog wins; otherwise the settings' template if customized.
                 let named = |extra: Extra| {
-                    spec.class_names
-                        .get(&extra)
-                        .map(|n| n.trim().to_string())
-                        .filter(|n| !n.is_empty() && *n != extra.default_name(&class.name))
+                    let typed = spec.class_names.get(&extra).map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+                    let templated = spec.settings.name_for(extra, &class.name, &table);
+                    let derived = crate::settings::ModelSettings::default().name_for(extra, &class.name, &table);
+                    typed.or((templated != derived).then_some(templated)).filter(|n| *n != derived)
                 };
-                let sibling = |extra: Extra, suffix: &str| match named(extra) {
-                    Some(name) => ClassName { dirs: class.dirs.clone(), name: studly(&name) },
+                let sibling = |extra: Extra, suffix: &str| match named(extra).and_then(|n| ClassName::parse(&n)) {
+                    Some(parsed) => ClassName { dirs: class.dirs.iter().cloned().chain(parsed.dirs).collect(), name: parsed.name },
                     None => class.with_suffix(suffix),
                 };
                 let source = model_spec::model_source(&class.namespace(&t.app("Models")), &class.name, has(Extra::Factory), spec);
                 files.push(t.class_file(&class, "Models", source));
-                let table = spec.table.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| table_name(&class.name));
                 if has(Extra::Migration) {
                     let name = named(Extra::Migration).map(|n| snake(&n)).unwrap_or_else(|| format!("create_{table}_table"));
                     let path = t.migration_path(&name);
-                    files.push(t.file(path, create_migration(&table, &model_spec::create_columns(spec))));
+                    let mut source = create_migration(&table, &model_spec::create_columns(spec));
+                    if spec.settings.omit_down {
+                        source = omit_down(&source);
+                    }
+                    files.push(t.file(path, source));
                     for relation in spec.relations.iter().filter(|r| r.kind == RelationKind::BelongsToMany) {
                         let pivot = model_spec::pivot_table(&class.name, &relation.target);
                         if !t.has_migration(&format!("create_{pivot}_table")) {
@@ -488,6 +507,7 @@ impl Maker {
                         &controller,
                         &t.app("Http\\Controllers"),
                         &t.app_namespace,
+                        &self.controller_base(&t),
                         Some((&model_fqn, &class.name)),
                         ControllerStyle::Api,
                         (requests.len() == 2).then(|| (requests[0].clone(), requests[1].clone())),
@@ -517,6 +537,7 @@ impl Maker {
                     &controller,
                     &t.app("Http\\Controllers"),
                     &t.app_namespace,
+                    &self.controller_base(&t),
                     model_fqn.as_deref().zip(model.as_deref()),
                     if has(Extra::Resource) { ControllerStyle::Resource } else { ControllerStyle::Plain },
                     requests,
@@ -697,6 +718,14 @@ fn migration_timestamp(offset_secs: i64) -> String {
 
 // --- templates ---------------------------------------------------------------
 
+/// Drops the `down()` method from a generated migration.
+fn omit_down(source: &str) -> String {
+    match (source.find("\n    /**\n     * Reverse the migrations."), source.rfind("\n};")) {
+        (Some(start), Some(end)) if start < end => format!("{}{}", &source[..start], &source[end..]),
+        _ => source.to_string(),
+    }
+}
+
 fn create_migration(table: &str, columns: &str) -> String {
     migration_source(
         &format!("        Schema::create('{table}', function (Blueprint $table) {{\n{columns}        }});"),
@@ -766,6 +795,7 @@ fn controller_file(
     controller: &ClassName,
     namespace: &str,
     app_namespace: &str,
+    base: &str,
     model: Option<(&str, &str)>,
     style: ControllerStyle,
     requests: Option<(String, String)>,
@@ -773,9 +803,10 @@ fn controller_file(
     let ns = controller.namespace(namespace);
     let name = &controller.name;
     let mut uses = Vec::new();
-    // Controllers in sub-namespaces still extend the base controller.
-    if !controller.dirs.is_empty() {
-        uses.push(format!("{app_namespace}\\Http\\Controllers\\Controller"));
+    // Import the base controller unless it lives in the same namespace.
+    let base_name = php_index::short_name(base).to_string();
+    if php_index::namespace_of(base) != ns {
+        uses.push(base.to_string());
     }
     let body = if style == ControllerStyle::Plain {
         "    //\n".to_string()
@@ -817,7 +848,7 @@ fn controller_file(
     uses.dedup();
     let uses = uses.iter().map(|u| format!("use {u};\n")).collect::<String>();
     let uses = if uses.is_empty() { String::new() } else { format!("{uses}\n") };
-    format!("<?php\n\nnamespace {ns};\n\n{uses}class {name} extends Controller\n{{\n{body}}}\n")
+    format!("<?php\n\nnamespace {ns};\n\n{uses}class {name} extends {base_name}\n{{\n{body}}}\n")
 }
 
 fn form_request(request: &ClassName, namespace: &str) -> String {
@@ -1089,6 +1120,44 @@ mod tests {
         all.extend(v3);
         for file in all.iter().filter(|f| !f.path.to_string_lossy().ends_with(".blade.php")) {
             assert!(php_syntax_check(&file.contents), "{} does not parse:\n{}", file.path.display(), file.contents);
+        }
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn settings_shape_output() {
+        let root = std::env::temp_dir().join(format!("phpcraft-make-settings-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let mut settings = crate::settings::LaravelSettings::default();
+        settings.controller_base = "App\\Http\\Controllers\\BaseController".into();
+        settings.model.timezones = true;
+        settings.model.casts_method = false;
+        settings.model.omit_down = true;
+        settings.model.relation_columns = crate::settings::RelationColumns::UnsignedBigInteger;
+        settings.model.templates.insert(Extra::Controller, "Api\\${MODEL}ApiController".into());
+        settings.save(&root).unwrap();
+        let maker = Maker::new(&root);
+        let spec = ModelSpec {
+            fields: parse_fields("published_at:datetime:nullable, active:bool, a:string, b:string"),
+            relations: parse_relations("belongsTo:User"),
+            indexes: vec![IndexSpec { columns: vec!["a".into(), "b".into()], unique: true }],
+            settings: maker.settings.model.clone(),
+            ..ModelSpec::default()
+        };
+        let files = maker.plan_with(MakeKind::Model, "Post", &[Extra::Migration, Extra::Controller], None, &spec);
+        let model = &files[0].contents;
+        assert!(model.contains("protected $casts = [") && !model.contains("function casts()"), "{model}");
+        let migration = &files[1].contents;
+        assert!(migration.contains("$table->dateTimeTz('published_at')->nullable();"), "{migration}");
+        assert!(migration.contains("$table->unsignedBigInteger('user_id');"));
+        assert!(migration.contains("$table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();"));
+        assert!(migration.contains("$table->unique(['a', 'b']);") && migration.contains("$table->timestampsTz();"));
+        assert!(!migration.contains("function down"), "{migration}");
+        assert!(files[2].path.ends_with("app/Http/Controllers/Api/PostApiController.php"), "{:?}", files[2].path);
+        assert!(files[2].contents.contains("use App\\Http\\Controllers\\BaseController;") && files[2].contents.contains("extends BaseController"));
+        for file in &files {
+            assert!(php_syntax_check(&file.contents), "{}", file.contents);
         }
         fs::remove_dir_all(&root).unwrap();
     }

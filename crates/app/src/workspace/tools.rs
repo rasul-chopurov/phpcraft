@@ -6,11 +6,11 @@ use std::sync::Arc;
 use gpui::{AnyView, Context, Entity, SharedString, Window, actions, div, prelude::*, px};
 
 use super::Workspace;
-use crate::dialogs::{ArtisanDialog, ArtisanRunDialog, DialogEvent, MakeChooser, MakeDialog, RouteSearchDialog};
+use crate::dialogs::{ArtisanDialog, ArtisanRunDialog, DialogEvent, LaravelSettingsDialog, MakeChooser, MakeDialog, RouteSearchDialog};
 use laravel::make::MakeKind;
 use crate::theme;
 
-actions!(workspace, [OpenMake, OpenArtisan, CloseOutput, OpenRouteSearch, NewModel, NewPivotTable, ToggleLaravelMenu]);
+actions!(workspace, [OpenMake, OpenArtisan, CloseOutput, OpenRouteSearch, NewModel, NewPivotTable, ToggleLaravelMenu, OpenLaravelSettings]);
 
 /// Bottom panel showing Artisan output and generation results.
 pub(super) struct Output {
@@ -45,9 +45,20 @@ impl Workspace {
     }
 
     pub(super) fn open_route_search(&mut self, _: &OpenRouteSearch, window: &mut Window, cx: &mut Context<Self>) {
-        let root = self.project.root().to_path_buf();
+        let root = self.artisan_root();
         let dialog = cx.new(|cx| RouteSearchDialog::new(&root, window, cx));
         self.show_modal(dialog, window, cx);
+    }
+
+    pub(super) fn open_laravel_settings(&mut self, _: &OpenLaravelSettings, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let dialog = cx.new(|cx| LaravelSettingsDialog::new(&root, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// Where Artisan runs: the configured Laravel directory.
+    pub(super) fn artisan_root(&self) -> PathBuf {
+        self.intel.laravel_root().unwrap_or_else(|| self.project.root().to_path_buf())
     }
 
     pub(super) fn toggle_laravel_menu(&mut self, _: &ToggleLaravelMenu, _: &mut Window, cx: &mut Context<Self>) {
@@ -56,7 +67,7 @@ impl Workspace {
     }
 
     pub(super) fn open_artisan(&mut self, _: &OpenArtisan, window: &mut Window, cx: &mut Context<Self>) {
-        let root = self.project.root().to_path_buf();
+        let root = self.artisan_root();
         let cached = self.artisan_commands.clone();
         let dialog = cx.new(|cx| ArtisanDialog::new(&root, cached, window, cx));
         self.show_modal(dialog, window, cx);
@@ -105,6 +116,11 @@ impl Workspace {
             }
             DialogEvent::OpenMakeKind(kind) => self.open_make_kind(*kind, window, cx),
             DialogEvent::FilesListed(files) => self.files_cache = Some(files.clone()),
+            DialogEvent::SettingsSaved => {
+                self.dismiss_modal(window, cx);
+                self.intel.reload_settings();
+                self.artisan_commands = None;
+            }
             DialogEvent::OpenLocation(location) => {
                 let location = location.clone();
                 self.dismiss_modal(window, cx);
@@ -172,7 +188,7 @@ impl Workspace {
             ok: true,
         });
         cx.notify();
-        let root = self.project.root().to_path_buf();
+        let root = self.artisan_root();
         cx.spawn(async move |this, cx| {
             let run_line = line.clone();
             let (text, ok) = cx
@@ -265,7 +281,7 @@ impl Workspace {
             Some(("Generate Helper Code", "soon", None)),
             Some(("Find Unused Views", "soon", None)),
             None,
-            Some(("Laravel Settings…", "soon", None)),
+            Some(("Laravel Settings…", "", Some(|w, win, cx| w.open_laravel_settings(&OpenLaravelSettings, win, cx)))),
         ];
         let items = entries.iter().enumerate().map(|(ix, entry)| match entry {
             None => div().my_1().h(px(1.)).bg(theme::border_strong()).into_any_element(),

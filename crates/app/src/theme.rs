@@ -85,6 +85,9 @@ pub fn syntax(highlight: Highlight) -> Hsla {
         Highlight::Operator => 0xa9b7c6,
         Highlight::Tag => 0xe8bf6a,
         Highlight::Attribute => 0xbababa,
+        Highlight::Error => 0xff6b68,
+        Highlight::Warning => 0xe0b55b,
+        Highlight::Info => 0x6a9fb5,
     };
     rgb(color).into()
 }

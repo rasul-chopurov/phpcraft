@@ -12,7 +12,7 @@ use php_index::{Index, Location};
 pub struct Intel {
     root: PathBuf,
     index: RwLock<Index>,
-    laravel: Option<Laravel>,
+    laravel: RwLock<Option<Laravel>>,
     ready: AtomicBool,
 }
 
@@ -21,7 +21,7 @@ impl Intel {
         Arc::new(Self {
             root: root.to_path_buf(),
             index: RwLock::new(Index::new()),
-            laravel: laravel::is_laravel_project(root).then(|| Laravel::new(root)),
+            laravel: RwLock::new(laravel::is_laravel_project(root).then(|| Laravel::for_project(root))),
             ready: AtomicBool::new(false),
         })
     }
@@ -30,7 +30,7 @@ impl Intel {
     pub fn scan(&self) {
         let started = Instant::now();
         let mut index = Index::scan(&self.root);
-        if self.laravel.is_some() {
+        if self.is_laravel() {
             laravel::register_mixins(&mut index);
         }
         eprintln!("indexed {} classes in {:.1?}", index.class_count(), started.elapsed());
@@ -47,15 +47,27 @@ impl Intel {
     }
 
     pub fn is_laravel(&self) -> bool {
-        self.laravel.is_some()
+        self.laravel.read().unwrap().is_some()
     }
 
     pub fn class_count(&self) -> usize {
         self.index.read().unwrap().class_count()
     }
 
-    fn providers(&self) -> Vec<&dyn StringProvider> {
-        self.laravel.iter().map(|l| l as &dyn StringProvider).collect()
+    /// Re-reads `.phpcraft/laravel.json` (after the settings dialog).
+    pub fn reload_settings(&self) {
+        *self.laravel.write().unwrap() = laravel::is_laravel_project(&self.root).then(|| Laravel::for_project(&self.root));
+    }
+
+    fn with_providers<R>(&self, f: impl FnOnce(&[&dyn StringProvider]) -> R) -> R {
+        let laravel = self.laravel.read().unwrap();
+        let providers: Vec<&dyn StringProvider> = laravel.iter().map(|l| l as &dyn StringProvider).collect();
+        f(&providers)
+    }
+
+    /// Laravel application root (may differ from the project root via settings).
+    pub fn laravel_root(&self) -> Option<PathBuf> {
+        self.laravel.read().unwrap().as_ref().map(|l| l.root().to_path_buf())
     }
 
     pub fn update_file(&self, path: &Path, source: &str) {
@@ -67,13 +79,15 @@ impl Intel {
     pub fn goto(&self, path: &Path, source: &str, offset: usize) -> Vec<Location> {
         let index = self.index.read().unwrap();
         let found = Document::parse(path, source)
-            .map(|doc| php_analysis::goto_definition(&doc, &index, offset, &self.providers()))
+            .map(|doc| self.with_providers(|p| php_analysis::goto_definition(&doc, &index, offset, p)))
             .unwrap_or_default();
         if !found.is_empty() {
             return found;
         }
         // Blade templates aren't PHP code: fall back to text-based Laravel navigation.
         self.laravel
+            .read()
+            .unwrap()
             .as_ref()
             .map(|l| l.text_goto(source, offset))
             .unwrap_or_default()
@@ -89,7 +103,7 @@ impl Intel {
     pub fn complete(&self, path: &Path, source: &str, offset: usize) -> Vec<CompletionItem> {
         let index = self.index.read().unwrap();
         Document::parse(path, source)
-            .map(|doc| php_analysis::complete(&doc, &index, offset, &self.providers()))
+            .map(|doc| self.with_providers(|p| php_analysis::complete(&doc, &index, offset, p)))
             .unwrap_or_default()
     }
 

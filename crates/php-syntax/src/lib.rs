@@ -2,6 +2,7 @@
 //! JSON, YAML and `.env` for the files a Laravel project contains.
 
 mod blade;
+mod simple;
 
 use std::ops::Range;
 use std::path::Path;
@@ -27,6 +28,10 @@ pub enum Highlight {
     Tag,
     Attribute,
     Namespace,
+    /// Log levels.
+    Error,
+    Warning,
+    Info,
 }
 
 /// A highlighted byte range in the source.
@@ -48,6 +53,14 @@ pub enum Lang {
     Json,
     Yaml,
     Env,
+    Xml,
+    Log,
+    Markdown,
+    Sql,
+    Ini,
+    Shell,
+    Dockerfile,
+    Ignore,
     Plain,
 }
 
@@ -60,15 +73,30 @@ impl Lang {
         if name == ".env" || name.starts_with(".env.") {
             return Self::Env;
         }
+        if name == "dockerfile" || name.starts_with("dockerfile.") || name.ends_with(".dockerfile") {
+            return Self::Dockerfile;
+        }
+        if name.ends_with("ignore") && name.starts_with('.') {
+            return Self::Ignore;
+        }
+        if name == ".editorconfig" || name == ".npmrc" {
+            return Self::Ini;
+        }
         match path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).as_deref() {
             Some("php" | "phtml" | "phpt") => Self::Php,
             Some("html" | "htm" | "vue" | "svelte") => Self::Html,
             Some("js" | "mjs" | "cjs" | "jsx") => Self::JavaScript,
             Some("ts" | "mts" | "cts") => Self::TypeScript,
             Some("tsx") => Self::Tsx,
-            Some("css" | "scss") => Self::Css,
-            Some("json" | "lock") => Self::Json,
-            Some("yml" | "yaml") => Self::Yaml,
+            Some("css" | "scss" | "sass" | "less" | "pcss") => Self::Css,
+            Some("json" | "lock" | "jsonc" | "webmanifest" | "map") => Self::Json,
+            Some("yml" | "yaml" | "neon") => Self::Yaml,
+            Some("xml" | "svg" | "xsd" | "dist" | "xliff") => Self::Xml,
+            Some("log") => Self::Log,
+            Some("md" | "markdown") => Self::Markdown,
+            Some("sql") => Self::Sql,
+            Some("ini" | "toml" | "conf" | "cfg" | "properties") => Self::Ini,
+            Some("sh" | "bash" | "zsh") => Self::Shell,
             _ => Self::Plain,
         }
     }
@@ -85,6 +113,14 @@ impl Lang {
             Self::Json => "JSON",
             Self::Yaml => "YAML",
             Self::Env => ".env",
+            Self::Xml => "XML",
+            Self::Log => "Log",
+            Self::Markdown => "Markdown",
+            Self::Sql => "SQL",
+            Self::Ini => "INI",
+            Self::Shell => "Shell",
+            Self::Dockerfile => "Dockerfile",
+            Self::Ignore => "Ignore",
             Self::Plain => "Text",
         }
     }
@@ -330,6 +366,14 @@ pub fn highlight_lang(lang: Lang, source: &str) -> Vec<Span> {
         Lang::Json => highlight_grammar(Grammar::Json, source),
         Lang::Yaml => highlight_grammar(Grammar::Yaml, source),
         Lang::Env => highlight_env(source),
+        Lang::Xml => highlight_html(source),
+        Lang::Log => simple::log(source),
+        Lang::Markdown => simple::markdown(source),
+        Lang::Sql => simple::sql(source),
+        Lang::Ini => simple::ini(source),
+        Lang::Shell => simple::shell(source),
+        Lang::Dockerfile => simple::dockerfile(source),
+        Lang::Ignore => simple::ignore_file(source),
         Lang::Plain => Vec::new(),
     }
 }
@@ -431,5 +475,9 @@ mod tests {
         assert_eq!(kind_in(&spans, env, "Laravel"), Some(Highlight::String));
         assert_eq!(Lang::from_path(Path::new("resources/views/a.blade.php")), Lang::Blade);
         assert_eq!(Lang::from_path(Path::new(".env.example")), Lang::Env);
+        assert_eq!(Lang::from_path(Path::new("storage/logs/laravel.log")), Lang::Log);
+        assert_eq!(Lang::from_path(Path::new("phpunit.xml.dist")), Lang::Xml);
+        assert_eq!(Lang::from_path(Path::new("Dockerfile")), Lang::Dockerfile);
+        assert_eq!(Lang::from_path(Path::new(".gitignore")), Lang::Ignore);
     }
 }

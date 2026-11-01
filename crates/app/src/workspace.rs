@@ -368,6 +368,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::new_model))
             .on_action(cx.listener(Self::new_pivot_table))
             .on_action(cx.listener(Self::toggle_laravel_menu))
+            .on_action(cx.listener(Self::open_laravel_settings))
             .on_action(cx.listener(Self::find_in_files))
             .on_action(cx.listener(Self::replace_in_files))
             .on_action(cx.listener(Self::search_everywhere))

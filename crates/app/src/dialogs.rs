@@ -22,7 +22,7 @@ pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, Navi
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
 
-actions!(dialog, [Confirm, Cancel, FocusNext, FocusPrev, SelectPrev, SelectNext, Complete]);
+actions!(dialog, [Confirm, Cancel, FocusNext, FocusPrev, SelectPrev, SelectNext, Complete, MoveRowUp, MoveRowDown, DeleteRow]);
 
 pub enum DialogEvent {
     Dismiss,
@@ -40,6 +40,7 @@ pub enum DialogEvent {
     RunAction(Box<dyn gpui::Action>),
     /// 0-based line and column.
     GoToLine(usize, usize),
+    SettingsSaved,
     CommandsLoaded(Arc<Vec<ArtisanCommand>>),
 }
 
@@ -624,5 +625,137 @@ impl Render for RouteSearchDialog {
             .child(div().p_2().child(self.query.clone()))
             .children(status)
             .child(div().pb_2().font_family(theme::EDITOR_FONT).text_size(px(12.)).children(rows))
+    }
+}
+
+// --- Laravel Settings ------------------------------------------------------------
+
+/// Languages & Frameworks › Laravel: directories, locale and controller base class.
+pub struct LaravelSettingsDialog {
+    root: std::path::PathBuf,
+    settings: laravel::settings::LaravelSettings,
+    fields: Vec<(&'static str, Entity<TextField>)>,
+    status: String,
+    error: Option<String>,
+    focus_handle: FocusHandle,
+}
+
+impl EventEmitter<DialogEvent> for LaravelSettingsDialog {}
+
+impl LaravelSettingsDialog {
+    pub fn new(root: &Path, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let settings = laravel::settings::LaravelSettings::load(root);
+        let values = [
+            ("Laravel directory:", settings.laravel_dir.clone(), "(project root)"),
+            ("Default locale:", settings.default_locale.clone(), "en"),
+            ("Controller base class:", settings.controller_base.clone(), "App\\Http\\Controllers\\Controller"),
+            ("Applications directory:", settings.app_dir.clone(), "app"),
+            ("Config directory:", settings.config_dir.clone(), "config"),
+            ("Public directory:", settings.public_dir.clone(), "public"),
+        ];
+        let fields: Vec<_> = values
+            .into_iter()
+            .map(|(label, value, placeholder)| {
+                let field = cx.new(|cx| {
+                    let mut f = TextField::new(placeholder, cx);
+                    f.set_text(value, cx);
+                    f
+                });
+                (label, field)
+            })
+            .collect();
+        window.focus(&fields[0].1.focus_handle(cx));
+        let laravel_root = settings.laravel_root(root);
+        let status = if laravel_root.join("artisan").is_file() {
+            let version = laravel::settings::framework_version(&laravel_root).unwrap_or_else(|| "unknown".into());
+            format!("Current state: Enabled. Framework: Laravel application. Version: {version}")
+        } else {
+            "Current state: Disabled. No artisan file in the Laravel directory.".to_string()
+        };
+        Self { root: root.to_path_buf(), settings, fields, status, error: None, focus_handle: cx.focus_handle() }
+    }
+
+    fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
+        let value = |i: usize| self.fields[i].1.read(cx).text().trim().to_string();
+        let mut settings = self.settings.clone();
+        settings.laravel_dir = value(0);
+        settings.default_locale = value(1);
+        settings.controller_base = value(2).trim_start_matches('\\').to_string();
+        settings.app_dir = value(3);
+        settings.config_dir = value(4);
+        settings.public_dir = value(5);
+        match settings.save(&self.root) {
+            Ok(()) => cx.emit(DialogEvent::SettingsSaved),
+            Err(err) => {
+                self.error = Some(format!("Failed to save: {err}"));
+                cx.notify();
+            }
+        }
+    }
+
+    fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(DialogEvent::Dismiss);
+    }
+
+    fn cycle(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.fields.iter().position(|(_, f)| f.focus_handle(cx).is_focused(window)).unwrap_or(0);
+        let next = (current as isize + delta).rem_euclid(self.fields.len() as isize) as usize;
+        window.focus(&self.fields[next].1.focus_handle(cx));
+    }
+
+    fn focus_next(&mut self, _: &FocusNext, window: &mut Window, cx: &mut Context<Self>) {
+        self.cycle(1, window, cx);
+    }
+
+    fn focus_prev(&mut self, _: &FocusPrev, window: &mut Window, cx: &mut Context<Self>) {
+        self.cycle(-1, window, cx);
+    }
+}
+
+impl Focusable for LaravelSettingsDialog {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for LaravelSettingsDialog {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let rows = self.fields.iter().map(|(label, field)| {
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(div().w(px(190.)).flex_none().child(*label))
+                .child(div().flex_1().child(field.clone()))
+        });
+        card(680.)
+            .key_context("Dialog")
+            .track_focus(&self.focus_handle)
+            .on_action(cx.listener(Self::confirm))
+            .on_action(cx.listener(Self::cancel))
+            .on_action(cx.listener(Self::focus_next))
+            .on_action(cx.listener(Self::focus_prev))
+            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child("Languages & Frameworks › Laravel › General"))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .p_3()
+                    .child(div().text_color(theme::muted()).child(self.status.clone()))
+                    .children(rows)
+                    .children(self.error.clone().map(|e| div().text_color(theme::error()).child(e))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap_2()
+                    .p_3()
+                    .border_t_1()
+                    .border_color(theme::border())
+                    .child(button("settings-cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.cancel(&Cancel, window, cx))))
+                    .child(button("settings-ok", "OK", true).on_click(cx.listener(|this, _, window, cx| this.confirm(&Confirm, window, cx)))),
+            )
     }
 }

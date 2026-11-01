@@ -2903,6 +2903,7 @@ version = "0.1.0"
 dependencies = [
  "php-analysis",
  "php-index",
+ "serde",
  "serde_json",
 ]
 
