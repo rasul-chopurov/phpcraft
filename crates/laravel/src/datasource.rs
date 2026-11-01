@@ -431,7 +431,7 @@ mod tests {
         assert_eq!(pg.dsn(root), "pgsql:host=127.0.0.1;port=5432;dbname=app");
         let mut lite = DataSource::new(Driver::Sqlite);
         lite.path = "database/database.sqlite".into();
-        assert_eq!(lite.dsn(root), "sqlite:/p/database/database.sqlite");
+        assert_eq!(lite.dsn(root), format!("sqlite:{}", root.join("database/database.sqlite").display()));
         let edit = CellEdit { column: "name".into(), value: Some("Ann".into()), key: vec![("id".into(), Some("7".into()))] };
         assert_eq!(update_statement(Driver::Mysql, "users", &edit), ("UPDATE `users` SET `name` = ? WHERE `id` = ?".to_string(), vec![Some("Ann".to_string()), Some("7".to_string())]));
         let del = delete_statement(Driver::Mysql, "users", &[("id".into(), Some("7".into()))]);
