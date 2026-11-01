@@ -155,6 +155,8 @@ pub fn set(cx: &mut App) {
                 Some(("Show Intention Actions", "editor::ShowIntentions")),
                 Some(("Generate…", "editor::Generate")),
                 Some(("Surround With…", "editor::SurroundWith")),
+                Some(("Reformat Code", "editor::ReformatCode")),
+                Some(("Auto-Indent Lines", "editor::AutoIndentLines")),
                 Some(("Inspect Code…", "workspace::InspectCode")),
                 Some(("Problems", "workspace::ShowProblems")),
                 Some(("Next Problem", "editor::NextProblem")),

@@ -3,6 +3,7 @@
 mod bookmarks;
 mod find_bar;
 mod folding;
+mod format;
 mod generate;
 mod hierarchy;
 mod info;
@@ -112,6 +113,8 @@ actions!(
         NextProblem,
         PrevProblem,
         SurroundWith,
+        ReformatCode,
+        AutoIndentLines,
         ExtendSelection,
         ShrinkSelection,
         JoinLines,
@@ -447,8 +450,11 @@ impl EditorView {
             self.changed(cx);
         }
     }
+    /// ⌘S: also runs the actions on save (auto-save doesn't, so typing isn't disturbed).
     fn save(&mut self, _: &Save, _: &mut Window, cx: &mut Context<Self>) {
+        self.before_save();
         self.save_now(cx);
+        self.after_save(cx);
     }
 
     /// Writes the buffer if it has unsaved changes and reindexes it.
@@ -1063,6 +1069,8 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::next_problem))
             .on_action(cx.listener(Self::prev_problem))
             .on_action(cx.listener(Self::surround_with))
+            .on_action(cx.listener(Self::reformat_code))
+            .on_action(cx.listener(Self::auto_indent_lines))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))

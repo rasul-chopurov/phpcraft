@@ -133,6 +133,8 @@ const DEFAULTS: &[Default] = &[
     both("secondary-alt-n", "editor::InlineVariable", ED),
     both("f2", "editor::NextProblem", ED),
     both("secondary-alt-t", "editor::SurroundWith", ED),
+    both("secondary-alt-l", "editor::ReformatCode", ED),
+    per("ctrl-alt-i", "ctrl-alt-shift-i", "editor::AutoIndentLines", ED),
     both("shift-f2", "editor::PrevProblem", ED),
     per("cmd-6", "alt-6", "workspace::ShowProblems", None),
     both("escape", "editor::CloseInfo", Some("Editor && info")),

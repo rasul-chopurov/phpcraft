@@ -753,6 +753,74 @@ impl Buffer {
         };
     }
 
+    // --- indentation ---------------------------------------------------
+
+    /// Auto-Indent Lines: re-indents the selected lines (or all of them) by bracket depth,
+    /// ignoring brackets inside strings and comments. Continuation lines starting with `->`
+    /// get one extra level.
+    pub fn reindent_lines(&mut self, whole_file: bool) {
+        let lines = if whole_file { 0..self.len_lines() } else { self.selected_lines() };
+        let unit = self.indent.clone();
+        let mut depth: i32 = 0;
+        let mut edits = Vec::new();
+        let mut in_block_comment = false;
+        let mut in_string: Option<char> = None;
+        for line in 0..lines.end {
+            let text = self.line(line);
+            let trimmed = text.trim_start();
+            let starts_closed = trimmed.starts_with(['}', ']', ')']);
+            if lines.contains(&line) && in_string.is_none() && !in_block_comment {
+                let level = (depth - starts_closed as i32).max(0) as usize;
+                let continuation = trimmed.starts_with("->") || trimmed.starts_with("?->");
+                let wanted = if trimmed.is_empty() { String::new() } else { unit.repeat(level + continuation as usize) };
+                let current = &text[..text.len() - trimmed.len()];
+                if current != wanted {
+                    let start = self.line_to_byte(line);
+                    edits.push((start..start + current.len(), wanted));
+                }
+            }
+            // Track depth through this line.
+            let chars: Vec<char> = text.chars().collect();
+            let mut i = 0;
+            while i < chars.len() {
+                let c = chars[i];
+                let next = chars.get(i + 1).copied();
+                if in_block_comment {
+                    if c == '*' && next == Some('/') {
+                        in_block_comment = false;
+                        i += 1;
+                    }
+                } else if let Some(q) = in_string {
+                    if c == '\\' {
+                        i += 1;
+                    } else if c == q {
+                        in_string = None;
+                    }
+                } else if c == '/' && next == Some('*') {
+                    in_block_comment = true;
+                    i += 1;
+                } else if (c == '/' && next == Some('/')) || c == '#' {
+                    break;
+                } else if c == '"' || c == '\'' || c == '`' {
+                    in_string = Some(c);
+                } else if matches!(c, '{' | '[' | '(') {
+                    depth += 1;
+                } else if matches!(c, '}' | ']' | ')') {
+                    depth -= 1;
+                }
+                i += 1;
+            }
+        }
+        let caret = self.char_to_byte(self.selection.head);
+        let selection = self.selection;
+        self.apply_edits(edits, caret);
+        if !selection.is_empty() {
+            let start = self.line_to_char(lines.start);
+            let last = lines.end.saturating_sub(1);
+            self.selection = Selection { anchor: start, head: self.line_to_char(last) + self.line_len(last) };
+        }
+    }
+
     // --- anchors ---------------------------------------------------------
 
     /// A position that moves with edits before it; returns its id.
@@ -1437,6 +1505,13 @@ mod tests {
         b.shrink_selection();
         b.shrink_selection();
         assert_eq!(b.selected_text(), "$bar");
+    }
+
+    #[test]
+    fn reindents_by_brackets() {
+        let mut b = Buffer::new("<?php\nfunction f() {\nif ($a) {\n$x = ['{',\n1];\n}\n  return $q\n->where();\n}\n");
+        b.reindent_lines(true);
+        assert_eq!(b.text(), "<?php\nfunction f() {\n    if ($a) {\n        $x = ['{',\n            1];\n    }\n    return $q\n        ->where();\n}\n");
     }
 
     #[test]

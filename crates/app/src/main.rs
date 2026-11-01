@@ -19,6 +19,7 @@ mod open_paths;
 mod modules;
 mod project_info;
 mod project_window;
+mod quality;
 mod run_configs;
 mod settings_import;
 mod splash;

@@ -624,6 +624,16 @@ impl SettingsDialog {
                 body.child(row("Open projects in").child(div().flex().gap_1().children(open_in)))
                     .child(row("Updates").child(toggle("check-updates", "Check for updates at startup", s.check_for_updates, |s| s.check_for_updates ^= true)))
                     .child(row("Auto save").child(div().flex().gap_1().children(auto_save)))
+                    .child(
+                        row("Actions on save").child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_2()
+                                .child(toggle("reformat-on-save", "Reformat code (Pint / PHP CS Fixer)", s.reformat_on_save, |s| s.reformat_on_save ^= true))
+                                .child(toggle("optimize-on-save", "Optimize imports", s.optimize_imports_on_save, |s| s.optimize_imports_on_save ^= true)),
+                        ),
+                    )
                     .when(s.auto_save == AutoSave::AfterDelay, |d| d.child(row("Delay (ms)").child(div().w(px(120.)).child(self.delay.clone()))))
                     .child(
                         row("Project tree").child(

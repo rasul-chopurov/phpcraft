@@ -62,6 +62,10 @@ pub struct Settings {
     /// AI inline completion (ghost text) in the editor.
     pub ai_inline_completion: bool,
     pub open_project_in: OpenProjectIn,
+    /// Actions on save: run the project's formatter (Pint / PHP CS Fixer) on saved PHP files.
+    pub reformat_on_save: bool,
+    /// Actions on save: remove unused imports from saved PHP files.
+    pub optimize_imports_on_save: bool,
 }
 
 impl Default for Settings {
@@ -83,6 +87,8 @@ impl Default for Settings {
             last_seen_version: String::new(),
             ai_inline_completion: true,
             open_project_in: OpenProjectIn::NewTab,
+            reformat_on_save: false,
+            optimize_imports_on_save: false,
         }
     }
 }
