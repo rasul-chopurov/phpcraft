@@ -571,3 +571,23 @@ mod unused_tests {
         fs::remove_dir_all(&root).unwrap();
     }
 }
+
+/// The PHP executable: `php` on PATH, else common install locations (Homebrew, Laravel
+/// Herd) that apps started from the Dock or Finder don't have on PATH.
+pub fn php_binary() -> std::path::PathBuf {
+    use std::sync::OnceLock;
+    static PHP: OnceLock<std::path::PathBuf> = OnceLock::new();
+    PHP.get_or_init(|| {
+        let name = if cfg!(windows) { "php.exe" } else { "php" };
+        let mut dirs: Vec<std::path::PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from) {
+            dirs.push(home.join("Library/Application Support/Herd/bin"));
+            dirs.push(home.join(".config/herd-lite/bin"));
+            dirs.push(home.join(".config/herd/bin"));
+        }
+        dirs.extend(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].map(std::path::PathBuf::from));
+        dirs.into_iter().map(|d| d.join(name)).find(|p| p.is_file()).unwrap_or_else(|| std::path::PathBuf::from(name))
+    })
+    .clone()
+}
+

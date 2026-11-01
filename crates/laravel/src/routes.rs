@@ -33,7 +33,7 @@ impl RouteInfo {
 
 /// Blocking; call off the UI thread.
 pub fn list_routes(root: &Path) -> Result<Vec<RouteInfo>, String> {
-    let output = Command::new("php")
+    let output = Command::new(crate::php_binary())
         .args(["artisan", "route:list", "--json"])
         .current_dir(root)
         .output()

@@ -16,7 +16,7 @@ pub struct DbColumn {
 }
 
 fn artisan_json(root: &Path, args: &[&str]) -> Result<serde_json::Value, String> {
-    let output = Command::new("php")
+    let output = Command::new(crate::php_binary())
         .arg("artisan")
         .args(args)
         .arg("--json")
@@ -33,8 +33,17 @@ fn artisan_json(root: &Path, args: &[&str]) -> Result<serde_json::Value, String>
 
 /// Tables of the default connection (blocking).
 pub fn list_tables(root: &Path) -> Result<Vec<String>, String> {
-    let json = artisan_json(root, &["db:show"])?;
-    Ok(parse_tables(&json))
+    match run_php(root, &["tables"], "") {
+        Ok(value) => {
+            let mut tables: Vec<String> =
+                value["tables"].as_array().map(|t| t.iter().filter_map(|t| t.as_str().map(str::to_string)).collect()).unwrap_or_default();
+            tables.retain(|t| t != "migrations");
+            tables.sort();
+            Ok(tables)
+        }
+        // Older Laravel without Schema::getTables(): fall back to artisan.
+        Err(err) => artisan_json(root, &["db:show"]).map(|json| parse_tables(&json)).map_err(|_| err),
+    }
 }
 
 fn parse_tables(json: &serde_json::Value) -> Vec<String> {
@@ -49,8 +58,23 @@ fn parse_tables(json: &serde_json::Value) -> Vec<String> {
 
 /// Columns of one table (blocking).
 pub fn table_columns(root: &Path, table: &str) -> Result<Vec<DbColumn>, String> {
-    let json = artisan_json(root, &["db:table", table])?;
-    Ok(parse_columns(&json))
+    match run_php(root, &["columns", table], "") {
+        Ok(value) => Ok(value["columns"]
+            .as_array()
+            .map(|columns| {
+                columns
+                    .iter()
+                    .map(|c| DbColumn {
+                        name: c["name"].as_str().unwrap_or_default().to_string(),
+                        ty: c["type"].as_str().unwrap_or_default().to_ascii_lowercase(),
+                        nullable: c["nullable"].as_bool().unwrap_or(false),
+                        default: c["default"].as_str().map(str::to_string),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()),
+        Err(err) => artisan_json(root, &["db:table", table]).map(|json| parse_columns(&json)).map_err(|_| err),
+    }
 }
 
 fn parse_columns(json: &serde_json::Value) -> Vec<DbColumn> {
@@ -217,14 +241,60 @@ const RUNNER: &str = r#"
 require 'vendor/autoload.php';
 $app = require 'bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-$sql = stream_get_contents(STDIN);
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+$mode = $argv[1] ?? 'query';
+$name = config('database.default');
+$key = "database.connections.$name";
+$networked = in_array(config("$key.driver"), ['mysql', 'mariadb', 'pgsql', 'sqlsrv'], true);
+// Like PhpStorm's data sources: connect over TCP from this machine. With `localhost`,
+// PDO MySQL would use a unix socket that doesn't exist when the server runs in Docker.
+if ($networked && config("$key.host") === 'localhost' && !config("$key.unix_socket")) {
+    config(["$key.host" => '127.0.0.1']);
+    // The app may have opened the connection while booting.
+    DB::purge($name);
+}
+function phpcraft_connect(string $key, string $name, bool $networked) {
+    try {
+        $c = DB::connection();
+        $c->getPdo();
+        return $c;
+    } catch (Throwable $e) {
+        // A Docker service host (mysql, db, pgsql…): try the port published on this machine.
+        if ($networked && config("$key.host") !== '127.0.0.1') {
+            config(["$key.host" => '127.0.0.1']);
+            DB::purge($name);
+            try {
+                $c = DB::connection();
+                $c->getPdo();
+                return $c;
+            } catch (Throwable $ignored) {
+            }
+        }
+        throw $e;
+    }
+}
 $t = microtime(true);
 try {
-    $connection = Illuminate\Support\Facades\DB::connection();
-    if (($argv[1] ?? '') === 'info') {
-        echo json_encode(['driver' => $connection->getDriverName(), 'database' => $connection->getDatabaseName(), 'name' => $connection->getName()]);
+    $connection = phpcraft_connect($key, $name, $networked);
+    if ($mode === 'info') {
+        echo json_encode(['driver' => $connection->getDriverName(), 'database' => $connection->getDatabaseName(), 'name' => $name, 'host' => config("$key.host"), 'port' => config("$key.port")]);
         exit;
     }
+    if ($mode === 'tables') {
+        $tables = method_exists(Schema::getFacadeRoot(), 'getTables')
+            ? array_map(fn ($t) => $t['name'], Schema::getTables())
+            : Schema::getTableListing();
+        echo json_encode(['tables' => array_values($tables)]);
+        exit;
+    }
+    if ($mode === 'columns') {
+        $columns = array_map(fn ($c) => ['name' => $c['name'], 'type' => $c['type'] ?? $c['type_name'] ?? '', 'nullable' => (bool) ($c['nullable'] ?? false), 'default' => $c['default'] ?? null], Schema::getColumns($argv[2] ?? ''));
+        echo json_encode(['columns' => $columns]);
+        exit;
+    }
+    $sql = stream_get_contents(STDIN);
     $stmt = $connection->getPdo()->query($sql);
     $columns = [];
     for ($i = 0; $i < $stmt->columnCount(); $i++) { $columns[] = $stmt->getColumnMeta($i)['name'] ?? "col$i"; }
@@ -233,14 +303,16 @@ try {
     $rows = array_map(fn ($r) => array_map(fn ($v) => $v === null ? null : (is_resource($v) ? '(binary)' : (string) $v), $r), array_slice($rows, 0, MAX_ROWS));
     echo json_encode(['columns' => $columns, 'rows' => $rows, 'total' => $total, 'affected' => $stmt->rowCount(), 'ms' => (microtime(true) - $t) * 1000], JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
 } catch (Throwable $e) {
-    echo json_encode(['error' => $e->getMessage()]);
+    $host = config("$key.host");
+    $port = config("$key.port");
+    echo json_encode(['error' => $e->getMessage() . ($networked ? " (connection '$name' at $host:$port)" : '')]);
 }
 "#;
 
 fn run_php(root: &Path, args: &[&str], stdin: &str) -> Result<serde_json::Value, String> {
     use std::io::Write;
     let code = RUNNER.replace("MAX_ROWS", &MAX_ROWS.to_string());
-    let mut child = std::process::Command::new("php")
+    let mut child = std::process::Command::new(crate::php_binary())
         .arg("-r")
         .arg(code)
         .args(args)
@@ -271,7 +343,7 @@ pub fn connection_info(root: &Path) -> Result<(String, String), String> {
 
 /// Runs one SQL statement on the project's default connection.
 pub fn run_query(root: &Path, sql: &str) -> Result<QueryResult, String> {
-    let value = run_php(root, &[], sql)?;
+    let value = run_php(root, &["query"], sql)?;
     Ok(parse_result(&value))
 }
 
