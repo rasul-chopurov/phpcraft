@@ -20,6 +20,7 @@ history = { path = "crates/history" }
 terminal = { path = "crates/terminal" }
 agent = { path = "crates/agent" }
 process = { path = "crates/process" }
+dbgp = { path = "crates/dbgp" }
 gpui = "0.2.2"
 ropey = "1.6"
 tree-sitter = "0.25"
