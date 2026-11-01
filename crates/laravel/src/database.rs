@@ -196,3 +196,149 @@ mod tests {
         assert_eq!(model_name("addresses"), "Address");
     }
 }
+
+/// Result of running SQL through the project's own Laravel database connection.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct QueryResult {
+    pub columns: Vec<String>,
+    /// Cell values as text; `None` is SQL NULL. At most [`MAX_ROWS`] rows.
+    pub rows: Vec<Vec<Option<String>>>,
+    /// Rows the statement returned before truncation.
+    pub total: usize,
+    pub affected: usize,
+    pub millis: f64,
+}
+
+pub const MAX_ROWS: usize = 500;
+
+/// Boots the app and runs the SQL read from stdin on the default connection (via PDO, so
+/// it works for every driver Laravel supports).
+const RUNNER: &str = r#"
+require 'vendor/autoload.php';
+$app = require 'bootstrap/app.php';
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$sql = stream_get_contents(STDIN);
+$t = microtime(true);
+try {
+    $connection = Illuminate\Support\Facades\DB::connection();
+    if (($argv[1] ?? '') === 'info') {
+        echo json_encode(['driver' => $connection->getDriverName(), 'database' => $connection->getDatabaseName(), 'name' => $connection->getName()]);
+        exit;
+    }
+    $stmt = $connection->getPdo()->query($sql);
+    $columns = [];
+    for ($i = 0; $i < $stmt->columnCount(); $i++) { $columns[] = $stmt->getColumnMeta($i)['name'] ?? "col$i"; }
+    $rows = $stmt->columnCount() ? $stmt->fetchAll(PDO::FETCH_NUM) : [];
+    $total = count($rows);
+    $rows = array_map(fn ($r) => array_map(fn ($v) => $v === null ? null : (is_resource($v) ? '(binary)' : (string) $v), $r), array_slice($rows, 0, MAX_ROWS));
+    echo json_encode(['columns' => $columns, 'rows' => $rows, 'total' => $total, 'affected' => $stmt->rowCount(), 'ms' => (microtime(true) - $t) * 1000], JSON_INVALID_UTF8_SUBSTITUTE | JSON_PARTIAL_OUTPUT_ON_ERROR);
+} catch (Throwable $e) {
+    echo json_encode(['error' => $e->getMessage()]);
+}
+"#;
+
+fn run_php(root: &Path, args: &[&str], stdin: &str) -> Result<serde_json::Value, String> {
+    use std::io::Write;
+    let code = RUNNER.replace("MAX_ROWS", &MAX_ROWS.to_string());
+    let mut child = std::process::Command::new("php")
+        .arg("-r")
+        .arg(code)
+        .args(args)
+        .current_dir(root)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("php: {e}"))?;
+    child.stdin.take().ok_or("no stdin")?.write_all(stdin.as_bytes()).map_err(|e| e.to_string())?;
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(text.trim()).map_err(|_| {
+        let err = String::from_utf8_lossy(&output.stderr);
+        format!("{}{}", text.trim(), err.trim()).chars().take(2000).collect::<String>()
+    })?;
+    if let Some(error) = value["error"].as_str() {
+        return Err(error.to_string());
+    }
+    Ok(value)
+}
+
+/// `mysql · shop` for the default connection.
+pub fn connection_info(root: &Path) -> Result<(String, String), String> {
+    let value = run_php(root, &["info"], "")?;
+    Ok((value["driver"].as_str().unwrap_or("").to_string(), value["database"].as_str().unwrap_or("").to_string()))
+}
+
+/// Runs one SQL statement on the project's default connection.
+pub fn run_query(root: &Path, sql: &str) -> Result<QueryResult, String> {
+    let value = run_php(root, &[], sql)?;
+    Ok(parse_result(&value))
+}
+
+fn parse_result(value: &serde_json::Value) -> QueryResult {
+    let text = |v: &serde_json::Value| match v {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(s) => Some(s.clone()),
+        other => Some(other.to_string()),
+    };
+    QueryResult {
+        columns: value["columns"].as_array().map(|c| c.iter().map(|c| c.as_str().unwrap_or("").to_string()).collect()).unwrap_or_default(),
+        rows: value["rows"].as_array().map(|rows| rows.iter().map(|r| r.as_array().map(|r| r.iter().map(text).collect()).unwrap_or_default()).collect()).unwrap_or_default(),
+        total: value["total"].as_u64().unwrap_or(0) as usize,
+        affected: value["affected"].as_u64().unwrap_or(0) as usize,
+        millis: value["ms"].as_f64().unwrap_or(0.),
+    }
+}
+
+/// Quotes an identifier for `driver` (`mysql` uses backticks).
+pub fn quote_ident(driver: &str, name: &str) -> String {
+    match driver {
+        "mysql" | "mariadb" => format!("`{}`", name.replace('`', "``")),
+        "sqlsrv" => format!("[{}]", name.replace(']', "]]")),
+        _ => format!("\"{}\"", name.replace('"', "\"\"")),
+    }
+}
+
+/// `SELECT * FROM <table> [WHERE …] LIMIT n` for the data view.
+pub fn select_sql(driver: &str, table: &str, filter: &str, limit: usize) -> String {
+    let filter = filter.trim();
+    let where_clause = if filter.is_empty() { String::new() } else { format!(" WHERE {filter}") };
+    if driver == "sqlsrv" {
+        format!("SELECT TOP {limit} * FROM {}{where_clause}", quote_ident(driver, table))
+    } else {
+        format!("SELECT * FROM {}{where_clause} LIMIT {limit}", quote_ident(driver, table))
+    }
+}
+
+#[cfg(test)]
+mod query_tests {
+    use super::*;
+
+    #[test]
+    fn builds_and_parses() {
+        assert_eq!(select_sql("mysql", "users", "", 100), "SELECT * FROM `users` LIMIT 100");
+        assert_eq!(select_sql("pgsql", "users", "id > 5", 10), "SELECT * FROM \"users\" WHERE id > 5 LIMIT 10");
+        assert_eq!(select_sql("sqlsrv", "users", "", 5), "SELECT TOP 5 * FROM [users]");
+        let value = serde_json::json!({"columns": ["id", "name"], "rows": [[1, "Ann"], [2, null]], "total": 2, "affected": 2, "ms": 1.5});
+        let result = parse_result(&value);
+        assert_eq!(result.rows, vec![vec![Some("1".to_string()), Some("Ann".to_string())], vec![Some("2".to_string()), None]]);
+        assert_eq!(result.columns, ["id", "name"]);
+    }
+}
+
+#[cfg(test)]
+mod live {
+    /// `PHPCRAFT_LARAVEL_APP=/path cargo test -p laravel -- --ignored live_query`
+    #[test]
+    #[ignore]
+    fn live_query() {
+        let root = std::path::PathBuf::from(std::env::var("PHPCRAFT_LARAVEL_APP").unwrap());
+        let (driver, db) = super::connection_info(&root).unwrap();
+        eprintln!("driver={driver} db={db}");
+        let tables = super::list_tables(&root).unwrap();
+        eprintln!("tables={tables:?}");
+        let result = super::run_query(&root, &super::select_sql(&driver, &tables[0], "", 5)).unwrap();
+        eprintln!("columns={:?} rows={}", result.columns, result.rows.len());
+        assert!(!result.columns.is_empty());
+    }
+}

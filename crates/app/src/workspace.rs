@@ -5,6 +5,7 @@ mod terminal_panel;
 mod layout;
 mod context_menu;
 mod agent_panel;
+mod db_panel;
 mod git_window;
 pub use git_panel::ShowCommit;
 pub(crate) use agent_panel::load_config as load_agent_config;
@@ -47,6 +48,7 @@ pub struct Workspace {
     modal_at_bottom: bool,
     terminals: terminal_panel::TerminalState,
     agent: agent_panel::AgentState,
+    db: db_panel::DbState,
     output: Option<tools::Output>,
     artisan_commands: tools::CommandCache,
     laravel_menu_open: bool,
@@ -114,6 +116,7 @@ impl Workspace {
             modal_at_bottom: false,
             terminals: Default::default(),
             agent: Default::default(),
+            db: Default::default(),
             output: None,
             artisan_commands: None,
             laravel_menu_open: false,
@@ -818,6 +821,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::toggle_terminal))
             .on_action(cx.listener(Self::toggle_agent))
             .on_action(cx.listener(Self::toggle_structure))
+            .on_action(cx.listener(Self::run_sql))
             .on_action(cx.listener(Self::new_agent_chat))
             .on_action(cx.listener(Self::new_terminal))
             .on_action(cx.listener(Self::close_terminal))
