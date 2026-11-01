@@ -20,10 +20,40 @@ enum Page {
     Customize,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProjectKind {
+    Empty,
+    Laravel,
+    StarterKit,
+    Html5,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StarterKit {
+    React,
+    Vue,
+    Livewire,
+}
+
+impl StarterKit {
+    fn package(self) -> &'static str {
+        match self {
+            StarterKit::React => "laravel/react-starter-kit",
+            StarterKit::Vue => "laravel/vue-starter-kit",
+            StarterKit::Livewire => "laravel/livewire-starter-kit",
+        }
+    }
+}
+
 struct NewProject {
+    kind: ProjectKind,
+    kit: StarterKit,
+    composer_json: bool,
     name: Entity<TextField>,
     location: Entity<TextField>,
 }
+
+const HTML5_INDEX: &str = "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>NAME</title>\n  <link rel=\"stylesheet\" href=\"css/style.css\">\n</head>\n<body>\n  <h1>NAME</h1>\n  <script src=\"js/app.js\"></script>\n</body>\n</html>\n";
 
 pub struct Welcome {
     page: Page,
@@ -153,19 +183,58 @@ impl Welcome {
         self.run_creation(command, &parent, target, window, cx);
     }
 
-    fn create_laravel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Creates the chosen kind of project: composer ones run in a terminal, the rest are
+    /// written here and opened right away.
+    fn create_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(new) = &self.new_project else { return };
         let name = new.name.read(cx).text().trim().to_string();
         let location = PathBuf::from(new.location.read(cx).text().trim());
         if name.is_empty() {
             return;
         }
+        let target = location.join(&name);
+        if target.exists() && std::fs::read_dir(&target).is_ok_and(|mut d| d.next().is_some()) {
+            self.message = Some(format!("{} already exists and isn't empty", target.display()));
+            cx.notify();
+            return;
+        }
         let _ = std::fs::create_dir_all(&location);
-        let command = terminal::Command {
+        let composer = |package: &str| terminal::Command {
             program: "composer".into(),
-            args: vec!["create-project".into(), "laravel/laravel".into(), name.clone()],
+            args: vec!["create-project".into(), package.into(), name.clone()],
         };
-        self.run_creation(command, &location.clone(), location.join(name), window, cx);
+        match new.kind {
+            ProjectKind::Laravel => self.run_creation(composer("laravel/laravel"), &location.clone(), target, window, cx),
+            ProjectKind::StarterKit => {
+                let package = new.kit.package();
+                self.run_creation(composer(package), &location.clone(), target, window, cx)
+            }
+            ProjectKind::Empty | ProjectKind::Html5 => {
+                let result = (|| -> std::io::Result<()> {
+                    std::fs::create_dir_all(&target)?;
+                    if new.kind == ProjectKind::Html5 {
+                        std::fs::create_dir_all(target.join("css"))?;
+                        std::fs::create_dir_all(target.join("js"))?;
+                        std::fs::write(target.join("index.html"), HTML5_INDEX.replace("NAME", &name))?;
+                        std::fs::write(target.join("css/style.css"), "*,\n*::before,\n*::after {\n  box-sizing: border-box;\n}\n\nbody {\n  margin: 0;\n  font-family: system-ui, sans-serif;\n}\n")?;
+                        std::fs::write(target.join("js/app.js"), "'use strict';\n")?;
+                    } else if new.composer_json {
+                        let package = name.to_lowercase().replace(' ', "-");
+                        std::fs::write(
+                            target.join("composer.json"),
+                            format!("{{\n    \"name\": \"app/{package}\",\n    \"type\": \"project\",\n    \"require\": {{\n        \"php\": \"^8.2\"\n    }},\n    \"autoload\": {{\n        \"psr-4\": {{\n            \"App\\\\\": \"src/\"\n        }}\n    }}\n}}\n"),
+                        )?;
+                        std::fs::create_dir_all(target.join("src"))?;
+                    }
+                    Ok(())
+                })();
+                match result {
+                    Ok(()) => self.open_project(&target, window, cx),
+                    Err(err) => self.message = Some(err.to_string()),
+                }
+            }
+        }
+        cx.notify();
     }
 
     /// Runs a project-creating command in a terminal; opens the project when it succeeds.
@@ -390,26 +459,99 @@ impl Render for Welcome {
                 .child(div().flex_1().min_h(px(0.)).child(view.clone()))
                 .into_any_element()
         } else if let Some(new) = &self.new_project {
+            let kinds = [
+                (ProjectKind::Empty, "PHP Empty Project", "▢"),
+                (ProjectKind::Laravel, "Laravel", "◈"),
+                (ProjectKind::StarterKit, "Laravel Starter Kits", "◆"),
+                (ProjectKind::Html5, "HTML5 Boilerplate", "5"),
+            ];
+            let list = kinds.into_iter().map(|(kind, label, icon)| {
+                let active = new.kind == kind;
+                div()
+                    .id(SharedString::from(format!("np-{label}")))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .h(px(30.))
+                    .rounded_md()
+                    .cursor_pointer()
+                    .text_color(theme::ui_text())
+                    .when(active, |d| d.bg(theme::selection()))
+                    .when(!active, |d| d.hover(|d| d.bg(theme::hover())))
+                    .child(div().w(px(18.)).text_color(theme::syntax(php_syntax::Highlight::Keyword)).child(icon))
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(new) = this.new_project.as_mut() {
+                            new.kind = kind;
+                        }
+                        cx.notify();
+                    }))
+            });
+            let field_row = |label: &'static str| div().flex().items_center().gap_2().child(div().w(px(90.)).text_color(theme::muted()).child(label));
+            let (title, hint) = match new.kind {
+                ProjectKind::Empty => ("PHP Empty Project", "A folder for your code."),
+                ProjectKind::Laravel => ("Laravel", "Runs composer create-project laravel/laravel <name>."),
+                ProjectKind::StarterKit => ("Laravel Starter Kits", "Runs composer create-project with the official starter kit."),
+                ProjectKind::Html5 => ("HTML5 Boilerplate", "index.html, css/style.css and js/app.js."),
+            };
+            let kits = [(StarterKit::React, "React"), (StarterKit::Vue, "Vue"), (StarterKit::Livewire, "Livewire")].into_iter().map(|(kit, label)| {
+                let active = new.kit == kit;
+                div()
+                    .id(SharedString::from(format!("np-kit-{label}")))
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .cursor_pointer()
+                    .border_color(if active { theme::accent() } else { theme::border_strong() })
+                    .when(active, |d| d.bg(theme::active_row()))
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(new) = this.new_project.as_mut() {
+                            new.kit = kit;
+                        }
+                        cx.notify();
+                    }))
+            });
+            let composer_json = new.composer_json;
             div()
                 .flex_1()
                 .flex()
-                .flex_col()
-                .gap_3()
-                .p_6()
-                .child(div().text_size(px(18.)).text_color(theme::ui_text()).child("New Laravel Project"))
-                .child(div().flex().items_center().gap_2().child(div().w(px(90.)).text_color(theme::muted()).child("Name")).child(div().flex_1().child(new.name.clone())))
-                .child(div().flex().items_center().gap_2().child(div().w(px(90.)).text_color(theme::muted()).child("Location")).child(div().flex_1().child(new.location.clone())))
-                .child(div().text_size(px(12.)).text_color(theme::muted()).child("Runs composer create-project laravel/laravel <name> in the location."))
+                .min_h(px(0.))
+                .child(div().w(px(220.)).flex_none().p_2().flex().flex_col().gap_1().border_r_1().border_color(theme::border()).children(list))
                 .child(
                     div()
+                        .flex_1()
                         .flex()
-                        .gap_2()
-                        .justify_end()
-                        .child(button("w-new-cancel", "Cancel", false).on_click(cx.listener(|this, _, _, cx| {
-                            this.new_project = None;
-                            cx.notify();
-                        })))
-                        .child(button("w-new-create", "Create", true).on_click(cx.listener(|this, _, window, cx| this.create_laravel(window, cx)))),
+                        .flex_col()
+                        .gap_3()
+                        .p_6()
+                        .child(div().text_size(px(18.)).text_color(theme::ui_text()).child(title))
+                        .child(field_row("Name").child(div().flex_1().child(new.name.clone())))
+                        .child(field_row("Location").child(div().flex_1().child(new.location.clone())))
+                        .when(new.kind == ProjectKind::StarterKit, |d| d.child(field_row("Stack").child(div().flex().gap_1().children(kits))))
+                        .when(new.kind == ProjectKind::Empty, |d| {
+                            d.child(crate::dialogs::checkbox("np-composer", "Add 'composer.json'", composer_json).on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(new) = this.new_project.as_mut() {
+                                    new.composer_json = !new.composer_json;
+                                }
+                                cx.notify();
+                            })))
+                        })
+                        .child(div().text_size(px(12.)).text_color(theme::muted()).child(hint))
+                        .child(div().flex_1())
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .justify_end()
+                                .child(button("w-new-cancel", "Cancel", false).on_click(cx.listener(|this, _, _, cx| {
+                                    this.new_project = None;
+                                    cx.notify();
+                                })))
+                                .child(button("w-new-create", "Create", true).on_click(cx.listener(|this, _, window, cx| this.create_project(window, cx)))),
+                        ),
                 )
                 .into_any_element()
         } else {
@@ -437,7 +579,7 @@ impl Render for Welcome {
                                     f
                                 });
                                 window.focus(&name.focus_handle(cx));
-                                this.new_project = Some(NewProject { name, location });
+                                this.new_project = Some(NewProject { kind: ProjectKind::Laravel, kit: StarterKit::Livewire, composer_json: false, name, location });
                                 cx.notify();
                             })))
                             .child(button("w-open", "Open", false).on_click(cx.listener(|this, _, window, cx| this.pick_folder(window, cx))))
