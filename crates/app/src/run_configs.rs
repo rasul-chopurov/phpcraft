@@ -209,6 +209,8 @@ pub fn detect(root: &Path) -> Vec<RunConfig> {
 /// The program and arguments for a configuration.
 /// Where test runs write their JUnit report, relative to the project.
 pub const JUNIT_REPORT: &str = ".phpcraft/junit.xml";
+/// Where coverage runs write their Clover report.
+pub const CLOVER_REPORT: &str = ".phpcraft/clover.xml";
 
 pub fn command(config: &RunConfig, root: &Path) -> terminal::Command {
     let interpreter = Interpreter::parse(&php(root));
@@ -233,6 +235,11 @@ pub fn command(config: &RunConfig, root: &Path) -> terminal::Command {
             // A JUnit report for the results list (see `test_results`).
             args.push("--log-junit".into());
             args.push(JUNIT_REPORT.into());
+            // Run ▸ Run with Coverage sets XDEBUG_MODE=coverage.
+            if config.env.get("XDEBUG_MODE").is_some_and(|m| m == "coverage") {
+                args.push("--coverage-clover".into());
+                args.push(CLOVER_REPORT.into());
+            }
             php_cmd("", args)
         }
         Kind::Composer { script } => cmd("composer", vec!["run-script".into(), script.clone()]),

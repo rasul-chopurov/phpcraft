@@ -229,6 +229,8 @@ pub fn set(cx: &mut App) {
                 None,
                 Some(("Show Test Results", "workspace::ShowTestResults")),
                 Some(("Rerun Failed Tests", "workspace::RerunFailedTests")),
+                Some(("Run with Coverage", "workspace::RunWithCoverage")),
+                Some(("Hide Coverage", "workspace::HideCoverage")),
             ],
         ),
         Menu {

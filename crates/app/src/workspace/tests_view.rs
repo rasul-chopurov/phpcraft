@@ -9,7 +9,7 @@ use crate::dialogs::{NavItem, NavMode, NavTarget};
 use crate::run_configs::{self, Kind, RunConfig};
 use crate::test_results::{Outcome, TestCase};
 
-actions!(workspace, [ShowTestResults, RerunFailedTests]);
+actions!(workspace, [ShowTestResults, RerunFailedTests, RunWithCoverage, HideCoverage]);
 
 impl Workspace {
     /// Reads the JUnit report of the run that just finished.
@@ -26,6 +26,11 @@ impl Workspace {
         let mut text = format!("{} passed, {failed} failed, {} skipped in {seconds:.2}s", count(Outcome::Passed), count(Outcome::Skipped));
         for case in cases.iter().filter(|c| matches!(c.outcome, Outcome::Failed | Outcome::Error)) {
             text.push_str(&format!("\n\n✗ {}::{}\n{}", short(&case.class), case.name, case.message));
+        }
+        if let Ok(xml) = std::fs::read_to_string(root.join(run_configs::CLOVER_REPORT)) {
+            let coverage = crate::test_results::parse_clover(&xml);
+            text = format!("{text}\nLine coverage: {:.1}% (shown in the editor gutter)", crate::test_results::percent(&coverage));
+            crate::test_results::set_coverage(Some(coverage));
         }
         self.output = Some(Output { title: "Tests".into(), text, running: false, ok: failed == 0 });
         self.test_results = cases;
@@ -89,3 +94,22 @@ fn short(class: &str) -> &str {
     class.rsplit('\\').next().unwrap_or(class)
 }
 
+impl Workspace {
+    /// Run ▸ Run with Coverage: the context test (or all tests) with Xdebug / PCOV coverage.
+    pub(super) fn run_with_coverage(&mut self, _: &RunWithCoverage, _: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let config = self
+            .context_run_config(cx)
+            .filter(|c| matches!(c.kind, Kind::Test { .. }))
+            .or_else(|| run_configs::test_runner(&root).map(|runner| RunConfig { name: "All tests".into(), kind: Kind::Test { runner, path: String::new(), filter: String::new() }, env: Default::default() }));
+        let Some(mut config) = config else { return };
+        config.name = format!("{} with Coverage", config.name);
+        config.env.insert("XDEBUG_MODE".into(), "coverage".into());
+        self.start_run(config, false, cx);
+    }
+
+    pub(super) fn hide_coverage(&mut self, _: &HideCoverage, _: &mut Window, cx: &mut Context<Self>) {
+        crate::test_results::set_coverage(None);
+        cx.notify();
+    }
+}

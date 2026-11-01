@@ -67,6 +67,7 @@ impl Workspace {
             let report = root.join(run_configs::JUNIT_REPORT);
             let _ = std::fs::create_dir_all(report.parent().unwrap_or(&root));
             let _ = std::fs::remove_file(&report);
+            let _ = std::fs::remove_file(root.join(run_configs::CLOVER_REPORT));
         }
         let subscription = cx.subscribe(&view, move |this, _, event: &TerminalViewEvent, cx| {
             if matches!(event, TerminalViewEvent::Exited) && is_run {
