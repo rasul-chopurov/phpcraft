@@ -51,7 +51,26 @@ pub fn open_project_window(root: &std::path::Path, cx: &mut App) -> anyhow::Resu
     Ok(())
 }
 
+/// Apps started from Finder/Dock get a minimal PATH; take the login shell's so php,
+/// composer, node and AI agents installed with Homebrew etc. are found.
+fn inherit_shell_path() {
+    if cfg!(windows) || std::env::var_os("TERM_PROGRAM").is_some() {
+        return;
+    }
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    if let Ok(output) = std::process::Command::new(shell).args(["-l", "-c", "printf %s \"$PATH\""]).output()
+        && output.status.success()
+    {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() {
+            // SAFETY: called first in main, before any other thread starts.
+            unsafe { std::env::set_var("PATH", path) };
+        }
+    }
+}
+
 fn main() {
+    inherit_shell_path();
     // `phpcraft <folder>` opens a project; without arguments the welcome window shows.
     let root = std::env::args().nth(1);
     if let Some(root) = &root

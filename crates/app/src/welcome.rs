@@ -63,10 +63,10 @@ impl Welcome {
         let subscription = cx.subscribe(&query, |_, _, _: &FieldEvent, cx| cx.notify());
         let focus_handle = cx.focus_handle();
         window.focus(&query.focus_handle(cx));
-        Self {
+        let mut welcome = Self {
             page: Page::Projects,
             query,
-            projects: Self::load_projects(),
+            projects: Vec::new(),
             gear_open: false,
             new_project: None,
             creating: None,
@@ -75,14 +75,32 @@ impl Welcome {
             focus_handle,
             _subscriptions: vec![subscription],
             _modal_subscription: None,
-        }
+        };
+        welcome.reload_projects(cx);
+        welcome
     }
 
-    fn load_projects() -> Vec<(PathBuf, Option<String>)> {
-        config::recent_projects().into_iter().map(|p| {
-            let b = branch(&p);
-            (p, b)
-        }).collect()
+    /// Lists recent projects in the background: touching folders like ~/Desktop can wait on
+    /// a macOS privacy prompt, which must not keep the window from appearing.
+    fn reload_projects(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let projects = cx
+                .background_spawn(async move {
+                    config::recent_projects()
+                        .into_iter()
+                        .map(|p| {
+                            let b = branch(&p);
+                            (p, b)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.projects = projects;
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Opens a project window and closes this one.
@@ -230,7 +248,7 @@ impl Welcome {
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
                                 config::forget_project(&forget);
-                                this.projects = Self::load_projects();
+                                this.reload_projects(cx);
                                 cx.notify();
                             })),
                     )
@@ -364,7 +382,7 @@ impl Render for Welcome {
                         .when(!running, |d| {
                             d.child(button("w-back", "Back", false).on_click(cx.listener(|this, _, _, cx| {
                                 this.creating = None;
-                                this.projects = Self::load_projects();
+                                this.reload_projects(cx);
                                 cx.notify();
                             })))
                         }),

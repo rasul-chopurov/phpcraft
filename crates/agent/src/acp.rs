@@ -25,6 +25,8 @@ pub const KNOWN_AGENTS: &[AcpAgent] = &[
     AcpAgent { name: "OpenCode", program: "opencode", args: &["acp"] },
     AcpAgent { name: "Claude Code", program: "claude-code-acp", args: &[] },
     AcpAgent { name: "Codex", program: "codex-acp", args: &[] },
+    // Google AI subscription (Gemini CLI signed in with a Google account).
+    AcpAgent { name: "Gemini", program: "gemini", args: &["--experimental-acp"] },
 ];
 
 /// Finds `program` on PATH (and common install folders GUI apps don't inherit).
