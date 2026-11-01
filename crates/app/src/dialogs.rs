@@ -58,6 +58,8 @@ pub enum DialogEvent {
     ConfigureArtisan(ArtisanCommand),
     OpenRoute(RouteInfo),
     OpenLocation(php_index::Location),
+    /// Shift+Enter in Search Everywhere.
+    OpenLocationInSplit(php_index::Location),
     ReplaceInFiles {
         query: search::TextQuery,
         replacement: String,

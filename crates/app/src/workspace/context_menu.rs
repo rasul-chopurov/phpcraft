@@ -21,6 +21,7 @@ pub(super) enum MenuCommand {
     AddToAgent(PathBuf),
     ReloadFromDisk(PathBuf),
     SelectInProject(PathBuf),
+    OpenInSplit(PathBuf),
     CloseTab(usize),
     CloseOthers(usize),
     CloseAll,
@@ -71,6 +72,8 @@ impl Workspace {
         vec![
             Some(("New", "›", MenuCommand::Submenu(0, new_items(&dir)), true)),
             None,
+            Some(("Open in Right Split", "", MenuCommand::OpenInSplit(p.clone()), !is_dir)),
+            None,
             Some(("Copy Path", "", MenuCommand::CopyPath(p.clone()), true)),
             Some(("Copy Relative Path", "", MenuCommand::CopyRelativePath(p.clone()), true)),
             None,
@@ -98,6 +101,7 @@ impl Workspace {
             Some(("Close", "⌘W", MenuCommand::CloseTab(ix), true)),
             Some(("Close Other Tabs", "", MenuCommand::CloseOthers(ix), self.tabs.len() > 1)),
             Some(("Close All Tabs", "", MenuCommand::CloseAll, true)),
+            Some(("Split Right", "⌘\\", MenuCommand::Action("workspace::SplitRight"), self.pane_count() < super::panes::MAX_PANES)),
             None,
         ];
         if let Some(path) = self.tabs.get(ix).and_then(|t| t.read(cx).buffer.path().map(Path::to_path_buf)) {
@@ -186,6 +190,7 @@ impl Workspace {
                 self.selected_path = Some(p);
                 self.layout.show(super::layout::ToolWindow::Project);
             }
+            MenuCommand::OpenInSplit(p) => self.open_in_right_split(&p, window, cx),
             MenuCommand::CloseTab(ix) => self.close_tab_at(ix, window, cx),
             MenuCommand::CloseOthers(ix) => {
                 for i in (0..self.tabs.len()).rev() {

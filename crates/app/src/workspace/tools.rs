@@ -592,6 +592,14 @@ impl Workspace {
                 self.revert_file(&path, &content, cx);
             }
             DialogEvent::PickProjectFolder => self.pick_project_folder(window, cx),
+            DialogEvent::OpenLocationInSplit(location) => {
+                let location = location.clone();
+                self.dismiss_modal(window, cx);
+                self.open_in_right_split(&location.path, window, cx);
+                if let Some(tab) = self.tabs.get(self.active).cloned() {
+                    tab.update(cx, |editor, cx| editor.reveal_byte(location.range.start, cx));
+                }
+            }
             DialogEvent::OpenProject(path) => {
                 let path = path.clone();
                 self.dismiss_modal(window, cx);

@@ -398,6 +398,12 @@ impl NavigateDialog {
     fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
         cx.emit(DialogEvent::Dismiss);
     }
+
+    fn open_in_split(&mut self, cx: &mut Context<Self>) {
+        if let Some(NavItem { target: NavTarget::Location(location), .. }) = self.items(cx).into_iter().nth(self.selected) {
+            cx.emit(DialogEvent::OpenLocationInSplit(location));
+        }
+    }
 }
 
 /// The label with fuzzy-matched characters emphasized.
@@ -540,6 +546,12 @@ impl Render for NavigateDialog {
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::next_mode))
             .on_action(cx.listener(Self::prev_mode))
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "enter" && event.keystroke.modifiers.shift {
+                    this.open_in_split(cx);
+                    cx.stop_propagation();
+                }
+            }))
             .child(
                 div()
                     .flex()
@@ -598,13 +610,22 @@ impl Render for NavigateDialog {
                 )
                 .child(
                     div()
+                        .flex()
                         .px_3()
                         .py_1()
                         .border_t_1()
                         .border_color(theme::border())
                         .text_size(px(11.))
                         .text_color(theme::muted())
-                        .child(path.display().to_string()),
+                        .child(div().flex_1().child(path.display().to_string()))
+                        .child(
+                            div()
+                                .id("nav-split")
+                                .cursor_pointer()
+                                .text_color(theme::accent())
+                                .child("Open In Right Split ⇧↵")
+                                .on_click(cx.listener(|this, _, _, cx| this.open_in_split(cx))),
+                        ),
                 )
             })
     }

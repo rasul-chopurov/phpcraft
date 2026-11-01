@@ -6,6 +6,7 @@ mod layout;
 mod context_menu;
 mod agent_panel;
 mod db_panel;
+mod panes;
 mod git_window;
 pub use git_panel::ShowCommit;
 pub(crate) use agent_panel::load_config as load_agent_config;
@@ -49,6 +50,9 @@ pub struct Workspace {
     terminals: terminal_panel::TerminalState,
     agent: agent_panel::AgentState,
     db: db_panel::DbState,
+    /// Split editor panes; the focused one's tabs live in `tabs`/`active`.
+    panes: Vec<Option<panes::Pane>>,
+    focused_pane: usize,
     output: Option<tools::Output>,
     artisan_commands: tools::CommandCache,
     laravel_menu_open: bool,
@@ -117,6 +121,8 @@ impl Workspace {
             terminals: Default::default(),
             agent: Default::default(),
             db: Default::default(),
+            panes: vec![None],
+            focused_pane: 0,
             output: None,
             artisan_commands: None,
             laravel_menu_open: false,
@@ -155,11 +161,9 @@ impl Workspace {
 
     pub fn open_file(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
         self.remember_recent(path);
-        if let Some(ix) = self
-            .tabs
-            .iter()
-            .position(|tab| tab.read(cx).buffer.path() == Some(path))
-        {
+        // A file lives in one pane: jump there if it's open anywhere.
+        if let Some((pane, ix)) = self.pane_with(path, cx) {
+            self.focus_pane(pane, window, cx);
             self.activate(ix, window, cx);
             return;
         }
@@ -321,7 +325,9 @@ impl Workspace {
         }
         self.tabs.remove(ix);
         let next = self.active.min(self.tabs.len().saturating_sub(1));
-        if self.tabs.is_empty() {
+        if self.tabs.is_empty() && self.pane_count() > 1 {
+            self.drop_empty_pane(window, cx);
+        } else if self.tabs.is_empty() {
             window.focus(&self.focus_handle);
             cx.notify();
         } else {
@@ -821,6 +827,9 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::toggle_terminal))
             .on_action(cx.listener(Self::toggle_agent))
             .on_action(cx.listener(Self::toggle_structure))
+            .on_action(cx.listener(Self::split_right))
+            .on_action(cx.listener(Self::unsplit_pane))
+            .on_action(cx.listener(Self::focus_next_pane))
             .on_action(cx.listener(Self::run_sql))
             .on_action(cx.listener(Self::new_agent_chat))
             .on_action(cx.listener(Self::new_terminal))
@@ -867,8 +876,22 @@ impl Render for Workspace {
                             .flex()
                             .flex_col()
                             .overflow_hidden()
-                            .child(self.render_tabs(cx))
-                            .child(editor)
+                            .child({
+                                // Split editor: the focused pane plus the others, left to right.
+                                let focused = self.focused_pane;
+                                let focused_pane = div()
+                                    .flex_1()
+                                    .min_w(px(0.))
+                                    .flex()
+                                    .flex_col()
+                                    .when(focused > 0, |d| d.border_l_1().border_color(theme::border_strong()))
+                                    .child(self.render_tabs(cx))
+                                    .child(editor)
+                                    .into_any_element();
+                                let mut row: Vec<gpui::AnyElement> = (0..self.pane_count()).filter(|i| *i != focused).map(|i| (i, self.render_other_pane(i, cx))).collect::<Vec<_>>().into_iter().map(|(_, e)| e).collect();
+                                row.insert(focused, focused_pane);
+                                div().flex_1().min_h(px(0.)).flex().children(row)
+                            })
                             .children(self.render_output(cx))
                             .children(self.render_side(layout::Side::Bottom, cx)),
                     )
