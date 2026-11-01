@@ -106,10 +106,26 @@ pub fn complete(
             .map(|class| members(index, &class, false, replace.clone()))
             .unwrap_or_default()
     } else if let Some(scope_end) = lead.strip_suffix("::").map(str::len) {
-        expression_ending_at(doc, scope_end)
-            .and_then(|node| scope_class(doc, index, node))
-            .map(|class| members(index, &class, true, replace.clone()))
-            .unwrap_or_default()
+        let scope = expression_ending_at(doc, scope_end);
+        let resolved = scope.and_then(|node| scope_class(doc, index, node));
+        match resolved.filter(|class| index.class(class).is_some()) {
+            Some(class) => members(index, &class, true, replace.clone()),
+            // `TextInput::` before the class is imported: find it by short name and
+            // import it when a member is chosen.
+            None => scope
+                .map(|node| doc.text(node))
+                .filter(|name| !name.contains('\\') && !name.starts_with('$'))
+                .and_then(|name| index.classes_by_short_name(name).into_iter().next().cloned())
+                .map(|class| {
+                    let (_, import) = class_insertion(doc, &class.fqn);
+                    let mut items = members(index, &class.fqn, true, replace.clone());
+                    for item in &mut items {
+                        item.additional_edit = import.clone();
+                    }
+                    items
+                })
+                .unwrap_or_default(),
+        }
     } else if prefix.is_empty() || prefix.chars().next().is_some_and(|c| c.is_ascii_digit()) {
         Vec::new()
     } else {

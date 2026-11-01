@@ -18,6 +18,7 @@ pub struct Intel {
     columns: RwLock<laravel::columns::ColumnProvider>,
     framework: RwLock<laravel::framework::FrameworkProvider>,
     ready: AtomicBool,
+    repo: Option<git::Repo>,
 }
 
 impl Intel {
@@ -32,6 +33,7 @@ impl Intel {
             columns: RwLock::new(Default::default()),
             framework: RwLock::new(Default::default()),
             ready: AtomicBool::new(false),
+            repo: git::Repo::discover(root),
         })
     }
 
@@ -111,6 +113,21 @@ impl Intel {
             }
         }
         changed
+    }
+
+    pub fn repo(&self) -> Option<&git::Repo> {
+        self.repo.as_ref()
+    }
+
+    /// The file at HEAD, for gutter change markers. New/untracked files yield `None`.
+    pub fn git_base(&self, path: &Path) -> Option<String> {
+        let repo = self.repo.as_ref()?;
+        repo.show("HEAD", &repo.relative(path)?)
+    }
+
+    pub fn git_blame(&self, path: &Path) -> Option<Vec<git::BlameLine>> {
+        let repo = self.repo.as_ref()?;
+        repo.blame(&repo.relative(path)?).ok()
     }
 
     pub fn root(&self) -> &Path {

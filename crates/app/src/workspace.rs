@@ -1,5 +1,7 @@
 //! Main window: project tree, editor tabs and status bar.
 
+mod git_panel;
+pub use tools::{SyncPull, SyncPush};
 mod navigation;
 mod tools;
 
@@ -36,6 +38,9 @@ pub struct Workspace {
     artisan_commands: tools::CommandCache,
     laravel_menu_open: bool,
     prefs_menu_open: bool,
+    left_panel: git_panel::LeftPanel,
+    git: git_panel::GitState,
+    _git_poll: Option<gpui::Task<()>>,
     /// Running background work shown in the status bar: (id, label).
     tasks: Vec<(u64, String)>,
     next_task: u64,
@@ -67,6 +72,9 @@ impl Workspace {
         })
         .detach();
         Self {
+            left_panel: git_panel::LeftPanel::Project,
+            git: git_panel::GitState::new(cx),
+            _git_poll: None,
             tasks: vec![(0, "Indexing…".into())],
             next_task: 1,
             intel,
@@ -128,7 +136,11 @@ impl Workspace {
         };
         let intel = self.intel.clone();
         let workspace = cx.weak_entity();
-        let editor = cx.new(|cx| EditorView::new(buffer, intel, workspace, cx));
+        let editor = cx.new(|cx| {
+            let mut editor = EditorView::new(buffer, intel, workspace, cx);
+            editor.refresh_git_base(cx);
+            editor
+        });
         cx.observe(&editor, |_, _, cx| cx.notify()).detach();
         self.tabs.push(editor);
         self.activate(self.tabs.len() - 1, window, cx);
@@ -284,28 +296,23 @@ impl Workspace {
                     this.click_row(ix, event.click_count(), window, cx)
                 }))
         });
+        let rows: Vec<_> = rows.collect();
+        let commit = self.left_panel == git_panel::LeftPanel::Commit;
         div()
-            .id("project-tree")
-            .w(px(260.))
+            .w(px(280.))
             .h_full()
             .flex_none()
-            .overflow_y_scroll()
+            .flex()
+            .flex_col()
             .bg(theme::panel_bg())
             .border_r_1()
             .border_color(theme::border())
             .text_size(px(13.))
-            .pb_2()
-            .child(
-                div()
-                    .px_3()
-                    .h(px(30.))
-                    .flex()
-                    .items_center()
-                    .text_size(px(11.))
-                    .text_color(theme::muted())
-                    .child("PROJECT"),
-            )
-            .children(rows)
+            .child(self.render_left_tabs(cx))
+            .when(commit, |d| d.child(self.render_commit_panel(cx)))
+            .when(!commit, |d| {
+                d.child(div().id("project-tree").flex_1().overflow_y_scroll().pb_2().children(rows))
+            })
     }
 
     fn render_tabs(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -390,9 +397,14 @@ impl Workspace {
             .border_color(theme::border())
             .text_size(px(12.))
             .text_color(theme::muted())
-            .child(SharedString::from(
-                self.project.root().display().to_string(),
-            ))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .children(self.render_branch_widget(cx))
+                    .child(SharedString::from(self.project.name())),
+            )
             .child(
                 div()
                     .flex()
@@ -498,6 +510,16 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_keymap))
             .on_action(cx.listener(Self::open_themes))
             .on_action(cx.listener(Self::open_settings))
+            .on_action(cx.listener(Self::show_project))
+            .on_action(cx.listener(Self::sync_push))
+            .on_action(cx.listener(Self::sync_pull))
+            .on_action(cx.listener(Self::show_commit))
+            .on_action(cx.listener(Self::toggle_git_log))
+            .on_action(cx.listener(Self::open_branches))
+            .on_action(cx.listener(Self::commit_changes))
+            .on_action(cx.listener(Self::commit_and_push))
+            .on_action(cx.listener(Self::git_pull))
+            .on_action(cx.listener(Self::git_push))
             .on_action(cx.listener(Self::toggle_prefs_menu))
             .on_action(cx.listener(Self::find_in_files))
             .on_action(cx.listener(Self::replace_in_files))
@@ -531,7 +553,8 @@ impl Render for Workspace {
                             .overflow_hidden()
                             .child(self.render_tabs(cx))
                             .child(editor)
-                            .children(self.render_output(cx)),
+                            .children(self.render_output(cx))
+                            .children(self.render_git_log(cx)),
                     ),
             )
             .child(self.render_status(cx))

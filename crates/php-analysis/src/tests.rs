@@ -212,3 +212,14 @@ fn string_paths_resolve_to_files() {
     assert_eq!(file_path_at(&doc, at("not a path"), &helpers, &[root.clone()]), None);
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn static_members_of_unimported_class_import_it() {
+    let index = index();
+    let src = "<?php\nnamespace App\\Http;\n\nclass X { function f() { Post::q } }\n";
+    let doc = Document::parse(std::path::Path::new("/p/X.php"), src).unwrap();
+    let items = complete(&doc, &index, src.find("::q").unwrap() + 3, &[]);
+    let query = items.iter().find(|i| i.label == "query").expect("query from Model via Post");
+    let edit = query.additional_edit.clone().expect("auto-import");
+    assert_eq!(edit.text.trim(), "use App\\Models\\Post;");
+}

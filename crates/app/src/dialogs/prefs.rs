@@ -568,7 +568,32 @@ impl Render for SettingsDialog {
                             .child(toggle("select-opened", "Always select opened file", s.select_opened_file, |s| s.select_opened_file ^= true)),
                     ))
                     .child(div().flex().items_start().gap_2().child(label("Theme")).child(div().flex().flex_wrap().gap_1().children(themes)))
-                    .child(div().flex().items_center().gap_2().child(label("Editor font")).child(div().flex_1().child(self.font.clone()))),
+                    .child(div().flex().items_center().gap_2().child(label("Editor font")).child(div().flex_1().child(self.font.clone())))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(label("Settings Sync"))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(12.))
+                                    .text_color(theme::muted())
+                                    .child(match crate::sync::gist_id() {
+                                        Some(id) => format!("GitHub gist {id}"),
+                                        None => "Secret GitHub gist via the gh CLI".to_string(),
+                                    }),
+                            )
+                            .child(button("sync-pull", "Pull", false).on_click(cx.listener(|_, _, window, cx| {
+                                window.dispatch_action(Box::new(crate::workspace::SyncPull), cx);
+                                cx.emit(DialogEvent::Dismiss);
+                            })))
+                            .child(button("sync-push", "Push", false).on_click(cx.listener(|_, _, window, cx| {
+                                window.dispatch_action(Box::new(crate::workspace::SyncPush), cx);
+                                cx.emit(DialogEvent::Dismiss);
+                            }))),
+                    ),
             )
             .child(
                 div()

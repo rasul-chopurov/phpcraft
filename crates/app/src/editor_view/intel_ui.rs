@@ -234,6 +234,24 @@ impl EditorView {
         }
     }
 
+    /// Accepts the selected completion when `typed` is a commit character. Returns whether it did.
+    pub(super) fn commit_completion_with(&mut self, typed: &str, cx: &mut Context<Self>) -> bool {
+        const COMMIT: &[&str] = &[":", "(", ";", ",", ")", "["];
+        if !COMMIT.contains(&typed) || !self.menu_is_completion() {
+            return false;
+        }
+        let Some(menu) = &self.menu else { return false };
+        let Some(MenuItem { action: MenuAction::Complete(item), .. }) = menu.items.get(menu.selected) else { return false };
+        // Only when something was typed, so `foo(` with an empty prefix doesn't pick at random.
+        if item.replace.is_empty() {
+            return false;
+        }
+        let item = item.clone();
+        self.menu = None;
+        self.apply_completion(item, cx);
+        true
+    }
+
     fn apply_completion(&mut self, item: CompletionItem, cx: &mut Context<Self>) {
         let mut caret = item.replace.end;
         let mut edits = vec![(item.replace.clone(), item.insert.clone())];

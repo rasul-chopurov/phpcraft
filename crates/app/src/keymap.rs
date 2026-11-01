@@ -94,6 +94,7 @@ const DEFAULTS: &[Default] = &[
     per("cmd-backspace", "ctrl-y", "editor::DeleteLine", ED),
     both("alt-shift-up", "editor::MoveLineUp", ED),
     both("alt-shift-down", "editor::MoveLineDown", ED),
+    per("cmd-alt-a", "ctrl-alt-a", "editor::ToggleBlame", ED),
     both("secondary-s", "editor::Save", ED),
     // Code intelligence.
     both("secondary-b", "editor::GoToDeclaration", ED),
@@ -140,6 +141,13 @@ const DEFAULTS: &[Default] = &[
     both("secondary-shift-.", "workspace::GenerateHelperCode", None),
     both("ctrl-shift-r", "workspace::OpenRouteSearch", None),
     both("ctrl-shift-x", "workspace::OpenArtisan", None),
+    // Git (PhpStorm: ⌘0 Commit, ⌘9 Git log, ⌘T update, ⇧⌘K push).
+    per("cmd-0", "alt-0", "workspace::ShowCommit", None),
+    per("cmd-1", "alt-1", "workspace::ShowProject", None),
+    per("cmd-9", "alt-9", "workspace::ToggleGitLog", None),
+    per("cmd-t", "ctrl-t", "workspace::GitPull", None),
+    both("secondary-shift-k", "workspace::GitPush", None),
+    both("secondary-enter", "workspace::CommitChanges", None),
     // Preferences.
     both("secondary-,", "workspace::OpenSettings", None),
     both("secondary-k secondary-s", "workspace::OpenKeymap", None),

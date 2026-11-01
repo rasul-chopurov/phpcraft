@@ -31,7 +31,9 @@ actions!(
         OpenKeymap,
         OpenThemes,
         TogglePrefsMenu,
-        OpenSettings
+        OpenSettings,
+        SyncPush,
+        SyncPull
     ]
 );
 
@@ -91,6 +93,40 @@ impl Workspace {
     ) {
         let dialog = cx.new(|cx| KeymapDialog::new(window, cx));
         self.show_modal(dialog, window, cx);
+    }
+
+    pub(super) fn sync_push(&mut self, _: &SyncPush, _: &mut Window, cx: &mut Context<Self>) {
+        self.run_sync(true, cx);
+    }
+
+    pub(super) fn sync_pull(&mut self, _: &SyncPull, _: &mut Window, cx: &mut Context<Self>) {
+        self.run_sync(false, cx);
+    }
+
+    /// Settings Sync through a secret GitHub gist (via the `gh` CLI), in the background.
+    fn run_sync(&mut self, push: bool, cx: &mut Context<Self>) {
+        let task = self.begin_task(if push { "Pushing settings to GitHub…" } else { "Pulling settings from GitHub…" }, cx);
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move { if push { crate::sync::push() } else { crate::sync::pull() } }).await;
+            this.update(cx, |this, cx| {
+                this.end_task(task, cx);
+                let ok = result.is_ok();
+                if ok && !push {
+                    // Apply what was downloaded.
+                    crate::theme::init(cx);
+                    crate::keymap::apply(cx);
+                }
+                this.output = Some(Output {
+                    title: "Settings Sync".into(),
+                    text: result.unwrap_or_else(|e| e),
+                    running: false,
+                    ok,
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     pub(super) fn open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
@@ -423,6 +459,11 @@ impl Workspace {
             DialogEvent::FilesListed(files) => self.files_cache = Some(files.clone()),
             DialogEvent::ModelFromTable(table) => {
                 self.open_model_for_table(table.clone(), window, cx)
+            }
+            DialogEvent::Git(command) => {
+                let command = command.clone();
+                self.dismiss_modal(window, cx);
+                self.run_git(command, cx);
             }
             DialogEvent::GenerateHelpers => {
                 self.dismiss_modal(window, cx);

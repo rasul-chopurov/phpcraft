@@ -67,6 +67,15 @@
 - Auto save, JSON themes (⌘K ⌘T), editable keymap (⌘K ⌘S), settings (⌘,)
 - macOS, Windows and Linux
 
+**Git**
+- Commit tool window (⌘0): changed files with include checkboxes, diff on click, Rollback, Amend, Commit / Commit and Push
+- Change markers in the gutter, Annotate with Git Blame (⌥⌘A), side-by-side diff
+- Branches from the status bar: checkout (local and remote), new branch (from any branch), merge, rename, delete, pull (⌘T), push (⇧⌘K), fetch
+- Git Log panel (⌘9) with changed files and per-file diffs
+
+**Settings Sync**
+- Settings, keymap and themes synced through a secret GitHub Gist using the GitHub CLI (`gh auth login`)
+
 **Artisan**
 - ⌃⇧X: searchable command list; each command opens a small form for its arguments and options; output panel
 
@@ -116,7 +125,6 @@ future extensions will.
 - Highlighting for Blade, HTML, JS/TS, CSS, JSON, YAML, `.env`
 - Find / Replace (⌘F, ⌘R), Find in Files (⇧⌘F), Search Everywhere (⇧⇧), Go to File/Class/Symbol
 - Generate Helper Code, model from database table, Find Unused Views, Laravel settings
-- Git: changes, diff, commit, branches, log, blame
 - Agent chat: Claude, Codex and opencode via the Agent Client Protocol, or with your own API key
 - Terminal, run configurations, PHPUnit/Pest, Xdebug
 - WASM extension API

@@ -57,6 +57,7 @@ actions!(
         DeleteLine,
         MoveLineUp,
         MoveLineDown,
+        ToggleBlame,
     ]
 );
 
@@ -64,6 +65,8 @@ const FONT_SIZE: f32 = 13.5;
 const LINE_HEIGHT: f32 = 20.;
 const GUTTER_PADDING: f32 = 12.;
 const TEXT_PADDING: f32 = 8.;
+/// Width of the git blame column, in digits.
+const BLAME_CHARS: usize = 25;
 
 /// Geometry of the last paint, used for mouse hit-testing and IME.
 struct LayoutInfo {
@@ -88,6 +91,11 @@ pub struct EditorView {
     menu: Option<Menu>,
     find: Option<find_bar::FindBar>,
     autosave: Option<gpui::Task<()>>,
+    /// File contents at HEAD for change markers (`None`: not in a repository / untracked).
+    git_base: Option<String>,
+    git_markers: Option<(u64, Vec<(usize, git::LineChange)>)>,
+    /// Git blame annotations shown in the gutter.
+    blame: Option<Vec<git::BlameLine>>,
     /// Buffer version the auto-save timer was last scheduled for.
     autosaved_version: u64,
     /// Byte range underlined while ⌘ is held over a navigable symbol.
@@ -111,6 +119,9 @@ impl EditorView {
             menu: None,
             find: None,
             autosave: None,
+            git_base: None,
+            git_markers: None,
+            blame: None,
             autosaved_version: 0,
             hover_link: None,
             diagnostics: None,
@@ -379,6 +390,33 @@ impl EditorView {
         }
     }
 
+    /// Reloads the HEAD version used for gutter change markers.
+    pub fn refresh_git_base(&mut self, cx: &mut Context<Self>) {
+        self.git_base = self.buffer.path().and_then(|p| self.intel.git_base(p));
+        self.git_markers = None;
+        if self.blame.is_some() {
+            self.blame = self.buffer.path().and_then(|p| self.intel.git_blame(p));
+        }
+        cx.notify();
+    }
+
+    fn toggle_blame(&mut self, _: &ToggleBlame, _: &mut Window, cx: &mut Context<Self>) {
+        self.blame = match self.blame {
+            Some(_) => None,
+            None => self.buffer.path().and_then(|p| self.intel.git_blame(p)),
+        };
+        cx.notify();
+    }
+
+    fn git_markers(&mut self) -> Vec<(usize, git::LineChange)> {
+        let version = self.buffer.version();
+        let Some(base) = &self.git_base else { return Vec::new() };
+        if self.git_markers.as_ref().is_none_or(|(v, _)| *v != version) {
+            self.git_markers = Some((version, git::line_changes(base, &self.buffer.text())));
+        }
+        self.git_markers.as_ref().map(|(_, m)| m.clone()).unwrap_or_default()
+    }
+
     fn toggle_comment(&mut self, _: &ToggleComment, _: &mut Window, cx: &mut Context<Self>) {
         let (prefix, suffix) = editor::comment_tokens(self.buffer.lang());
         self.buffer.toggle_comment(prefix, suffix);
@@ -480,6 +518,20 @@ impl EntityInputHandler for EditorView {
             .map(|r| self.range_from_utf16(&r))
             .or(self.marked_range.take())
             .unwrap_or(self.buffer.selection.range());
+        // Like PhpStorm's lookup char filter: punctuation accepts the selected completion
+        // (with its auto-import) before being typed, so `TextInput` + `::` imports the class.
+        if range.is_empty() && self.commit_completion_with(new_text, cx) {
+            if new_text == "(" && self.buffer.slice(self.buffer.selection.head.saturating_sub(1)..self.buffer.selection.head + 1) == "()" {
+                // The completion already inserted `()`.
+                self.changed(cx);
+                return;
+            }
+            let at = self.buffer.selection.range();
+            self.buffer.replace(at, new_text);
+            self.changed(cx);
+            self.after_typing(new_text, cx);
+            return;
+        }
         self.buffer.replace(range, new_text);
         self.changed(cx);
         self.after_typing(new_text, cx);
@@ -615,6 +667,7 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::delete_line))
             .on_action(cx.listener(Self::move_line_up))
             .on_action(cx.listener(Self::move_line_down))
+            .on_action(cx.listener(Self::toggle_blame))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -655,6 +708,8 @@ pub struct EditorPrepaint {
     selection: Vec<PaintQuad>,
     underlines: Vec<PaintQuad>,
     caret: Option<PaintQuad>,
+    gutter_quads: Vec<PaintQuad>,
+    blame_lines: Vec<(ShapedLine, Pixels)>,
 }
 
 impl IntoElement for EditorElement {
@@ -715,7 +770,11 @@ impl Element for EditorElement {
                 .text_system()
                 .shape_line("0".into(), font_size, &[run(1, theme::line_number())], None)
                 .width;
-            let gutter_width = digit_width * digits as f32 + px(GUTTER_PADDING * 2.);
+            let blame_width = if view.blame.is_some() { digit_width * BLAME_CHARS as f32 } else { px(0.) };
+            let gutter_width = blame_width + digit_width * digits as f32 + px(GUTTER_PADDING * 2.);
+            let markers = view.git_markers();
+            let mut gutter_quads = Vec::new();
+            let mut blame_lines = Vec::new();
             let text_x = bounds.left() + gutter_width + px(TEXT_PADDING);
 
             // Keep the caret visible after keyboard edits and movement.
@@ -874,6 +933,24 @@ impl Element for EditorElement {
                     let x = shaped.x_for_index(byte_of_col(&text, caret_col));
                     view.caret_point = Some(point(text_x + x, y + line_height));
                 }
+                let marker_x = bounds.left() + gutter_width - px(4.);
+                let first_marker = markers.partition_point(|(l, _)| *l < line);
+                for (_, change) in markers[first_marker..].iter().take_while(|(l, _)| *l == line) {
+                    gutter_quads.push(match change {
+                        git::LineChange::Added => fill(Bounds::new(point(marker_x, y), size(px(3.), line_height)), theme::success()),
+                        git::LineChange::Modified => fill(Bounds::new(point(marker_x, y), size(px(3.), line_height)), theme::accent()),
+                        git::LineChange::DeletedAbove => fill(Bounds::new(point(marker_x - px(2.), y - px(2.)), size(px(7.), px(4.))), theme::muted()),
+                    });
+                }
+                if let Some(entry) = view.blame.as_ref().and_then(|b| b.get(line)) {
+                    let author: String = entry.author.chars().take(12).collect();
+                    let label = format!("{:<12} {}", author, entry.date);
+                    let len = label.len();
+                    blame_lines.push((
+                        window.text_system().shape_line(label.into(), px(FONT_SIZE - 1.5), &[run(len, theme::muted())], None),
+                        y,
+                    ));
+                }
                 lines.push(PaintLine {
                     number,
                     text,
@@ -892,6 +969,8 @@ impl Element for EditorElement {
                 selection: selection_quads,
                 underlines,
                 caret,
+                gutter_quads,
+                blame_lines,
             }
         })
     }
@@ -935,6 +1014,12 @@ impl Element for EditorElement {
             .chain(prepaint.underlines.drain(..))
         {
             window.paint_quad(quad);
+        }
+        for quad in prepaint.gutter_quads.drain(..) {
+            window.paint_quad(quad);
+        }
+        for (label, y) in &prepaint.blame_lines {
+            label.paint(point(bounds.left() + px(6.), *y), line_height, window, cx).ok();
         }
         for line in &prepaint.lines {
             let number_x = bounds.left() + gutter - px(GUTTER_PADDING) - line.number.width;

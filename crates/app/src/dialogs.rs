@@ -1,6 +1,7 @@
 //! Modal dialogs: Laravel Make (code generation) and Artisan command runner.
 
 mod find_files;
+mod git;
 mod make;
 mod navigate;
 mod prefs;
@@ -17,6 +18,7 @@ use laravel::make::MakeKind;
 use laravel::routes::RouteInfo;
 
 pub use find_files::FindInFilesDialog;
+pub use git::{BranchDialog, ConfirmDialog, DiffDialog, GitCommand};
 pub use make::{MakeChooser, MakeDialog};
 pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
 pub use prefs::{KeymapDialog, SettingsDialog, ThemeDialog};
@@ -61,12 +63,29 @@ pub enum DialogEvent {
     /// 0-based line and column.
     GoToLine(usize, usize),
     SettingsSaved,
+    Git(GitCommand),
     GenerateHelpers,
     ModelFromTable(String),
     CommandsLoaded(Arc<Vec<ArtisanCommand>>),
 }
 
-fn checkbox(
+/// The square of a checkbox, without a label.
+pub(crate) fn checkbox_box(checked: bool) -> gpui::Div {
+    div()
+        .size(px(14.))
+        .rounded_sm()
+        .border_1()
+        .border_color(if checked { theme::accent() } else { theme::border_strong() })
+        .when(checked, |d| d.bg(theme::accent()))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(10.))
+        .text_color(theme::editor_bg())
+        .child(if checked { "✓" } else { "" })
+}
+
+pub(crate) fn checkbox(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
     checked: bool,
@@ -77,28 +96,11 @@ fn checkbox(
         .items_center()
         .gap_1()
         .cursor_pointer()
-        .child(
-            div()
-                .size(px(14.))
-                .rounded_sm()
-                .border_1()
-                .border_color(if checked {
-                    theme::accent()
-                } else {
-                    theme::border_strong()
-                })
-                .when(checked, |d| d.bg(theme::accent()))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(10.))
-                .text_color(theme::editor_bg())
-                .child(if checked { "✓" } else { "" }),
-        )
+        .child(checkbox_box(checked))
         .child(label.into())
 }
 
-fn button(id: &'static str, text: &'static str, primary: bool) -> gpui::Stateful<gpui::Div> {
+pub(crate) fn button(id: &'static str, text: &'static str, primary: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .px_3()

@@ -3,6 +3,7 @@ mod dialogs;
 mod editor_view;
 mod intel;
 mod keymap;
+mod sync;
 mod text_field;
 mod theme;
 mod workspace;
@@ -42,7 +43,11 @@ fn main() {
             ..Default::default()
         };
         cx.open_window(options, |window, cx| {
-            let workspace = cx.new(|cx| Workspace::new(project, window, cx));
+            let workspace = cx.new(|cx| {
+                let mut workspace = Workspace::new(project, window, cx);
+                workspace.start_git_polling(cx);
+                workspace
+            });
             window.set_window_title(&workspace.read(cx).title());
             workspace
         })
