@@ -16,6 +16,8 @@ pub enum FileOp {
     Rename(PathBuf),
     /// Move to the Trash.
     Delete(PathBuf),
+    /// New ▸ <template> in a folder.
+    FromTemplate(PathBuf, crate::templates::Template),
 }
 
 pub struct InputDialog {
@@ -30,7 +32,7 @@ impl InputDialog {
     pub fn new(op: FileOp, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let initial = match &op {
             FileOp::Rename(path) => Some(path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()),
-            FileOp::NewFile(_) | FileOp::NewDirectory(_) => Some(String::new()),
+            FileOp::NewFile(_) | FileOp::NewDirectory(_) | FileOp::FromTemplate(..) => Some(String::new()),
             FileOp::Delete(_) => None,
         };
         let focus_handle = cx.focus_handle();
@@ -75,6 +77,7 @@ impl Render for InputDialog {
             FileOp::NewDirectory(dir) => (format!("New Directory in {}", name(dir)), "Create"),
             FileOp::Rename(path) => (format!("Rename {}", name(path)), "Rename"),
             FileOp::Delete(path) => (format!("Move {} to the Trash?", name(path)), "Delete"),
+            FileOp::FromTemplate(dir, template) => (format!("New {} in {}", template.label(), name(dir)), "Create"),
         };
         card(420.)
             .key_context("Dialog")

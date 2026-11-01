@@ -24,12 +24,38 @@ pub(super) enum MenuCommand {
     CloseTab(usize),
     CloseOthers(usize),
     CloseAll,
+    /// Opens a submenu next to the item at this index.
+    Submenu(usize, Vec<Option<(&'static str, &'static str, MenuCommand, bool)>>),
+    Action(&'static str),
 }
+
+type Items = Vec<Option<(&'static str, &'static str, MenuCommand, bool)>>;
 
 pub(super) struct ContextMenu {
     position: Point<Pixels>,
     /// `None` is a separator.
-    items: Vec<Option<(&'static str, &'static str, MenuCommand, bool)>>,
+    items: Items,
+    /// Open submenu: parent item index and its items.
+    submenu: Option<(usize, Items)>,
+}
+
+fn new_items(dir: &Path) -> Items {
+    use crate::templates::Template;
+    let mut items: Items = vec![
+        Some(("File…", "", MenuCommand::File(FileOp::NewFile(dir.to_path_buf())), true)),
+        Some(("Directory…", "", MenuCommand::File(FileOp::NewDirectory(dir.to_path_buf())), true)),
+        None,
+    ];
+    for template in Template::ALL {
+        items.push(Some((template.label(), "", MenuCommand::File(FileOp::FromTemplate(dir.to_path_buf(), template)), true)));
+        if matches!(template, Template::PestTest | Template::Vue) {
+            items.push(None);
+        }
+    }
+    items.push(None);
+    items.push(Some(("Laravel: Code Generation…", "⇧⌘,", MenuCommand::Action("workspace::OpenMake"), true)));
+    items.push(Some(("Laravel: Eloquent Model…", "", MenuCommand::Action("workspace::NewModel"), true)));
+    items
 }
 
 impl Workspace {
@@ -43,8 +69,7 @@ impl Workspace {
         let p = path.to_path_buf();
         let changed = self.git_changed(path);
         vec![
-            Some(("New File…", "", MenuCommand::File(FileOp::NewFile(dir.clone())), true)),
-            Some(("New Directory…", "", MenuCommand::File(FileOp::NewDirectory(dir.clone())), true)),
+            Some(("New", "›", MenuCommand::Submenu(0, new_items(&dir)), true)),
             None,
             Some(("Copy Path", "", MenuCommand::CopyPath(p.clone()), true)),
             Some(("Copy Relative Path", "", MenuCommand::CopyRelativePath(p.clone()), true)),
@@ -64,7 +89,7 @@ impl Workspace {
     }
 
     pub(super) fn open_tree_menu(&mut self, path: PathBuf, is_dir: bool, position: Point<Pixels>, cx: &mut Context<Self>) {
-        self.context_menu = Some(ContextMenu { position, items: self.file_items(&path, is_dir) });
+        self.context_menu = Some(ContextMenu { position, items: self.file_items(&path, is_dir), submenu: None });
         cx.notify();
     }
 
@@ -77,20 +102,36 @@ impl Workspace {
         ];
         if let Some(path) = self.tabs.get(ix).and_then(|t| t.read(cx).buffer.path().map(Path::to_path_buf)) {
             items.push(Some(("Select in Project", "", MenuCommand::SelectInProject(path.clone()), true)));
-            items.extend(self.file_items(&path, false).into_iter().skip(3));
+            items.extend(self.file_items(&path, false).into_iter().skip(2));
         }
-        self.context_menu = Some(ContextMenu { position, items });
+        self.context_menu = Some(ContextMenu { position, items, submenu: None });
         cx.notify();
     }
 
     fn run_menu_command(&mut self, command: MenuCommand, window: &mut Window, cx: &mut Context<Self>) {
+        if let MenuCommand::Submenu(ix, items) = command {
+            if let Some(menu) = self.context_menu.as_mut() {
+                menu.submenu = Some((ix, items));
+            }
+            cx.notify();
+            return;
+        }
         self.context_menu = None;
         let root = self.project.root().to_path_buf();
         let relative = |p: &Path| p.strip_prefix(&root).unwrap_or(p).to_string_lossy().replace('\\', "/");
         match command {
+            MenuCommand::File(FileOp::FromTemplate(dir, template)) if !template.needs_name() => {
+                self.apply_file_op(FileOp::FromTemplate(dir, template), "", window, cx);
+            }
             MenuCommand::File(op) => {
                 let dialog = cx.new(|cx| InputDialog::new(op, window, cx));
                 self.show_modal(dialog, window, cx);
+            }
+            MenuCommand::Submenu(..) => {}
+            MenuCommand::Action(name) => {
+                if let Ok(action) = cx.build_action(name, None) {
+                    window.dispatch_action(action, cx);
+                }
             }
             MenuCommand::CopyPath(p) => cx.write_to_clipboard(ClipboardItem::new_string(p.display().to_string())),
             MenuCommand::CopyRelativePath(p) => cx.write_to_clipboard(ClipboardItem::new_string(relative(&p))),
@@ -192,6 +233,19 @@ impl Workspace {
                     }).map_err(|e| e.to_string())
                 }
             }
+            FileOp::FromTemplate(dir, template) => {
+                let files = crate::templates::render(*template, name, dir, self.project.root());
+                (|| {
+                    if let Some((existing, _)) = files.iter().find(|(p, _)| p.exists()) {
+                        return Err(format!("{} already exists", existing.display()));
+                    }
+                    for (path, content) in &files {
+                        std::fs::create_dir_all(path.parent().unwrap_or(dir)).map_err(|e| e.to_string())?;
+                        std::fs::write(path, content).map_err(|e| e.to_string())?;
+                    }
+                    Ok(files.first().map(|(p, _)| p.clone()))
+                })()
+            }
             FileOp::Delete(path) => {
                 crate::local_history::record_disk(&[path.clone()], "Before Delete");
                 trash::delete(path).map(|_| None).map_err(|e| e.to_string())
@@ -223,28 +277,61 @@ impl Workspace {
 
     pub(super) fn render_context_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let menu = self.context_menu.as_ref()?;
-        let items = menu.items.iter().enumerate().map(|(ix, item)| match item {
-            None => div().my_1().h(px(1.)).bg(theme::border_strong()).into_any_element(),
-            Some((label, hint, command, enabled)) => {
-                let command = command.clone();
-                let enabled = *enabled;
-                div()
-                    .id(("ctx-item", ix))
-                    .flex()
-                    .justify_between()
-                    .gap_6()
-                    .mx_1()
-                    .px_2()
-                    .h(px(24.))
-                    .items_center()
-                    .rounded_md()
-                    .when(enabled, |d| d.cursor_pointer().text_color(theme::ui_text()).hover(|d| d.bg(theme::selection())))
-                    .when(!enabled, |d| d.text_color(theme::muted()))
-                    .child(SharedString::from(*label))
-                    .child(div().text_color(theme::muted()).child(SharedString::from(*hint)))
-                    .when(enabled, |d| d.on_click(cx.listener(move |this, _, window, cx| this.run_menu_command(command.clone(), window, cx))))
-                    .into_any_element()
-            }
+        let column = |id: &'static str, items: &Items, cx: &mut Context<Self>| {
+            let rows = items.iter().enumerate().map(|(ix, item)| match item {
+                None => div().my_1().h(px(1.)).bg(theme::border_strong()).into_any_element(),
+                Some((label, hint, command, enabled)) => {
+                    let command = command.clone();
+                    let enabled = *enabled;
+                    let open_sub = matches!(&command, MenuCommand::Submenu(..));
+                    div()
+                        .id((id, ix))
+                        .flex()
+                        .justify_between()
+                        .gap_6()
+                        .mx_1()
+                        .px_2()
+                        .h(px(24.))
+                        .items_center()
+                        .rounded_md()
+                        .when(enabled, |d| d.cursor_pointer().text_color(theme::ui_text()).hover(|d| d.bg(theme::selection())))
+                        .when(!enabled, |d| d.text_color(theme::muted()))
+                        .child(SharedString::from(*label))
+                        .child(div().text_color(theme::muted()).child(SharedString::from(*hint)))
+                        .when(enabled, |d| {
+                            let hover_command = command.clone();
+                            d.on_click(cx.listener(move |this, _, window, cx| this.run_menu_command(command.clone(), window, cx)))
+                                // Submenus also open on hover, like native menus.
+                                .when(open_sub, |d| {
+                                    d.on_hover(cx.listener(move |this, hovered: &bool, window, cx| {
+                                        if *hovered {
+                                            this.run_menu_command(hover_command.clone(), window, cx);
+                                        }
+                                    }))
+                                })
+                        })
+                        .into_any_element()
+                }
+            });
+            div()
+                .id(id)
+                .occlude()
+                .min_w(px(240.))
+                .py_1()
+                .bg(theme::panel_bg())
+                .border_1()
+                .border_color(theme::border_strong())
+                .rounded_md()
+                .shadow_lg()
+                .text_size(px(13.))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .children(rows.collect::<Vec<_>>())
+        };
+        let main = column("ctx-main", &menu.items, cx);
+        let sub = menu.submenu.as_ref().map(|(ix, items)| {
+            // Line the submenu up with its parent row.
+            let offset = menu.items[..*ix].iter().map(|i| if i.is_some() { 24. } else { 9. }).sum::<f32>();
+            div().pt(px(offset)).child(column("ctx-sub", items, cx))
         });
         Some(
             div()
@@ -260,21 +347,7 @@ impl Workspace {
                     cx.notify();
                 }))
                 .child(gpui::deferred(
-                    gpui::anchored().position(menu.position).snap_to_window().child(
-                        div()
-                            .id("context-menu")
-                            .occlude()
-                            .min_w(px(240.))
-                            .py_1()
-                            .bg(theme::panel_bg())
-                            .border_1()
-                            .border_color(theme::border_strong())
-                            .rounded_md()
-                            .shadow_lg()
-                            .text_size(px(13.))
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .children(items),
-                    ),
+                    gpui::anchored().position(menu.position).snap_to_window().child(div().flex().items_start().gap_1().child(main).children(sub)),
                 )),
         )
     }

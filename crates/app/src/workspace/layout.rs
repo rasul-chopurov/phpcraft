@@ -21,6 +21,7 @@ const STATUS_HEIGHT: f32 = 26.;
 pub enum ToolWindow {
     Project,
     Structure,
+    Modules,
     Commit,
     Ai,
     Terminal,
@@ -28,13 +29,21 @@ pub enum ToolWindow {
 }
 
 impl ToolWindow {
-    pub const ALL: [ToolWindow; 6] =
-        [ToolWindow::Project, ToolWindow::Structure, ToolWindow::Commit, ToolWindow::Ai, ToolWindow::Terminal, ToolWindow::Git];
+    pub const ALL: [ToolWindow; 7] = [
+        ToolWindow::Project,
+        ToolWindow::Structure,
+        ToolWindow::Modules,
+        ToolWindow::Commit,
+        ToolWindow::Ai,
+        ToolWindow::Terminal,
+        ToolWindow::Git,
+    ];
 
     fn icon(self) -> &'static str {
         match self {
             ToolWindow::Project => "▤",
             ToolWindow::Structure => "≣",
+            ToolWindow::Modules => "⧉",
             ToolWindow::Commit => "✓",
             ToolWindow::Ai => "✦",
             ToolWindow::Terminal => "›_",
@@ -46,6 +55,7 @@ impl ToolWindow {
         match self {
             ToolWindow::Project => "Project",
             ToolWindow::Structure => "Structure",
+            ToolWindow::Modules => "Modules",
             ToolWindow::Commit => "Commit",
             ToolWindow::Ai => "AI Assistant",
             ToolWindow::Terminal => "Terminal",
@@ -57,6 +67,7 @@ impl ToolWindow {
         match self {
             ToolWindow::Project => "⌘1",
             ToolWindow::Structure => "⌘7",
+            ToolWindow::Modules => "",
             ToolWindow::Commit => "⌘0",
             ToolWindow::Ai => "⌘⌥I",
             ToolWindow::Terminal => "⌥F12",
@@ -249,7 +260,7 @@ impl Workspace {
             ToolWindow::Terminal => self.toggle_terminal(&super::terminal_panel::ToggleTerminal, window, cx),
             ToolWindow::Git => self.toggle_git_log(&super::git_panel::ToggleGitLog, window, cx),
             ToolWindow::Ai => self.toggle_agent(&super::agent_panel::ToggleAgent, window, cx),
-            ToolWindow::Project | ToolWindow::Commit | ToolWindow::Structure => {
+            ToolWindow::Project | ToolWindow::Commit | ToolWindow::Structure | ToolWindow::Modules => {
                 if self.layout.is_active(tool) {
                     self.layout.hide(tool);
                     self.focus_active(window, cx);
@@ -292,7 +303,12 @@ impl Workspace {
     }
 
     fn drop_zone(&self, side: Side, id: &'static str, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
-        let buttons: Vec<AnyElement> = ToolWindow::ALL.iter().filter(|t| self.layout.side(**t) == side).map(|t| self.stripe_button(*t, cx)).collect();
+        let has_modules = crate::modules::has_modules(self.project.root());
+        let buttons: Vec<AnyElement> = ToolWindow::ALL
+            .iter()
+            .filter(|t| self.layout.side(**t) == side && (**t != ToolWindow::Modules || has_modules))
+            .map(|t| self.stripe_button(*t, cx))
+            .collect();
         div()
             .id(id)
             .flex()
@@ -373,6 +389,7 @@ impl Workspace {
         let content: AnyElement = match tool {
             ToolWindow::Project => self.render_project_tree(cx).into_any_element(),
             ToolWindow::Structure => self.render_structure(cx).into_any_element(),
+            ToolWindow::Modules => self.render_modules(cx).into_any_element(),
             ToolWindow::Commit => self.render_commit_panel(cx).into_any_element(),
             ToolWindow::Ai => self.render_agent_panel(cx)?.into_any_element(),
             ToolWindow::Terminal => self.render_terminal_panel(cx)?.into_any_element(),

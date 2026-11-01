@@ -640,6 +640,87 @@ impl Workspace {
             .children(rows.collect::<Vec<_>>())
     }
 
+    fn render_modules(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let root = self.project.root().to_path_buf();
+        let modules = crate::modules::list(&root);
+        let empty = modules.is_empty();
+        let rows = modules.into_iter().enumerate().map(|(ix, module)| {
+            let (dot, label) = match module.enabled {
+                Some(true) => (theme::success(), "Enabled"),
+                Some(false) => (theme::error(), "Disabled"),
+                None => (theme::muted(), "Not set"),
+            };
+            let name = module.name.clone();
+            let path = module.path.clone();
+            let enabled = module.enabled == Some(true);
+            let root = root.clone();
+            div()
+                .id(("module", ix))
+                .mx_1()
+                .px_2()
+                .py_1()
+                .flex()
+                .items_center()
+                .gap_2()
+                .rounded_md()
+                .hover(|d| d.bg(theme::hover()))
+                .child(div().size(px(8.)).flex_none().rounded_full().bg(dot))
+                .child(
+                    div()
+                        .id(("module-name", ix))
+                        .flex_1()
+                        .min_w(px(0.))
+                        .cursor_pointer()
+                        .flex()
+                        .flex_col()
+                        .child(div().text_color(theme::ui_text()).child(SharedString::from(module.name.clone())))
+                        .when(!module.description.is_empty(), |d| {
+                            d.child(div().text_size(px(11.)).text_color(theme::muted()).overflow_hidden().whitespace_nowrap().child(SharedString::from(module.description.clone())))
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            // Show the module in the project tree.
+                            this.project.reveal(&path.join("module.json"));
+                            if !this.project.is_expanded(&path) {
+                                this.project.toggle(&path);
+                            }
+                            this.rows = this.project.rows();
+                            this.selected_path = Some(path.clone());
+                            this.layout.show(layout::ToolWindow::Project);
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    div()
+                        .id(("module-toggle", ix))
+                        .px_2()
+                        .h(px(20.))
+                        .flex()
+                        .items_center()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .text_size(px(11.))
+                        .text_color(gpui::white())
+                        .bg(dot)
+                        .child(label)
+                        .tooltip(layout::tooltip(if enabled { "Click to disable (module:disable)" } else { "Click to enable (module:enable)" }))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Err(err) = crate::modules::set_enabled(&root, &name, !enabled) {
+                                this.output = Some(tools::Output { title: "Modules".into(), text: err.to_string(), running: false, ok: false });
+                            }
+                            cx.notify();
+                        })),
+                )
+        });
+        div()
+            .id("modules-list")
+            .flex_1()
+            .overflow_y_scroll()
+            .py_1()
+            .text_size(px(13.))
+            .when(empty, |d| d.child(div().p_3().text_color(theme::muted()).child("No modules in Modules/.")))
+            .children(rows.collect::<Vec<_>>())
+    }
+
     /// `app › Models › User.php › User › posts()` for the status bar.
     fn breadcrumb(&self, cx: &gpui::App) -> Option<String> {
         let buffer = &self.tabs.get(self.active)?.read(cx).buffer;
