@@ -193,6 +193,9 @@ const DEFAULTS: &[Default] = &[
     both("secondary-c", "text_field::Copy", FIELD),
     // Dialogs.
     both("enter", "dialog::Confirm", DIALOG),
+    both("enter", "dialog::Confirm", Some("DbCellEdit")),
+    both("escape", "dialog::Cancel", Some("DbCellEdit")),
+    both("enter", "dialog::Confirm", Some("TableFilter")),
     both("escape", "dialog::Cancel", DIALOG),
     both("tab", "dialog::FocusNext", DIALOG),
     both("shift-tab", "dialog::FocusPrev", DIALOG),

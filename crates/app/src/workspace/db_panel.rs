@@ -480,6 +480,48 @@ impl Workspace {
                     div().pl(px(32.)).pr_2().text_size(px(12.)).text_color(theme::error()).child(SharedString::from(err.chars().take(300).collect::<String>())).into_any_element(),
                 ),
                 Some(Ok(tables)) => {
+                    // PhpStorm's levels: data source › schema › "tables N" › tables.
+                    let schema = match source.driver {
+                        Driver::Sqlite => "main".to_string(),
+                        _ if source.database.is_empty() => "default".to_string(),
+                        _ => source.database.clone(),
+                    };
+                    let folder_row = |key: String, depth: f32, icon: &'static str, label: String, count: Option<usize>, cx: &mut Context<Self>| {
+                        let collapsed = self.db.collapsed.contains(&key);
+                        div()
+                            .id(SharedString::from(format!("db-node-{key}")))
+                            .mx_1()
+                            .pl(px(depth))
+                            .pr_2()
+                            .h(px(22.))
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .hover(|d| d.bg(theme::hover()))
+                            .child(div().w(px(10.)).text_size(px(9.)).text_color(theme::muted()).child(if collapsed { "▶" } else { "▼" }))
+                            .child(div().text_color(theme::muted()).child(icon))
+                            .child(div().text_color(theme::ui_text()).child(SharedString::from(label)))
+                            .when_some(count, |d, n| d.child(div().text_size(px(11.)).text_color(theme::muted()).child(n.to_string())))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if !this.db.collapsed.remove(&key) {
+                                    this.db.collapsed.insert(key.clone());
+                                }
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    };
+                    let schema_key = format!("{id}/schema");
+                    let tables_key = format!("{id}/tables");
+                    tree.push(folder_row(schema_key.clone(), 26., "⊞", schema, None, cx));
+                    if self.db.collapsed.contains(&schema_key) {
+                        continue;
+                    }
+                    tree.push(folder_row(tables_key.clone(), 42., "▭", "tables".into(), Some(tables.len()), cx));
+                    if self.db.collapsed.contains(&tables_key) {
+                        continue;
+                    }
                     for (ix, table) in tables.iter().filter(|t| query.is_empty() || t.to_lowercase().contains(&query)).enumerate() {
                         let key = (id.clone(), table.clone());
                         let expanded = self.db.columns.get(&key);
@@ -488,7 +530,7 @@ impl Workspace {
                             div()
                                 .id(SharedString::from(format!("db-t-{id}-{ix}")))
                                 .mx_1()
-                                .pl(px(26.))
+                                .pl(px(58.))
                                 .pr_2()
                                 .h(px(22.))
                                 .flex()
@@ -500,9 +542,13 @@ impl Workspace {
                                 .child(div().w(px(10.)).text_size(px(9.)).text_color(theme::muted()).child(if expanded.is_some() { "▼" } else { "▶" }))
                                 .child(div().text_color(theme::syntax(php_syntax::Highlight::Type)).child("▦"))
                                 .child(div().flex_1().text_color(theme::ui_text()).child(SharedString::from(table.clone())))
-                                .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
+                                .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
                                     if event.click_count() >= 2 {
-                                        this.open_table_data(open_id.clone(), open_table.clone(), cx);
+                                        // PhpStorm opens the table's data in an editor tab.
+                                        if let Some(source) = this.source(&open_id) {
+                                            let password = load_password(this.project.root(), &source.id);
+                                            this.open_table_tab(source, password, open_table.clone(), window, cx);
+                                        }
                                     } else {
                                         this.toggle_columns(open_id.clone(), open_table.clone(), cx);
                                     }
@@ -510,12 +556,12 @@ impl Workspace {
                                 .into_any_element(),
                         );
                         match expanded {
-                            Some(None) => tree.push(div().pl(px(56.)).text_size(px(12.)).text_color(theme::muted()).child("Loading…").into_any_element()),
+                            Some(None) => tree.push(div().pl(px(88.)).text_size(px(12.)).text_color(theme::muted()).child("Loading…").into_any_element()),
                             Some(Some(columns)) => {
                                 for (column, pk) in columns {
                                     tree.push(
                                         div()
-                                            .pl(px(56.))
+                                            .pl(px(88.))
                                             .pr_2()
                                             .h(px(20.))
                                             .flex()
@@ -653,7 +699,7 @@ impl Workspace {
             .child(toolbar)
             .children(add_menu)
             .children(self.db.filter.clone().map(|f| div().px_2().pb_1().child(f)))
-            .child(div().id("db-tree").h(px(220.)).flex_none().overflow_y_scroll().border_b_1().border_color(theme::border()).children(tree))
+            .child(div().id("db-tree").h(px(320.)).flex_none().overflow_y_scroll().border_b_1().border_color(theme::border()).children(tree))
             .child(
                 div()
                     .key_context("DbConsole")

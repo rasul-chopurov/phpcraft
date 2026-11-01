@@ -18,6 +18,7 @@ mod project_window;
 mod run_configs;
 mod settings_import;
 mod structure;
+mod table_view;
 mod templates;
 mod sync;
 mod terminal_view;

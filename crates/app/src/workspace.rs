@@ -67,6 +67,9 @@ pub struct Workspace {
     /// Split editor panes; the focused one's tabs live in `tabs`/`active`.
     panes: Vec<Option<panes::Pane>>,
     focused_pane: usize,
+    /// Database table editors shown as tabs; `Some` while one is the active tab.
+    tables: Vec<Entity<crate::table_view::TableView>>,
+    table_active: Option<usize>,
     output: Option<tools::Output>,
     artisan_commands: tools::CommandCache,
     laravel_menu_open: bool,
@@ -138,6 +141,8 @@ impl Workspace {
             laravel: Default::default(),
             panes: vec![None],
             focused_pane: 0,
+            tables: Vec::new(),
+            table_active: None,
             output: None,
             artisan_commands: None,
             laravel_menu_open: false,
@@ -322,6 +327,7 @@ impl Workspace {
 
     fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.diff_active = false;
+        self.table_active = None;
         if ix != self.active
             && crate::config::Settings::load_cached().auto_save != crate::config::AutoSave::Off
             && let Some(previous) = self.tabs.get(self.active).cloned()
@@ -483,6 +489,7 @@ impl Workspace {
             .text_size(px(13.))
             .children(tabs)
             .children(self.render_diff_tab(cx))
+            .children(self.render_table_tabs(cx))
     }
 
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -755,6 +762,83 @@ impl Workspace {
             .children(rows.collect::<Vec<_>>())
     }
 
+    /// Opens (or focuses) a database table editor tab.
+    pub(crate) fn open_table_tab(&mut self, source: laravel::datasource::DataSource, password: String, table: String, window: &mut Window, cx: &mut Context<Self>) {
+        let existing = self.tables.iter().position(|t| {
+            let t = t.read(cx);
+            t.table == table && t.title().ends_with(&format!("[{}]", source.name))
+        });
+        let ix = match existing {
+            Some(ix) => ix,
+            None => {
+                let root = self.project.root().to_path_buf();
+                let view = cx.new(|cx| crate::table_view::TableView::new(root, source, password, table, cx));
+                self.tables.push(view);
+                self.tables.len() - 1
+            }
+        };
+        self.diff_active = false;
+        self.table_active = Some(ix);
+        if let Some(view) = self.tables.get(ix) {
+            window.focus(&view.focus_handle(cx));
+        }
+        cx.notify();
+    }
+
+    fn render_table_tabs(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+        self.tables
+            .iter()
+            .enumerate()
+            .map(|(ix, view)| {
+                let active = self.table_active == Some(ix);
+                div()
+                    .id(("table-tab", ix))
+                    .group("table-tab")
+                    .flex()
+                    .items_center()
+                    .gap_1p5()
+                    .pl_3()
+                    .pr_1p5()
+                    .h_full()
+                    .border_r_1()
+                    .border_color(theme::border())
+                    .cursor_pointer()
+                    .when(active, |d| d.bg(theme::tab_active()).text_color(theme::ui_text()))
+                    .when(!active, |d| d.text_color(theme::muted()).hover(|d| d.bg(theme::hover())))
+                    .child(div().text_size(px(11.)).text_color(theme::syntax(php_syntax::Highlight::Type)).child("▦"))
+                    .child(SharedString::from(view.read(cx).title()))
+                    .child(
+                        div()
+                            .id(("table-tab-close", ix))
+                            .px_1()
+                            .rounded_sm()
+                            .text_color(theme::muted())
+                            .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
+                            .child("×")
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.tables.remove(ix);
+                                this.table_active = match this.table_active {
+                                    Some(a) if a == ix => None,
+                                    Some(a) if a > ix => Some(a - 1),
+                                    other => other,
+                                };
+                                if this.table_active.is_none() {
+                                    this.focus_active(window, cx);
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.diff_active = false;
+                        this.table_active = Some(ix);
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect()
+    }
+
     /// `Laravel 11.31.0`, `PHP 8.4.1`, `4 spaces` for the status bar.
     fn project_facts(&self, cx: &gpui::App) -> Vec<String> {
         let root = self.project.root();
@@ -797,7 +881,9 @@ impl Focusable for Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let table = self.table_active.and_then(|ix| self.tables.get(ix)).cloned();
         let editor = match (self.diff.as_ref().filter(|_| self.diff_active), self.tabs.get(self.active)) {
+            _ if table.is_some() => div().flex_1().overflow_hidden().children(table),
             (Some(diff), _) => div().flex_1().overflow_hidden().child(diff.clone()),
             (None, Some(tab)) => div().flex_1().overflow_hidden().child(tab.clone()),
             (None, None) => div()
