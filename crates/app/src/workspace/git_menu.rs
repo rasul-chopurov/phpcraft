@@ -6,7 +6,7 @@ use gpui::{AppContext, Context, Window, actions, point, px};
 
 use super::Workspace;
 use super::context_menu::MenuCommand as M;
-use crate::dialogs::{GitCommand, GitPrompt, GitPromptDialog};
+use crate::dialogs::{GitCommand, GitList, GitListDialog, GitPrompt, GitPromptDialog};
 
 actions!(
     workspace,
@@ -99,8 +99,10 @@ impl Workspace {
         self.git_prompt(GitPrompt::NewWorktree, window, cx);
     }
 
-    pub(super) fn git_worktrees(&mut self, _: &GitWorktrees, _: &mut Window, cx: &mut Context<Self>) {
-        self.git_raw("worktree list", &["worktree", "list"], false, cx);
+    pub(super) fn git_worktrees(&mut self, _: &GitWorktrees, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(repo) = self.intel.repo().cloned() else { return };
+        let dialog = cx.new(|cx| GitListDialog::new(GitList::Worktrees(repo.worktrees()), window, cx));
+        self.show_modal(dialog, window, cx);
     }
 
     pub(super) fn git_stash(&mut self, _: &GitStash, _: &mut Window, cx: &mut Context<Self>) {
@@ -119,8 +121,10 @@ impl Workspace {
         self.git_prompt(GitPrompt::ApplyPatch, window, cx);
     }
 
-    pub(super) fn git_manage_remotes(&mut self, _: &GitManageRemotes, _: &mut Window, cx: &mut Context<Self>) {
-        self.git_raw("remote -v", &["remote", "-v"], false, cx);
+    pub(super) fn git_manage_remotes(&mut self, _: &GitManageRemotes, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(repo) = self.intel.repo().cloned() else { return };
+        let dialog = cx.new(|cx| GitListDialog::new(GitList::Remotes(repo.remotes()), window, cx));
+        self.show_modal(dialog, window, cx);
     }
 
     pub(super) fn git_add_remote(&mut self, _: &GitAddRemote, window: &mut Window, cx: &mut Context<Self>) {

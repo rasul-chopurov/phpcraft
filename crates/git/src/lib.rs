@@ -844,6 +844,57 @@ impl Repo {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Worktree {
+    pub path: PathBuf,
+    /// Branch name, or empty when detached.
+    pub branch: String,
+    pub head: String,
+}
+
+/// `git worktree list --porcelain`.
+pub fn parse_worktrees(text: &str) -> Vec<Worktree> {
+    text.split("\n\n")
+        .filter_map(|block| {
+            let mut tree = Worktree { path: PathBuf::new(), branch: String::new(), head: String::new() };
+            for line in block.lines() {
+                if let Some(p) = line.strip_prefix("worktree ") {
+                    tree.path = PathBuf::from(p);
+                } else if let Some(h) = line.strip_prefix("HEAD ") {
+                    tree.head = h.chars().take(8).collect();
+                } else if let Some(b) = line.strip_prefix("branch ") {
+                    tree.branch = b.trim_start_matches("refs/heads/").to_string();
+                }
+            }
+            (!tree.path.as_os_str().is_empty()).then_some(tree)
+        })
+        .collect()
+}
+
+/// `git remote -v`: (name, fetch URL).
+pub fn parse_remotes(text: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        if let (Some(name), Some(url)) = (parts.next(), parts.next())
+            && !out.iter().any(|(n, _)| n == name)
+        {
+            out.push((name.to_string(), url.to_string()));
+        }
+    }
+    out
+}
+
+impl Repo {
+    pub fn worktrees(&self) -> Vec<Worktree> {
+        self.git(&["worktree", "list", "--porcelain"]).map(|t| parse_worktrees(&t)).unwrap_or_default()
+    }
+
+    pub fn remotes(&self) -> Vec<(String, String)> {
+        self.git(&["remote", "-v"]).map(|t| parse_remotes(&t)).unwrap_or_default()
+    }
+}
+
 /// A merge conflict block in a file: byte ranges of the whole block and of each side's text
 /// (without the marker lines).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1097,5 +1148,16 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.join("new.php")).unwrap(), "new\n");
         assert!(shelves(&shelf_dir).is_empty());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn parses_worktrees_and_remotes() {
+        let wt = "worktree /src/shop\nHEAD 0123456789abcdef\nbranch refs/heads/main\n\nworktree /src/shop-fix\nHEAD fedcba9876543210\ndetached\n";
+        let trees = parse_worktrees(wt);
+        assert_eq!(trees.len(), 2);
+        assert_eq!((trees[0].branch.as_str(), trees[0].head.as_str()), ("main", "01234567"));
+        assert!(trees[1].branch.is_empty());
+        let remotes = parse_remotes("origin\tgit@github.com:a/b.git (fetch)\norigin\tgit@github.com:a/b.git (push)\nup\thttps://x/y (fetch)\n");
+        assert_eq!(remotes, [("origin".to_string(), "git@github.com:a/b.git".to_string()), ("up".to_string(), "https://x/y".to_string())]);
     }
 }

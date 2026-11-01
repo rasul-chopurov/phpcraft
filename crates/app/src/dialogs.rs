@@ -5,6 +5,7 @@ mod git;
 mod git_prompt;
 mod rebase;
 mod shelf;
+mod git_lists;
 mod make;
 mod navigate;
 mod prefs;
@@ -29,6 +30,7 @@ pub use git::{BranchDialog, ConfirmDialog, GitCommand, LocalHistoryDialog};
 pub use git_prompt::{GitPrompt, GitPromptDialog};
 pub use rebase::RebaseDialog;
 pub use shelf::{ShelfDialog, ShelfMode};
+pub use git_lists::{GitList, GitListDialog};
 pub use make::{GeneratorDialog, MakeChooser, MakeDialog};
 pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
 pub use prefs::{KeymapDialog, SettingsDialog, ThemeDialog};
@@ -99,6 +101,8 @@ pub enum DialogEvent {
     DataSourceSaved { source: laravel::datasource::DataSource, password: String },
     /// Run a shell command in a new terminal tab (agent sign-in from Settings).
     RunInTerminal(String),
+    /// Close the dialog and run an action by name (a dialog's "Add…" button).
+    Dispatch(&'static str),
     /// Git ▸ Shelve Changes…: these files under this name.
     Shelve { name: String, files: Vec<String> },
     /// Git ▸ Shelf: apply a shelf back (or only delete it).

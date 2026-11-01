@@ -654,6 +654,13 @@ impl Workspace {
                 }
             }
             DialogEvent::CloneRepository { url, parent } => self.clone_repository(url.clone(), parent.clone(), window, cx),
+            DialogEvent::Dispatch(name) => {
+                let name = *name;
+                self.dismiss_modal(window, cx);
+                if let Ok(action) = cx.build_action(name, None) {
+                    window.dispatch_action(action, cx);
+                }
+            }
             DialogEvent::Shelve { name, files } => {
                 let (name, files) = (name.clone(), files.clone());
                 self.shelve_files(&name, &files, window, cx);
