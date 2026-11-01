@@ -120,7 +120,7 @@ jobs:
           DESKTOP
           cat > $root/DEBIAN/control <<CONTROL
           Package: phpcraft
-          Version: ${version/-/~}
+          Version: $(echo "$version" | tr - '~')
           Architecture: ${{ matrix.deb }}
           Maintainer: Rasul Chopurov <rasulchopurov@gmail.com>
           Depends: libxkbcommon-x11-0, libvulkan1, libfontconfig1, libfreetype6, libasound2 | libasound2t64
