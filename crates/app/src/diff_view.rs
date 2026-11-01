@@ -38,12 +38,44 @@ pub enum DiffEvent {
 
 impl gpui::EventEmitter<DiffEvent> for DiffView {}
 
+/// Syntax spans and changed characters of one side of a row, relative to the line.
+#[derive(Default, Clone)]
+struct SideStyle {
+    syntax: Vec<(std::ops::Range<usize>, php_syntax::Highlight)>,
+    changed: Vec<std::ops::Range<usize>>,
+}
+
+/// Spans of `spans` that fall on each line of `text`, made line-relative.
+fn spans_by_line(text: &str, spans: &[php_syntax::Span]) -> Vec<Vec<(std::ops::Range<usize>, php_syntax::Highlight)>> {
+    let mut starts = vec![0];
+    starts.extend(text.match_indices('\n').map(|(i, _)| i + 1));
+    let mut out = vec![Vec::new(); starts.len()];
+    for span in spans {
+        let first = starts.partition_point(|&s| s <= span.range.start).saturating_sub(1);
+        for line in first..starts.len() {
+            let start = starts[line];
+            let end = starts.get(line + 1).map_or(text.len(), |&n| n - 1);
+            if start > span.range.end {
+                break;
+            }
+            let a = span.range.start.max(start);
+            let b = span.range.end.min(end);
+            if a < b {
+                out[line].push((a - start..b - start, span.highlight));
+            }
+        }
+    }
+    out
+}
+
 pub struct DiffView {
     /// "Commit" or "Changes": the tab prefix.
     pub kind: String,
     files: Vec<DiffSource>,
     index: usize,
     rows: Vec<git::DiffRow>,
+    /// Per row: left and right highlighting.
+    styles: Vec<(SideStyle, SideStyle)>,
     /// Row indices where a change block starts.
     changes: Vec<usize>,
     current_change: Option<usize>,
@@ -60,6 +92,7 @@ impl DiffView {
             files,
             index: 0,
             rows: Vec::new(),
+            styles: Vec::new(),
             changes: Vec::new(),
             current_change: None,
             loading: false,
@@ -81,16 +114,38 @@ impl DiffView {
         self.index = index.min(self.files.len().saturating_sub(1));
         let Some(file) = self.files.get(self.index) else { return };
         let load = file.load.clone();
+        let name = std::path::PathBuf::from(&file.subtitle);
         self.loading = true;
         self.rows.clear();
+        self.styles.clear();
         self.changes.clear();
         self.current_change = None;
         let shown = self.index;
         self._load = Some(cx.spawn(async move |this, cx| {
-            let rows = cx
+            let (rows, styles) = cx
                 .background_spawn(async move {
                     let (old, new) = load();
-                    git::side_by_side(&old, &new)
+                    let rows = git::side_by_side(&old, &new);
+                    // Syntax colours for both versions, plus the changed characters of
+                    // modified lines (like PhpStorm's word-level diff).
+                    let old_spans = spans_by_line(&old, &php_syntax::highlight_path(&name, &old));
+                    let new_spans = spans_by_line(&new, &php_syntax::highlight_path(&name, &new));
+                    let styles = rows
+                        .iter()
+                        .map(|row| {
+                            let mut left = SideStyle { syntax: row.left.as_ref().and_then(|(n, _)| old_spans.get(*n).cloned()).unwrap_or_default(), changed: Vec::new() };
+                            let mut right = SideStyle { syntax: row.right.as_ref().and_then(|(n, _)| new_spans.get(*n).cloned()).unwrap_or_default(), changed: Vec::new() };
+                            if row.tag == git::RowTag::Changed
+                                && let (Some((_, a)), Some((_, b))) = (&row.left, &row.right)
+                            {
+                                let (l, r) = git::inline_changes(a, b);
+                                left.changed = l;
+                                right.changed = r;
+                            }
+                            (left, right)
+                        })
+                        .collect::<Vec<_>>();
+                    (rows, styles)
                 })
                 .await;
             let _ = this.update(cx, |view, cx| {
@@ -104,6 +159,7 @@ impl DiffView {
                     .map(|(i, _)| i)
                     .collect();
                 view.rows = rows;
+                view.styles = styles;
                 view.loading = false;
                 view.scroll.scroll_to_item(0);
                 cx.notify();
@@ -156,11 +212,29 @@ impl Focusable for DiffView {
     }
 }
 
-fn side(line: &Option<(usize, String)>, bg: Option<gpui::Hsla>) -> gpui::Div {
+fn side(line: &Option<(usize, String)>, bg: Option<gpui::Hsla>, style: Option<&SideStyle>, strong: gpui::Hsla) -> gpui::Div {
     let (number, text) = match line {
-        Some((n, text)) => ((n + 1).to_string(), text.replace('\t', "    ")),
+        Some((n, text)) => ((n + 1).to_string(), text.clone()),
         None => (String::new(), String::new()),
     };
+    let mut highlights: Vec<(std::ops::Range<usize>, gpui::HighlightStyle)> = Vec::new();
+    if let Some(style) = style {
+        for (range, h) in &style.syntax {
+            if range.end <= text.len() && text.is_char_boundary(range.start) && text.is_char_boundary(range.end) {
+                highlights.push((range.clone(), gpui::HighlightStyle { color: Some(theme::syntax(*h)), ..Default::default() }));
+            }
+        }
+        // Changed characters get a stronger background on top of the syntax colour.
+        for range in &style.changed {
+            if range.end <= text.len() && text.is_char_boundary(range.start) && text.is_char_boundary(range.end) {
+                highlights.push((range.clone(), gpui::HighlightStyle { background_color: Some(strong), ..Default::default() }));
+            }
+        }
+    }
+    highlights.sort_by_key(|(range, _)| (range.start, range.end));
+    let (syntax, changed): (Vec<_>, Vec<_>) = highlights.into_iter().partition(|(_, h)| h.background_color.is_none());
+    let highlights = gpui::combine_highlights(syntax, changed).collect::<Vec<_>>();
+    let shown = text.replace('\t', " ");
     div()
         .flex_1()
         .flex()
@@ -168,30 +242,41 @@ fn side(line: &Option<(usize, String)>, bg: Option<gpui::Hsla>) -> gpui::Div {
         .overflow_hidden()
         .when_some(bg, |d, bg| d.bg(bg))
         .child(div().w(px(46.)).flex_none().pr_2().text_right().text_color(theme::line_number()).child(number))
-        .child(div().flex_1().whitespace_nowrap().overflow_hidden().text_color(theme::text()).child(SharedString::from(text)))
+        .child(
+            div()
+                .flex_1()
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_color(theme::text())
+                .child(gpui::StyledText::new(SharedString::from(shown)).with_highlights(highlights)),
+        )
 }
 
 impl Render for DiffView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let added = theme::success().opacity(0.16);
-        let removed = theme::error().opacity(0.16);
-        let changed = theme::accent().opacity(0.14);
+        // PhpStorm-like: deleted lines red, inserted green, modified blue with the changed
+        // characters marked stronger.
+        let added = theme::success().opacity(0.22);
+        let removed = theme::error().opacity(0.22);
+        let added_strong = theme::success().opacity(0.45);
+        let removed_strong = theme::error().opacity(0.45);
         let current_row = self.current_change.and_then(|c| self.changes.get(c)).copied();
         let rows = self.rows.iter().enumerate().map(|(ix, row)| {
             let (left_bg, right_bg) = match row.tag {
                 git::RowTag::Equal => (None, None),
                 git::RowTag::Removed => (Some(removed), None),
                 git::RowTag::Added => (None, Some(added)),
-                git::RowTag::Changed => (Some(changed), Some(changed)),
+                // Old text red on the left, new text green on the right.
+                git::RowTag::Changed => (Some(removed.opacity(0.7)), Some(added.opacity(0.7))),
             };
             div()
                 .id(("diff-row", ix))
                 .flex()
                 .h(px(20.))
                 .when(current_row == Some(ix), |d| d.border_t_1().border_color(theme::accent()))
-                .child(side(&row.left, left_bg))
+                .child(side(&row.left, left_bg, self.styles.get(ix).map(|s| &s.0), removed_strong))
                 .child(div().w(px(1.)).h_full().bg(theme::border()))
-                .child(side(&row.right, right_bg))
+                .child(side(&row.right, right_bg, self.styles.get(ix).map(|s| &s.1), added_strong))
         });
         let file = self.files.get(self.index).cloned();
         let nav = |id: &'static str, label: &'static str, enabled: bool| {
