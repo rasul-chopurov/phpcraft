@@ -26,7 +26,7 @@ pub use complete::{CompletionItem, CompletionKind, complete};
 pub use goto::{goto_definition, reference_range};
 pub use docs::{Documentation, documentation, parameter_info};
 pub use intentions::{Intention, intentions, remove_unused_variable};
-pub use inspect::{Builtins, Problem, Severity, inspect};
+pub use inspect::{Builtins, Problem, Severity, inspect, typos};
 pub use refactor::{delete_declaration, extract_method, inline_variable, introduce_constant, introduce_field, introduce_variable};
 pub use hierarchy::{InheritanceMark, inheritance_marks, implementations, related_tests, super_declaration, type_hierarchy};
 pub use generate::{generate_accessors, generate_constructor, generate_phpdoc, implement_methods, overridable_methods, override_method};

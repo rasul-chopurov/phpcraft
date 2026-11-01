@@ -8,3 +8,4 @@ license.workspace = true
 php-syntax.workspace = true
 php-index.workspace = true
 tree-sitter.workspace = true
+spell.workspace = true

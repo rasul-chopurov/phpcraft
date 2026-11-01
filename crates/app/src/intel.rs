@@ -21,6 +21,8 @@ pub struct Intel {
     repo: Option<git::Repo>,
     /// Routes read from routes/*.php, with the files' modification stamp they were read at.
     routes: std::sync::Mutex<Option<(u128, Arc<Vec<laravel::route_refs::RouteRef>>)>>,
+    /// Spelling: the bundled word list plus `.phpcraft/dictionary.txt`.
+    dictionary: RwLock<spell::Dictionary>,
 }
 
 /// PHP's built-in functions, asked from the `php` binary once (in the background: until then,
@@ -63,12 +65,14 @@ impl Intel {
             ready: AtomicBool::new(false),
             repo: git::Repo::discover(root),
             routes: Default::default(),
+            dictionary: RwLock::new(spell::Dictionary::load(root)),
         })
     }
 
     /// Builds the index; runs on a background thread.
     pub fn scan(&self) {
         let started = Instant::now();
+        spell::warm_up();
         let mut index = Index::scan_cached(&self.root, Some(&index_cache_file(&self.root)));
         // PHP's own classes and functions (phpstorm-stubs), unpacked once next to the caches.
         if let Some(stubs) = php_index::stubs::unpack(&crate::config::dir().join("stubs")) {
@@ -458,11 +462,28 @@ impl Intel {
 
     /// Inspection problems in a PHP file (none until the index is ready, none for Blade).
     pub fn problems(&self, path: &Path, source: &str) -> Vec<php_analysis::Problem> {
-        if !self.is_ready() || is_blade(path) {
+        if is_blade(path) {
             return Vec::new();
         }
-        let index = self.index.read().unwrap();
-        Document::parse(path, source).map(|doc| php_analysis::inspect(&doc, &index, builtins())).unwrap_or_default()
+        let Some(doc) = Document::parse(path, source) else { return Vec::new() };
+        let mut problems = php_analysis::typos(&doc, &self.dictionary.read().unwrap());
+        if self.is_ready() {
+            problems.extend(php_analysis::inspect(&doc, &self.index.read().unwrap(), builtins()));
+            problems.sort_by_key(|p| p.range.start);
+        }
+        problems
+    }
+
+    /// Corrections for a misspelt word.
+    pub fn spelling_suggestions(&self, word: &str) -> Vec<String> {
+        self.dictionary.read().unwrap().suggestions(word, 5)
+    }
+
+    /// Adds a word to the project dictionary (`.phpcraft/dictionary.txt`).
+    pub fn save_to_dictionary(&self, word: &str) {
+        if let Err(err) = self.dictionary.write().unwrap().save_word(word) {
+            eprintln!("dictionary: {err}");
+        }
     }
 
     pub fn unresolved(&self, path: &Path, source: &str) -> Vec<Unresolved> {

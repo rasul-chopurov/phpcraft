@@ -62,6 +62,21 @@ pub fn inspect(doc: &Document, index: &Index, builtins: &Builtins) -> Vec<Proble
     out
 }
 
+/// Misspelt words in comments and string literals (`typo`, weak).
+pub fn typos(doc: &Document, dict: &spell::Dictionary) -> Vec<Problem> {
+    let mut out = Vec::new();
+    visit(doc.tree.root_node(), &mut |node| {
+        if matches!(node.kind(), "comment" | "string_content" | "nowdoc_string") {
+            let start = node.start_byte();
+            for typo in dict.check(doc.text(node)) {
+                out.push(problem(start + typo.range.start..start + typo.range.end, Severity::Weak, "typo", format!("Typo: '{}'", typo.word)));
+            }
+        }
+        true
+    });
+    out
+}
+
 fn problem(range: Range<usize>, severity: Severity, id: &'static str, message: String) -> Problem {
     Problem { range, severity, message, id }
 }
@@ -457,6 +472,14 @@ mod tests {
         assert!(!found.iter().any(|(i, t)| *i == "undefined-function" && (t == "helper" || t == "strlen")));
     }
 
+    #[test]
+    fn typos_in_comments_and_strings() {
+        let src = "<?php\n// Retruns the cached valeu.\n$a = 'recieved payment';\n$b = \"Hello {$name}, thier order\";\n$c = <<<'TXT'\nfinaly done\nTXT;\n$recievd = strlen('ok');\n";
+        let doc = Document::parse(Path::new("/p/a.php"), src).unwrap();
+        let found: Vec<&str> = typos(&doc, &spell::Dictionary::default()).iter().map(|p| &src[p.range.clone()]).collect();
+        assert_eq!(found, ["Retruns", "valeu", "recieved", "thier", "finaly"]);
+    }
+
     /// Survey on a real project: `INSPECT_ROOT=/path cargo test -p php-analysis survey -- --ignored --nocapture`.
     #[test]
     #[ignore]
@@ -468,6 +491,7 @@ mod tests {
             index.add_dir(&stubs, None);
         }
         let builtins = Builtins::default();
+        let dict = spell::Dictionary::load(&root);
         let mut counts: HashMap<&str, usize> = HashMap::new();
         let mut samples: Vec<String> = Vec::new();
         let mut stack = vec![root.join("app"), root.join("routes"), root.join("database")];
@@ -480,9 +504,9 @@ mod tests {
                 } else if path.extension().is_some_and(|e| e == "php") {
                     let src = std::fs::read_to_string(&path).unwrap_or_default();
                     let Some(doc) = Document::parse(&path, &src) else { continue };
-                    for p in inspect(&doc, &index, &builtins) {
+                    for p in inspect(&doc, &index, &builtins).into_iter().chain(typos(&doc, &dict)) {
                         *counts.entry(p.id).or_default() += 1;
-                        if p.id != "unused-import" && samples.iter().filter(|s| s.starts_with(p.id)).count() < 6 {
+                        if p.id != "unused-import" && samples.iter().filter(|s| s.starts_with(p.id)).count() < if p.id == "typo" { 400 } else { 6 } {
                             let line = src[..p.range.start].matches('\n').count() + 1;
                             samples.push(format!("{} {}:{} {}", p.id, path.strip_prefix(&root).unwrap().display(), line, p.message));
                         }

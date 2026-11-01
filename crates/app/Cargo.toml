@@ -15,6 +15,7 @@ php-syntax.workspace = true
 tree-sitter.workspace = true
 php-index.workspace = true
 php-analysis.workspace = true
+spell.workspace = true
 laravel.workspace = true
 search.workspace = true
 git.workspace = true

@@ -27,6 +27,7 @@ as data — see `crates/php-index/STUBS-LICENSE`.)
 | `dbgp` | Xdebug DBGp protocol (sessions, breakpoints, stack, variables, eval) |
 | `terminal` | PTY terminal (alacritty_terminal) |
 | `agent` | AI assistant: Claude API agent loop + ACP client (Claude Code, OpenCode, Gemini, Codex) |
+| `spell` | Spell checker: bundled word list (web2, public domain) + `extra.txt`, inflection rules, camelCase split, suggestions, project dictionary `.phpcraft/dictionary.txt` |
 | `history` | Local History store |
 | `project` | File tree model |
 | `search` | Find in files, fuzzy matching |
@@ -84,7 +85,7 @@ as data — see `crates/php-index/STUBS-LICENSE`.)
 Editor (multi-caret, folding, soft wrap, smart pairs, bookmarks, extend selection, templates),
 PHP intelligence (completion with auto-import, goto, find usages, rename, extract / introduce /
 inline / safe delete, generate, quick doc, parameter info, hierarchy, call hierarchy,
-inspections + PHPStan/Psalm/PHPCS, intentions, phpstorm-stubs), Laravel (string navigation,
+inspections + PHPStan/Psalm/PHPCS, spell checking of comments and strings (`typo`, ⌥↵ suggestions / save to dictionary), intentions, phpstorm-stubs), Laravel (string navigation,
 Blade sections/stacks/props, routes in the gutter, generators incl. DTO / Nova, extract blade
 component/view, facade→DI / rules→array / scope→#[Scope] intentions), Twig, Git (commit, log
 with graph, branches, diff, blame, merge conflicts in the editor, compare with revision /
@@ -105,10 +106,7 @@ terminal, AI agents, settings sync and import (PhpStorm / VS Code / Zed).
 
 ### In progress / next steps (in this order)
 
-1. **Spell checker** for comments and strings: bundled English word list, camelCase splitting,
-   project dictionary in `.phpcraft/dictionary.txt`, problems with id `typo` (Weak), intention
-   "Save to dictionary" and suggestions (edit distance).
-2. Final release (version per the user's answer), then push and deploy the site.
+1. Final release (version per the user's answer), then push and deploy the site.
 
 ### Known gaps / ideas after that
 

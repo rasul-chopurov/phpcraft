@@ -38,6 +38,8 @@ pub enum MenuAction {
     /// An intention's edits (byte ranges in the current text).
     Edits(Vec<(std::ops::Range<usize>, String)>),
     Surround(usize),
+    /// Add a word to the project dictionary.
+    SaveWord(String),
     Nothing,
 }
 
@@ -318,6 +320,13 @@ impl EditorView {
             {
                 items.push(MenuItem::new(fix.label, "", "💡", MenuAction::Edits(fix.edits.into_iter().map(|e| (e.range, e.text)).collect())));
             }
+            if problem.id == "typo" {
+                let word = text[problem.range.clone()].to_string();
+                for fix in self.intel.spelling_suggestions(&word) {
+                    items.push(MenuItem::new(format!("Change to '{fix}'"), "", "💡", MenuAction::Edits(vec![(problem.range.clone(), fix)])));
+                }
+                items.push(MenuItem::new(format!("Save '{}' to project dictionary", word.to_lowercase()), "", "💡", MenuAction::SaveWord(word)));
+            }
         }
         if self.buffer.is_php()
             && let Some(path) = &path
@@ -494,6 +503,10 @@ impl EditorView {
                 let caret = self.caret_byte();
                 self.buffer.apply_edits(edits, caret);
                 self.changed(cx);
+            }
+            MenuAction::SaveWord(word) => {
+                self.intel.save_to_dictionary(&word);
+                self.problems = None;
             }
             MenuAction::Nothing => {}
         }
