@@ -68,21 +68,65 @@ pub fn open_project_window(root: &std::path::Path, cx: &mut App) -> anyhow::Resu
 }
 
 /// Apps started from Finder/Dock get a minimal PATH; take the login shell's so php,
-/// composer, node and AI agents installed with Homebrew etc. are found.
+/// composer, node and AI agents installed with Homebrew etc. are found. The shell runs
+/// interactive too: installers (opencode, bun, Herd…) add themselves to ~/.zshrc, which a
+/// non-interactive login shell skips.
 fn inherit_shell_path() {
     if cfg!(windows) || std::env::var_os("TERM_PROGRAM").is_some() {
         return;
     }
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    if let Ok(output) = std::process::Command::new(shell).args(["-l", "-c", "printf %s \"$PATH\""]).output()
-        && output.status.success()
-    {
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !path.is_empty() {
-            // SAFETY: called first in main, before any other thread starts.
-            unsafe { std::env::set_var("PATH", path) };
+    let path = shell_path(&shell, &["-l", "-i", "-c"]).or_else(|| shell_path(&shell, &["-l", "-c"]));
+    let mut dirs: Vec<std::path::PathBuf> = path.as_deref().or(std::env::var("PATH").ok().as_deref()).map(|p| std::env::split_paths(p).collect()).unwrap_or_default();
+    // Where installers put their binaries, in case the shell config doesn't say.
+    if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
+        for extra in [".opencode/bin", ".local/bin", ".bun/bin", ".npm-global/bin", ".cargo/bin", "Library/Application Support/Herd/bin"] {
+            let dir = home.join(extra);
+            if dir.is_dir() && !dirs.contains(&dir) {
+                dirs.push(dir);
+            }
         }
     }
+    for dir in ["/opt/homebrew/bin", "/usr/local/bin"].map(std::path::PathBuf::from) {
+        if dir.is_dir() && !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    if let Ok(path) = std::env::join_paths(dirs) {
+        // SAFETY: called first in main, before any other thread starts.
+        unsafe { std::env::set_var("PATH", path) };
+    }
+}
+
+/// `$PATH` as `shell args…` sees it, between markers (rc files may print), or None after 3 s.
+fn shell_path(shell: &str, args: &[&str]) -> Option<String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child = std::process::Command::new(shell)
+        .args(args)
+        .arg("printf '\\n__PHPCRAFT_PATH__%s__PHPCRAFT_END__\\n' \"$PATH\"")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if started.elapsed() < std::time::Duration::from_secs(3) => std::thread::sleep(std::time::Duration::from_millis(10)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    let mut out = String::new();
+    child.stdout.take()?.read_to_string(&mut out).ok()?;
+    let start = out.find("__PHPCRAFT_PATH__")? + "__PHPCRAFT_PATH__".len();
+    let path = &out[start..start + out[start..].find("__PHPCRAFT_END__")?];
+    (!path.trim().is_empty()).then(|| path.trim().to_string())
 }
 
 fn main() {
