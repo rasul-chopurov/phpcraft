@@ -31,6 +31,7 @@ pub enum MenuAction {
     Navigate(Location),
     Import(String),
     OptimizeImports,
+    Paste(String),
     Nothing,
 }
 
@@ -39,6 +40,12 @@ pub struct MenuItem {
     detail: SharedString,
     icon: &'static str,
     action: MenuAction,
+}
+
+impl MenuItem {
+    pub fn new(label: impl Into<SharedString>, detail: impl Into<SharedString>, icon: &'static str, action: MenuAction) -> Self {
+        Self { label: label.into(), detail: detail.into(), icon, action }
+    }
 }
 
 pub struct Menu {
@@ -377,7 +384,7 @@ impl EditorView {
 
     // --- menu ----------------------------------------------------------
 
-    fn show_menu(&mut self, items: Vec<MenuItem>, is_completion: bool, cx: &mut Context<Self>) {
+    pub(super) fn show_menu(&mut self, items: Vec<MenuItem>, is_completion: bool, cx: &mut Context<Self>) {
         self.menu = (!items.is_empty()).then_some(Menu {
             items,
             selected: 0,
@@ -437,6 +444,7 @@ impl EditorView {
             MenuAction::Navigate(location) => self.navigate(location, window, cx),
             MenuAction::Import(fqn) => self.import_class(&fqn, cx),
             MenuAction::OptimizeImports => self.run_optimize_imports(cx),
+            MenuAction::Paste(text) => self.paste_text(&text, cx),
             MenuAction::Nothing => {}
         }
         cx.notify();

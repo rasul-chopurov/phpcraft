@@ -4,6 +4,7 @@ mod find_bar;
 mod ghost;
 mod intel_ui;
 mod multicaret;
+mod text_ops;
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -70,6 +71,13 @@ actions!(
         CloneCaretAbove,
         CloneCaretBelow,
         ClearCarets,
+        JoinLines,
+        SortLines,
+        ReverseLines,
+        ToggleCharCase,
+        Unindent,
+        GoToMatchingBrace,
+        PasteFromHistory,
     ]
 );
 
@@ -334,12 +342,16 @@ impl EditorView {
     }
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
         if self.has_selected_text() {
-            cx.write_to_clipboard(ClipboardItem::new_string(self.buffer.selections_text()));
+            let text = self.buffer.selections_text();
+            text_ops::remember_copy(&text);
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
     }
     fn cut(&mut self, _: &Cut, _: &mut Window, cx: &mut Context<Self>) {
         if self.has_selected_text() {
-            cx.write_to_clipboard(ClipboardItem::new_string(self.buffer.selections_text()));
+            let text = self.buffer.selections_text();
+            text_ops::remember_copy(&text);
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
             self.buffer.insert("");
             self.changed(cx);
         }
@@ -605,7 +617,7 @@ impl EntityInputHandler for EditorView {
         // Typing with several carets goes to all of them.
         if self.buffer.has_extra_carets() && range == self.buffer.selection.range() {
             self.close_menu();
-            self.buffer.insert(new_text);
+            self.buffer.type_text(new_text);
             self.changed(cx);
             return;
         }
@@ -617,13 +629,16 @@ impl EntityInputHandler for EditorView {
                 self.changed(cx);
                 return;
             }
-            let at = self.buffer.selection.range();
-            self.buffer.replace(at, new_text);
+            self.buffer.type_text(new_text);
             self.changed(cx);
             self.after_typing(new_text, cx);
             return;
         }
-        self.buffer.replace(range, new_text);
+        if range == self.buffer.selection.range() {
+            self.buffer.type_text(new_text);
+        } else {
+            self.buffer.replace(range, new_text);
+        }
         self.changed(cx);
         self.after_typing(new_text, cx);
     }
@@ -848,6 +863,13 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::clone_caret_above))
             .on_action(cx.listener(Self::clone_caret_below))
             .on_action(cx.listener(Self::clear_carets))
+            .on_action(cx.listener(Self::join_lines))
+            .on_action(cx.listener(Self::sort_lines))
+            .on_action(cx.listener(Self::reverse_lines))
+            .on_action(cx.listener(Self::toggle_char_case))
+            .on_action(cx.listener(Self::unindent))
+            .on_action(cx.listener(Self::go_to_matching_brace))
+            .on_action(cx.listener(Self::paste_from_history))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -1007,6 +1029,9 @@ impl Element for EditorElement {
             let selections: Vec<Range<usize>> = view.buffer.selections().iter().map(|s| s.range()).filter(|r| !r.is_empty()).collect();
             let extra_carets: Vec<(usize, usize)> = view.buffer.extra.iter().map(|s| view.buffer.char_to_line_col(s.head)).collect();
             let mut extra_caret_quads = Vec::new();
+            let brackets: Vec<usize> = view.buffer.matching_bracket(view.buffer.selection.head)
+                .filter(|_| view.buffer.selection.is_empty())
+                .map(|(a, b)| vec![a, b]).unwrap_or_default();
             let spans = view.buffer.highlights().to_vec();
             let problems: Vec<Range<usize>> = view
                 .current_diagnostics()
@@ -1084,6 +1109,12 @@ impl Element for EditorElement {
                         ),
                         theme::selection(),
                     ));
+                }
+                for &bracket in brackets.iter().filter(|&&b| b >= line_char_start && b < line_char_end) {
+                    let col = bracket - line_char_start;
+                    let x0 = shaped.x_for_index(byte_of_col(&text, col));
+                    let x1 = shaped.x_for_index(byte_of_col(&text, col + 1));
+                    selection_quads.push(fill(Bounds::from_corners(point(text_x + x0, y), point(text_x + x1, y + line_height)), theme::find_match()));
                 }
                 for (_, col) in extra_carets.iter().filter(|(l, _)| *l == line) {
                     let x = shaped.x_for_index(byte_of_col(&text, *col));

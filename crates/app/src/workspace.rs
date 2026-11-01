@@ -212,6 +212,16 @@ impl Workspace {
         };
         let intel = self.intel.clone();
         let workspace = cx.weak_entity();
+        let mut buffer = buffer;
+        match crate::project_info::editorconfig_indent(self.project.root(), path).as_deref() {
+            Some("Tab") => buffer.set_indent("\t"),
+            Some(spaces) => {
+                if let Some(n) = spaces.strip_suffix(" spaces").and_then(|n| n.parse::<usize>().ok()) {
+                    buffer.set_indent(&" ".repeat(n.clamp(1, 8)));
+                }
+            }
+            None => {}
+        }
         let editor = cx.new(|cx| {
             let mut editor = EditorView::new(buffer, intel, workspace, cx);
             editor.refresh_git_base(cx);

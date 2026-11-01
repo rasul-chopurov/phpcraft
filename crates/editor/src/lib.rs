@@ -10,7 +10,6 @@ use anyhow::Result;
 use php_syntax::Span;
 use ropey::Rope;
 
-const INDENT: &str = "    ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Selection {
@@ -54,6 +53,8 @@ pub struct Buffer {
     /// Secondary carets (multi-caret editing); typing, deleting and moving act on all of them.
     pub extra: Vec<Selection>,
     goal_column: Option<usize>,
+    /// One level of indentation (from .editorconfig: spaces or a tab).
+    indent: String,
     undo: Vec<Edit>,
     redo: Vec<Edit>,
     saved_version: u64,
@@ -70,6 +71,7 @@ impl Buffer {
             selection: Selection::default(),
             extra: Vec::new(),
             goal_column: None,
+            indent: "    ".into(),
             undo: Vec::new(),
             redo: Vec::new(),
             saved_version: 0,
@@ -94,6 +96,17 @@ impl Buffer {
             self.saved_version = self.version;
         }
         Ok(())
+    }
+
+    /// Sets the indentation unit (`"\t"` or N spaces).
+    pub fn set_indent(&mut self, indent: &str) {
+        if !indent.is_empty() {
+            self.indent = indent.to_string();
+        }
+    }
+
+    pub fn indent_unit(&self) -> &str {
+        &self.indent
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -322,14 +335,23 @@ impl Buffer {
     /// and returns the char range to replace and its text (None leaves that caret alone);
     /// each caret ends up after its inserted text.
     pub fn edit_each(&mut self, mut edit: impl FnMut(&Self, Selection) -> Option<(Range<usize>, String)>) {
+        self.edit_each_select(|b, s| edit(b, s).map(|(r, t)| {
+            let len = t.chars().count();
+            (r, t, len..len)
+        }));
+    }
+
+    /// Like [`edit_each`](Self::edit_each), but `edit` also says what to select afterwards,
+    /// as a char range relative to the start of the inserted text.
+    pub fn edit_each_select(&mut self, mut edit: impl FnMut(&Self, Selection) -> Option<(Range<usize>, String, Range<usize>)>) {
         let selections = self.selections();
-        let mut planned: Vec<(usize, Selection, Option<(Range<usize>, String)>)> =
+        let mut planned: Vec<(usize, Selection, Option<(Range<usize>, String, Range<usize>)>)> =
             selections.iter().enumerate().map(|(ix, s)| (ix, *s, edit(self, *s))).collect();
-        planned.sort_by_key(|(_, s, e)| e.as_ref().map_or(s.range().start, |(r, _)| r.start));
+        planned.sort_by_key(|(_, s, e)| e.as_ref().map_or(s.range().start, |(r, _, _)| r.start));
         // Drop edits that overlap an earlier one.
         let mut last_end = 0;
         for (_, _, e) in planned.iter_mut() {
-            if let Some((r, _)) = e {
+            if let Some((r, _, _)) = e {
                 if r.start < last_end {
                     *e = None;
                 } else {
@@ -342,11 +364,11 @@ impl Buffer {
         let mut after = vec![Selection::default(); selections.len()];
         for (ix, s, e) in &planned {
             after[*ix] = match e {
-                Some((r, text)) => {
+                Some((r, text, select)) => {
                     let len = text.chars().count();
-                    let at = (r.start as isize + shift) as usize + len;
+                    let start = (r.start as isize + shift) as usize;
                     shift += len as isize - r.len() as isize;
-                    Selection::caret(at)
+                    Selection { anchor: start + select.start, head: start + select.end }
                 }
                 None => Selection {
                     anchor: (s.anchor as isize + shift).max(0) as usize,
@@ -354,7 +376,7 @@ impl Buffer {
                 },
             };
         }
-        let edits: Vec<(Range<usize>, String)> = planned.into_iter().filter_map(|(_, _, e)| e).collect();
+        let edits: Vec<(Range<usize>, String)> = planned.into_iter().filter_map(|(_, _, e)| e.map(|(r, t, _)| (r, t))).collect();
         if edits.is_empty() {
             return;
         }
@@ -396,26 +418,128 @@ impl Buffer {
     }
 
     pub fn newline(&mut self) {
-        self.edit_each(|b, s| {
+        self.edit_each_select(|b, s| {
             let range = s.range();
             let (line, _) = b.char_to_line_col(range.start);
             let current = b.line(line);
-            let mut indent: String = current.chars().take_while(|c| c.is_whitespace()).collect();
+            let outer: String = current.chars().take_while(|c| c.is_whitespace()).collect();
             let before_caret = b.slice(b.line_to_char(line)..range.start);
-            if before_caret.trim_end().ends_with(['{', '(', '[']) {
-                indent.push_str(INDENT);
-            }
-            Some((range, format!("\n{indent}")))
+            let opens = before_caret.trim_end().chars().last().filter(|c| matches!(c, '{' | '(' | '['));
+            let indent = if opens.is_some() { format!("{outer}{}", b.indent) } else { outer.clone() };
+            let first = format!("\n{indent}");
+            let len = first.chars().count();
+            // Enter between a pair (`{|}`) puts the closing bracket on its own line.
+            let closes = b.char_at(range.end).zip(opens).is_some_and(|(next, open)| closing(open) == Some(next));
+            let text = if closes { format!("{first}\n{outer}") } else { first };
+            Some((range, text, len..len))
         });
     }
 
+    /// Tab: indents the selected lines when the selection spans lines, otherwise inserts
+    /// one indentation unit at every caret.
     pub fn tab(&mut self) {
-        self.insert(INDENT);
+        let multiline = self.selections().iter().any(|s| {
+            let r = s.range();
+            !r.is_empty() && self.rope.char_to_line(r.start) != self.rope.char_to_line(r.end)
+        });
+        if multiline {
+            return self.indent_lines(1);
+        }
+        let unit = self.indent.clone();
+        self.insert(&unit);
+    }
+
+    /// Indents (`1`) or unindents (`-1`) the selected lines by one unit, keeping them selected.
+    pub fn indent_lines(&mut self, direction: isize) {
+        let lines = self.selected_lines();
+        let unit = self.indent.clone();
+        let mut edits = Vec::new();
+        for line in lines.clone() {
+            let text = self.line(line);
+            let start = self.line_to_byte(line);
+            if direction > 0 {
+                if !text.trim().is_empty() {
+                    edits.push((start..start, unit.clone()));
+                }
+            } else {
+                let remove = if text.starts_with('\t') {
+                    1
+                } else {
+                    text.chars().take(unit.chars().count().max(1)).take_while(|c| *c == ' ').count()
+                };
+                if remove > 0 {
+                    edits.push((start..start + remove, String::new()));
+                }
+            }
+        }
+        if edits.is_empty() {
+            return;
+        }
+        let selection = self.selection;
+        let (head_line, head_col) = self.char_to_line_col(selection.head);
+        let unit_len = unit.chars().count();
+        let caret = self.char_to_byte(selection.head);
+        self.apply_edits(edits, caret);
+        if selection.is_empty() {
+            let col = if direction > 0 { head_col + unit_len } else { head_col.saturating_sub(unit_len) };
+            self.selection = Selection::caret(self.line_col_to_char(head_line, col));
+        } else {
+            // Keep whole lines selected.
+            let start = self.line_to_char(lines.start);
+            let last = lines.end - 1;
+            let end = self.line_to_char(last) + self.line_len(last);
+            self.selection = if selection.head >= selection.anchor { Selection { anchor: start, head: end } } else { Selection { anchor: end, head: start } };
+        }
+        if let Some(last) = self.undo.last_mut() {
+            last.after = self.selection;
+        }
+    }
+
+    fn char_at(&self, ix: usize) -> Option<char> {
+        (ix < self.len_chars()).then(|| self.rope.char(ix))
+    }
+
+    /// Typing with smart pairs: an opening bracket or quote also inserts its closing one
+    /// (or wraps the selection), typing a closing character that is already next steps over
+    /// it. Anything else is a plain insert. Acts on every caret.
+    pub fn type_text(&mut self, text: &str) {
+        let mut chars = text.chars();
+        let (Some(c), None) = (chars.next(), chars.next()) else {
+            return self.insert(text);
+        };
+        self.edit_each_select(|b, s| {
+            let range = s.range();
+            let next = b.char_at(range.end);
+            let prev = range.start.checked_sub(1).and_then(|i| b.char_at(i));
+            // Step over a closing character that is already there.
+            if s.is_empty() && matches!(c, ')' | ']' | '}' | '"' | '\'' | '`') && next == Some(c) {
+                return Some((range.start..range.start + 1, c.to_string(), 1..1));
+            }
+            if let Some(close) = closing(c) {
+                if !s.is_empty() {
+                    let inner = b.slice(range.clone());
+                    let len = inner.chars().count();
+                    return Some((range, format!("{c}{inner}{close}"), 1..1 + len));
+                }
+                let free_after = next.is_none_or(|n| n.is_whitespace() || matches!(n, ')' | ']' | '}' | ';' | ',' | '>'));
+                let is_quote = c == close;
+                let free_before = !is_quote || prev.is_none_or(|p| !(p.is_alphanumeric() || p == '_' || p == c || p == '\\'));
+                if free_after && free_before {
+                    return Some((range, format!("{c}{close}"), 1..1));
+                }
+            }
+            Some((range, c.to_string(), 1..1))
+        });
     }
 
     pub fn backspace(&mut self) {
-        if !self.extra.is_empty() {
-            return self.edit_each(|_, s| match s.is_empty() {
+        let in_pair = |b: &Self, s: &Selection| {
+            s.is_empty() && s.head > 0 && b.char_at(s.head - 1).and_then(closing).is_some_and(|close| b.char_at(s.head) == Some(close))
+        };
+        if !self.extra.is_empty() || in_pair(self, &self.selection) {
+            return self.edit_each(|b, s| match s.is_empty() {
+                // Inside an empty pair: remove both halves.
+                true if in_pair(b, &s) => Some((s.head - 1..s.head + 1, String::new())),
                 true => (s.head > 0).then(|| (s.head - 1..s.head, String::new())),
                 false => Some((s.range(), String::new())),
             });
@@ -612,6 +736,105 @@ impl Buffer {
             anchor: 0,
             head: self.len_chars(),
         };
+    }
+
+    // --- text operations -------------------------------------------------
+
+    /// The bracket matching the one at or just before the caret: (bracket, its match).
+    pub fn matching_bracket(&self, ix: usize) -> Option<(usize, usize)> {
+        let at = [Some(ix), ix.checked_sub(1)].into_iter().flatten()
+            .find(|&i| self.char_at(i).is_some_and(|c| "()[]{}".contains(c)))?;
+        let c = self.char_at(at)?;
+        let (open, close, forward) = match c {
+            '(' => ('(', ')', true), '[' => ('[', ']', true), '{' => ('{', '}', true),
+            ')' => ('(', ')', false), ']' => ('[', ']', false), _ => ('{', '}', false),
+        };
+        let mut depth = 0usize;
+        let len = self.len_chars();
+        let mut i = at;
+        loop {
+            let ch = self.rope.char(i);
+            if ch == open { if forward { depth += 1 } else { depth -= 1 } }
+            if ch == close { if forward { depth -= 1 } else { depth += 1 } }
+            if depth == 0 {
+                return Some((at, i));
+            }
+            if forward {
+                i += 1;
+                if i >= len { return None; }
+            } else {
+                if i == 0 { return None; }
+                i -= 1;
+            }
+        }
+    }
+
+    /// Move Caret to Matching Brace.
+    pub fn go_to_matching_bracket(&mut self) {
+        if let Some((at, other)) = self.matching_bracket(self.selection.head) {
+            // Land after a closing bracket, on an opening one.
+            let target = if other > at { other + 1 } else { other };
+            self.move_to(target, false);
+        }
+    }
+
+    /// Join Lines: each caret's line (or the selected lines) with the next, one space between.
+    pub fn join_lines(&mut self) {
+        let lines = self.selected_lines();
+        let last = if lines.len() > 1 { lines.end - 1 } else { lines.start + 1 };
+        if last >= self.len_lines() {
+            return;
+        }
+        let mut joined = self.line(lines.start).trim_end().to_string();
+        for line in lines.start + 1..=last {
+            let next = self.line(line);
+            let next = next.trim_start();
+            if !next.is_empty() {
+                if !joined.is_empty() && !joined.ends_with(['(', '[']) && !next.starts_with([')', ']', ';', ',', '.']) && !next.starts_with("->") {
+                    joined.push(' ');
+                }
+                joined.push_str(next);
+            }
+        }
+        let start = self.line_to_char(lines.start);
+        let end = self.line_to_char(last) + self.line_len(last);
+        let caret = start + self.line(lines.start).trim_end().chars().count();
+        self.replace(start..end, &joined);
+        self.move_to(caret, false);
+    }
+
+    /// Sort Lines (or reverse them): the selected lines, or the whole file.
+    pub fn reorder_lines(&mut self, reverse: bool) {
+        let lines = if self.selection.is_empty() { 0..self.len_lines() } else { self.selected_lines() };
+        let mut texts: Vec<String> = lines.clone().map(|l| self.line(l)).collect();
+        // A trailing empty line (file ends with a newline) stays last.
+        let trailing = texts.last().is_some_and(|t| t.is_empty()) && lines.end == self.len_lines();
+        if trailing {
+            texts.pop();
+        }
+        if reverse { texts.reverse() } else { texts.sort() }
+        let last = lines.start + texts.len().saturating_sub(1);
+        let start = self.line_to_char(lines.start);
+        let end = self.line_to_char(last) + self.line_len(last);
+        let selection = self.selection;
+        self.replace(start..end, &texts.join("\n"));
+        self.selection = selection;
+    }
+
+    /// Toggle Case: upper-cases the selection (or the word at the caret) unless it already
+    /// is, then lower-cases it.
+    pub fn toggle_case(&mut self) {
+        self.edit_each_select(|b, s| {
+            let range = if s.is_empty() { b.word_range_at(s.head) } else { s.range() };
+            if range.is_empty() {
+                return None;
+            }
+            let text = b.slice(range.clone());
+            let new = if text.chars().any(char::is_lowercase) { text.to_uppercase() } else { text.to_lowercase() };
+            let len = new.chars().count();
+            let select = if s.is_empty() { let col = s.head - range.start; col..col } else { 0..len };
+            Some((range, new, select))
+        });
     }
 
     // --- multiple carets ------------------------------------------------
@@ -880,6 +1103,19 @@ impl Buffer {
     }
 }
 
+/// The closing character for an opening bracket or quote.
+fn closing(c: char) -> Option<char> {
+    match c {
+        '(' => Some(')'),
+        '[' => Some(']'),
+        '{' => Some('}'),
+        '"' => Some('"'),
+        '\'' => Some('\''),
+        '`' => Some('`'),
+        _ => None,
+    }
+}
+
 /// Line comment markers for a language: (prefix, suffix); suffix is empty for line comments.
 pub fn comment_tokens(lang: php_syntax::Lang) -> (&'static str, &'static str) {
     use php_syntax::Lang;
@@ -1045,6 +1281,64 @@ mod tests {
         b.carets_at_line_ends();
         b.insert("!");
         assert_eq!(b.text(), "one!\ntwo!");
+    }
+
+    #[test]
+    fn smart_pairs() {
+        let mut b = Buffer::new("");
+        b.type_text("f");
+        b.type_text("(");
+        assert_eq!(b.text(), "f()");
+        b.type_text("$");
+        b.type_text(")");
+        assert_eq!(b.text(), "f($)", "typing ) steps over");
+        let mut b = Buffer::new("x");
+        b.select_all();
+        b.type_text("[");
+        assert_eq!(b.text(), "[x]");
+        assert_eq!(b.selected_text(), "x");
+        let mut b = Buffer::new("don");
+        b.move_to(3, false);
+        b.type_text("'");
+        assert_eq!(b.text(), "don'", "no pair after a letter");
+        let mut b = Buffer::new("");
+        b.type_text("{");
+        b.backspace();
+        assert_eq!(b.text(), "", "backspace in an empty pair removes both");
+        let mut b = Buffer::new("    if (x) {}");
+        b.move_to(b.len_chars() - 1, false);
+        b.newline();
+        assert_eq!(b.text(), "    if (x) {\n        \n    }");
+        assert_eq!(b.char_to_line_col(b.selection.head), (1, 8));
+    }
+
+    #[test]
+    fn text_operations() {
+        let b = Buffer::new("a(b[c]d)");
+        assert_eq!(b.matching_bracket(1), Some((1, 7)));
+        assert_eq!(b.matching_bracket(6), Some((5, 3)));
+        let mut b = Buffer::new("$a = foo(\n    1,\n    2\n);");
+        b.move_to(0, false);
+        b.join_lines();
+        assert_eq!(b.text(), "$a = foo(1,\n    2\n);");
+        let mut b = Buffer::new("c\na\nb\n");
+        b.reorder_lines(false);
+        assert_eq!(b.text(), "a\nb\nc\n");
+        b.reorder_lines(true);
+        assert_eq!(b.text(), "c\nb\na\n");
+        let mut b = Buffer::new("hello");
+        b.move_to(2, false);
+        b.toggle_case();
+        assert_eq!(b.text(), "HELLO");
+        b.toggle_case();
+        assert_eq!(b.text(), "hello");
+        let mut b = Buffer::new("a\nb");
+        b.set_indent("\t");
+        b.select_all();
+        b.tab();
+        assert_eq!(b.text(), "\ta\n\tb");
+        b.indent_lines(-1);
+        assert_eq!(b.text(), "a\nb");
     }
 
     #[test]

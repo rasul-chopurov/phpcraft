@@ -104,6 +104,12 @@ const DEFAULTS: &[Default] = &[
     per("ctrl-shift-up", "ctrl-alt-shift-up", "editor::CloneCaretAbove", ED),
     per("ctrl-shift-down", "ctrl-alt-shift-down", "editor::CloneCaretBelow", ED),
     both("escape", "editor::ClearCarets", Some("Editor && multicaret")),
+    // Text operations.
+    both("ctrl-shift-j", "editor::JoinLines", ED),
+    both("secondary-shift-u", "editor::ToggleCharCase", ED),
+    both("shift-tab", "editor::Unindent", ED),
+    per("cmd-shift-m", "ctrl-shift-m", "editor::GoToMatchingBrace", ED),
+    both("secondary-shift-v", "editor::PasteFromHistory", ED),
     per("cmd-alt-m", "ctrl-alt-m", "editor::ToggleMarkdownPreview", Some("EditorPane")),
     both("secondary-s", "editor::Save", ED),
     // Code intelligence.
