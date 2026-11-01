@@ -4,6 +4,7 @@
 mod array_keys;
 pub mod artisan;
 pub mod columns;
+pub mod dashboard;
 pub mod database;
 pub mod datasource;
 pub mod framework;

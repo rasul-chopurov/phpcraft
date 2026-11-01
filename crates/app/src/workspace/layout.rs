@@ -23,6 +23,7 @@ pub enum ToolWindow {
     Structure,
     Modules,
     Database,
+    Laravel,
     Commit,
     Ai,
     Terminal,
@@ -30,7 +31,7 @@ pub enum ToolWindow {
 }
 
 impl ToolWindow {
-    pub const ALL: [ToolWindow; 8] = [
+    pub const ALL: [ToolWindow; 9] = [
         ToolWindow::Project,
         ToolWindow::Structure,
         ToolWindow::Modules,
@@ -39,6 +40,7 @@ impl ToolWindow {
         ToolWindow::Ai,
         ToolWindow::Terminal,
         ToolWindow::Git,
+        ToolWindow::Laravel,
     ];
 
     fn icon(self) -> &'static str {
@@ -47,6 +49,7 @@ impl ToolWindow {
             ToolWindow::Structure => "≣",
             ToolWindow::Modules => "⧉",
             ToolWindow::Database => "⛁",
+            ToolWindow::Laravel => "◈",
             ToolWindow::Commit => "✓",
             ToolWindow::Ai => "✦",
             ToolWindow::Terminal => "›_",
@@ -60,6 +63,7 @@ impl ToolWindow {
             ToolWindow::Structure => "Structure",
             ToolWindow::Modules => "Modules",
             ToolWindow::Database => "Database",
+            ToolWindow::Laravel => "Laravel",
             ToolWindow::Commit => "Commit",
             ToolWindow::Ai => "AI Assistant",
             ToolWindow::Terminal => "Terminal",
@@ -73,6 +77,7 @@ impl ToolWindow {
             ToolWindow::Structure => "⌘7",
             ToolWindow::Modules => "",
             ToolWindow::Database => "",
+            ToolWindow::Laravel => "",
             ToolWindow::Commit => "⌘0",
             ToolWindow::Ai => "⌘⌥I",
             ToolWindow::Terminal => "⌥F12",
@@ -129,7 +134,7 @@ impl Layout {
     pub fn load() -> Self {
         let mut layout: Self = std::fs::read_to_string(Self::path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         // Panels that need a running session start closed.
-        for tool in [ToolWindow::Ai, ToolWindow::Terminal, ToolWindow::Git, ToolWindow::Database] {
+        for tool in [ToolWindow::Ai, ToolWindow::Terminal, ToolWindow::Git, ToolWindow::Database, ToolWindow::Laravel] {
             layout.hide(tool);
         }
         layout
@@ -142,7 +147,7 @@ impl Layout {
 
     pub fn side(&self, tool: ToolWindow) -> Side {
         let default = match tool {
-            ToolWindow::Terminal | ToolWindow::Git => Side::Bottom,
+            ToolWindow::Terminal | ToolWindow::Git | ToolWindow::Laravel => Side::Bottom,
             ToolWindow::Ai | ToolWindow::Database => Side::Right,
             _ => Side::Left,
         };
@@ -270,9 +275,12 @@ impl Workspace {
             ToolWindow::Terminal => self.toggle_terminal(&super::terminal_panel::ToggleTerminal, window, cx),
             ToolWindow::Git => self.toggle_git_log(&super::git_panel::ToggleGitLog, window, cx),
             ToolWindow::Ai => self.toggle_agent(&super::agent_panel::ToggleAgent, window, cx),
-            ToolWindow::Project | ToolWindow::Commit | ToolWindow::Structure | ToolWindow::Modules | ToolWindow::Database => {
+            ToolWindow::Project | ToolWindow::Commit | ToolWindow::Structure | ToolWindow::Modules | ToolWindow::Database | ToolWindow::Laravel => {
                 if tool == ToolWindow::Database {
                     self.ensure_db(cx);
+                }
+                if tool == ToolWindow::Laravel {
+                    self.ensure_laravel_panel(cx);
                 }
                 if self.layout.is_active(tool) {
                     self.layout.hide(tool);
@@ -319,7 +327,7 @@ impl Workspace {
         let has_modules = crate::modules::has_modules(self.project.root());
         let buttons: Vec<AnyElement> = ToolWindow::ALL
             .iter()
-            .filter(|t| self.layout.side(**t) == side && (**t != ToolWindow::Modules || has_modules) && (**t != ToolWindow::Database || self.intel.is_laravel()))
+            .filter(|t| self.layout.side(**t) == side && (**t != ToolWindow::Modules || has_modules) && (!matches!(**t, ToolWindow::Database | ToolWindow::Laravel) || self.intel.is_laravel()))
             .map(|t| self.stripe_button(*t, cx))
             .collect();
         div()
@@ -404,13 +412,14 @@ impl Workspace {
             ToolWindow::Structure => self.render_structure(cx).into_any_element(),
             ToolWindow::Modules => self.render_modules(cx).into_any_element(),
             ToolWindow::Database => self.render_database(cx).into_any_element(),
+            ToolWindow::Laravel => self.render_laravel_panel(cx).into_any_element(),
             ToolWindow::Commit => self.render_commit_panel(cx).into_any_element(),
             ToolWindow::Ai => self.render_agent_panel(cx)?.into_any_element(),
             ToolWindow::Terminal => self.render_terminal_panel(cx)?.into_any_element(),
             ToolWindow::Git => self.render_git_log(cx)?.into_any_element(),
         };
         // Terminal and Git draw their own tab bars.
-        let own_header = matches!(tool, ToolWindow::Terminal | ToolWindow::Git);
+        let own_header = matches!(tool, ToolWindow::Terminal | ToolWindow::Git | ToolWindow::Laravel);
         let header = (!own_header).then(|| {
             div()
                 .flex()

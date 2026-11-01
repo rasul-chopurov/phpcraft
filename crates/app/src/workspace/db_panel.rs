@@ -77,6 +77,10 @@ fn save_password(root: &std::path::Path, id: &str, password: &str) {
 }
 
 impl Workspace {
+    pub(super) fn db_is_empty(&self) -> bool {
+        self.db.sources.is_empty()
+    }
+
     pub(super) fn ensure_db(&mut self, cx: &mut Context<Self>) {
         if self.db.console.is_some() {
             return;
@@ -155,7 +159,7 @@ impl Workspace {
     }
 
     /// "Add Application Database": the Laravel default connection.
-    fn add_application_database(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn add_application_database(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.db.add_menu = false;
         self.db.status = Some("Reading the Laravel database config…".into());
         let root = self.project.root().to_path_buf();

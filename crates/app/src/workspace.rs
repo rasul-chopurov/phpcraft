@@ -6,6 +6,7 @@ mod layout;
 mod context_menu;
 mod agent_panel;
 mod db_panel;
+mod laravel_panel;
 mod panes;
 mod git_window;
 pub use git_panel::ShowCommit;
@@ -50,6 +51,7 @@ pub struct Workspace {
     terminals: terminal_panel::TerminalState,
     agent: agent_panel::AgentState,
     db: db_panel::DbState,
+    laravel: laravel_panel::LaravelState,
     /// Split editor panes; the focused one's tabs live in `tabs`/`active`.
     panes: Vec<Option<panes::Pane>>,
     focused_pane: usize,
@@ -121,6 +123,7 @@ impl Workspace {
             terminals: Default::default(),
             agent: Default::default(),
             db: Default::default(),
+            laravel: Default::default(),
             panes: vec![None],
             focused_pane: 0,
             output: None,

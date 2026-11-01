@@ -90,6 +90,31 @@ impl Workspace {
         Some(view)
     }
 
+    /// Run configurations started from the IDE: (tab, name, exit code if finished).
+    pub(super) fn run_processes(&self, cx: &gpui::App) -> Vec<(usize, String, Option<i32>)> {
+        self.terminals
+            .tabs
+            .iter()
+            .enumerate()
+            .filter_map(|(ix, t)| t.run.as_ref().map(|r| (ix, r.name.clone(), t.view.read(cx).exit_code)))
+            .collect()
+    }
+
+    pub(super) fn show_terminal_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.terminals.active = ix.min(self.terminals.tabs.len().saturating_sub(1));
+        self.layout.show(super::layout::ToolWindow::Terminal);
+        if let Some(view) = self.active_terminal() {
+            window.focus(&view.focus_handle(cx));
+        }
+        cx.notify();
+    }
+
+    pub(super) fn stop_terminal_tab(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if let Some(tab) = self.terminals.tabs.get(ix) {
+            tab.view.read(cx).interrupt();
+        }
+    }
+
     fn active_terminal(&self) -> Option<&Entity<TerminalView>> {
         self.terminals.tabs.get(self.terminals.active).map(|t| &t.view)
     }
