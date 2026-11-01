@@ -19,6 +19,8 @@ pub struct Intel {
     framework: RwLock<laravel::framework::FrameworkProvider>,
     ready: AtomicBool,
     repo: Option<git::Repo>,
+    /// Routes read from routes/*.php, with the files' modification stamp they were read at.
+    routes: std::sync::Mutex<Option<(u128, Arc<Vec<laravel::route_refs::RouteRef>>)>>,
 }
 
 /// PHP's built-in functions, asked from the `php` binary once (in the background: until then,
@@ -60,6 +62,7 @@ impl Intel {
             framework: RwLock::new(Default::default()),
             ready: AtomicBool::new(false),
             repo: git::Repo::discover(root),
+            routes: Default::default(),
         })
     }
 
@@ -231,6 +234,64 @@ impl Intel {
         let index = self.index.read().unwrap();
         let doc = Document::parse(path, source)?;
         Some(f(&doc, &index))
+    }
+
+    /// Routes from routes/*.php (re-read when those files change).
+    fn route_refs(&self) -> Arc<Vec<laravel::route_refs::RouteRef>> {
+        let root = self.laravel_root().unwrap_or_else(|| self.root.clone());
+        let mut files = Vec::new();
+        let mut stack = vec![root.join("routes")];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() { stack.push(path) } else { files.push(path) }
+            }
+        }
+        let stamp: u128 = files
+            .iter()
+            .filter_map(|f| f.metadata().ok()?.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+            .sum::<u128>()
+            + files.len() as u128;
+        let mut cache = self.routes.lock().unwrap();
+        match cache.as_ref() {
+            Some((s, routes)) if *s == stamp => routes.clone(),
+            _ => {
+                let routes = Arc::new(laravel::route_refs::route_refs(&root));
+                *cache = Some((stamp, routes.clone()));
+                routes
+            }
+        }
+    }
+
+    /// Lines of `source` (classes and methods) that routes dispatch to, with each route's
+    /// label and location: the controller gutter marks.
+    pub fn route_marks(&self, path: &Path, source: &str) -> Vec<(usize, Vec<(String, Location)>)> {
+        if !self.is_laravel() {
+            return Vec::new();
+        }
+        let routes = self.route_refs();
+        let Some(doc) = Document::parse(path, source) else { return Vec::new() };
+        let mut marks = Vec::new();
+        for class in &doc.symbols.classes {
+            let ours: Vec<&laravel::route_refs::RouteRef> = routes.iter().filter(|r| r.controller.eq_ignore_ascii_case(&class.fqn)).collect();
+            if ours.is_empty() {
+                continue;
+            }
+            let label = |r: &laravel::route_refs::RouteRef| format!("{} {}{}", r.verb, r.uri, r.name.as_ref().map(|n| format!("  ({n})")).unwrap_or_default());
+            let line_of = |byte: usize| source[..byte.min(source.len())].matches('\n').count();
+            let class_routes: Vec<(String, Location)> = ours.iter().filter(|r| r.method.is_none() || r.method.as_deref() == Some("__invoke")).map(|r| (label(r), r.location.clone())).collect();
+            if !class_routes.is_empty() {
+                marks.push((line_of(class.range.start), class_routes));
+            }
+            for member in class.members.iter().filter(|m| m.kind == php_index::MemberKind::Method) {
+                let found: Vec<(String, Location)> = ours.iter().filter(|r| r.method.as_deref().is_some_and(|m| m.eq_ignore_ascii_case(&member.name))).map(|r| (label(r), r.location.clone())).collect();
+                if !found.is_empty() {
+                    marks.push((line_of(member.range.start), found));
+                }
+            }
+        }
+        marks
     }
 
     /// The symbol under `offset`, for Find Usages.

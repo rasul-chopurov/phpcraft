@@ -16,6 +16,7 @@ pub mod frontend;
 pub mod helper;
 pub mod make;
 pub mod routes;
+pub mod route_refs;
 pub mod settings;
 
 use std::fs;

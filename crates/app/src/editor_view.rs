@@ -212,6 +212,8 @@ pub struct EditorView {
     test_marks: Option<(u64, Vec<usize>)>,
     /// Methods with ↑ / ↓ inheritance marks, for a buffer version.
     inheritance: Option<(u64, Vec<(usize, usize, bool, bool)>)>,
+    /// Controller lines with ⇄ route marks, for a buffer version.
+    routes: Option<(u64, Vec<(usize, Vec<(String, php_index::Location)>)>)>,
     /// Breakpoints in this file: (line anchor, condition).
     breakpoints: Vec<(usize, Option<String>)>,
     /// Where the debugger is stopped in this file (0-based line).
@@ -250,6 +252,7 @@ impl EditorView {
             external_problems: None,
             test_marks: None,
             inheritance: None,
+            routes: None,
             breakpoints: Vec::new(),
             execution_line: None,
             buffer,
@@ -565,7 +568,9 @@ impl EditorView {
         }
         let (_, Some((row, ..))) = self.row_at(position)? else { return None };
         let line = row.line;
-        let marked = self.test_marks.as_ref().is_some_and(|(_, l)| l.contains(&line)) || self.inheritance.as_ref().is_some_and(|(_, l)| l.iter().any(|(m, ..)| *m == line));
+        let marked = self.test_marks.as_ref().is_some_and(|(_, l)| l.contains(&line))
+            || self.inheritance.as_ref().is_some_and(|(_, l)| l.iter().any(|(m, ..)| *m == line))
+            || self.routes.as_ref().is_some_and(|(_, l)| l.iter().any(|(m, _)| *m == line));
         (row.first && marked).then_some(line)
     }
 
@@ -576,7 +581,9 @@ impl EditorView {
     /// A click on a line number (toggles a breakpoint): its buffer line.
     fn line_number_at(&self, position: Point<Pixels>) -> Option<usize> {
         let layout = self.layout.as_ref()?;
-        let has_marks = self.test_marks.as_ref().is_some_and(|(_, l)| !l.is_empty()) || self.inheritance.as_ref().is_some_and(|(_, l)| !l.is_empty());
+        let has_marks = self.test_marks.as_ref().is_some_and(|(_, l)| !l.is_empty())
+            || self.inheritance.as_ref().is_some_and(|(_, l)| !l.is_empty())
+            || self.routes.as_ref().is_some_and(|(_, l)| !l.is_empty());
         let numbers_start = layout.bounds.left() + self.blame_offset() + if has_marks { px(RUN_MARK_WIDTH + GUTTER_PADDING) } else { px(GUTTER_PADDING / 2.) };
         if self.plain || !self.buffer.is_php() || position.x < numbers_start || position.x >= layout.fold_x {
             return None;
@@ -649,7 +656,7 @@ impl EditorView {
             return;
         }
         if let Some(line) = self.run_mark_at(event.position) {
-            if !self.follow_inheritance(line, window, cx) {
+            if !self.follow_route(line, window, cx) && !self.follow_inheritance(line, window, cx) {
                 self.run_test_on_line(line, cx);
             }
             cx.stop_propagation();
@@ -1286,7 +1293,8 @@ impl Element for EditorElement {
             let fold_width = if view.plain { px(0.) } else { digit_width * 1.8 };
             // A column for ▶ run marks in test files.
             let inheritance = if view.plain { Vec::new() } else { view.inheritance_lines() };
-            let has_tests = !view.plain && (!view.test_lines().is_empty() || !inheritance.is_empty());
+            let route_lines: Vec<usize> = if view.plain { Vec::new() } else { view.route_lines().into_iter().map(|(l, _)| l).collect() };
+            let has_tests = !view.plain && (!view.test_lines().is_empty() || !inheritance.is_empty() || !route_lines.is_empty());
             let run_width = if has_tests { px(RUN_MARK_WIDTH) } else { px(0.) };
             let gutter_width = if view.plain { px(0.) } else { blame_width + run_width + digit_width * digits as f32 + fold_width + px(GUTTER_PADDING * 2.) };
             let markers = view.git_markers();
@@ -1559,6 +1567,11 @@ impl Element for EditorElement {
                         let x = bounds.left() + gutter_width - fold_width - px(GUTTER_PADDING) - digit_width * digits as f32 + px(2.);
                         gutter_quads.push(gpui::PaintQuad { corner_radii: gpui::Corners::all(d / 2.), ..fill(Bounds::new(point(x, y + (line_height - d) / 2.), size(d, d)), theme::error()) });
                     }
+                    // ⇄ a route leads here (takes the column before ↑ / ↓).
+                    if route_lines.contains(&line) {
+                        let mark = window.text_system().shape_line("⇄".into(), px(theme::editor_font_size() - 2.), &[run("⇄".len(), theme::syntax(php_syntax::Highlight::Function))], None);
+                        fold_marks.push((mark, point(bounds.left() + blame_width + px(GUTTER_PADDING), y)));
+                    } else
                     // ↑ overrides, ↓ is overridden (↕ both); same column as ▶.
                     if let Some((_, _, up, down)) = inheritance.iter().find(|(l, ..)| *l == line) {
                         let label: SharedString = match (up, down) {

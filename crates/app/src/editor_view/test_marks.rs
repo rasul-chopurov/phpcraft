@@ -1,8 +1,10 @@
 //! Gutter marks left of the line numbers: ▶ in test files runs that test (or the class);
-//! ↑ / ↓ on methods that override or are overridden jump through the hierarchy.
+//! ↑ / ↓ on methods that override or are overridden jump through the hierarchy; ⇄ on
+//! controller methods and classes opens the route that leads there.
 
 use gpui::{Context, Window};
 
+use super::intel_ui::{MenuAction, MenuItem};
 use super::{EditorView, GoToImplementation, GoToSuperMethod};
 
 impl EditorView {
@@ -62,6 +64,32 @@ impl EditorView {
             self.go_to_super_method(&GoToSuperMethod, window, cx);
         } else {
             self.go_to_implementation(&GoToImplementation, window, cx);
+        }
+        true
+    }
+
+    /// Lines with a ⇄ route mark, cached per buffer version.
+    pub(super) fn route_lines(&mut self) -> Vec<(usize, Vec<(String, php_index::Location)>)> {
+        let version = self.buffer.version();
+        if self.routes.as_ref().is_none_or(|(v, _)| *v != version) {
+            let marks = match self.path() {
+                Some(path) if self.buffer.is_php() && !self.plain => self.intel.route_marks(&path, &self.buffer.text()),
+                _ => Vec::new(),
+            };
+            self.routes = Some((version, marks));
+        }
+        self.routes.as_ref().map(|(_, m)| m.clone()).unwrap_or_default()
+    }
+
+    /// A click on ⇄: the route (or a menu of them).
+    pub(super) fn follow_route(&mut self, line: usize, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some((_, routes)) = self.route_lines().into_iter().find(|(l, _)| *l == line) else { return false };
+        if routes.len() == 1 {
+            let location = routes.into_iter().next().unwrap().1;
+            self.navigate(location, window, cx);
+        } else {
+            let items = routes.into_iter().map(|(label, loc)| MenuItem::new(label, "", "⇄", MenuAction::Navigate(loc))).collect();
+            self.show_menu(items, false, cx);
         }
         true
     }
