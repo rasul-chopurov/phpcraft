@@ -60,6 +60,8 @@
 - Middleware aliases (from `bootstrap/app.php` / `Kernel.php`), Gate abilities and policy methods
 - Filament: model columns and relations in `TextInput::make('…')`, `TextColumn::make('…')`, `->relationship('…')`
 - Blade directives after `@`, model columns in `where('…')`/`orderBy('…')`, Inertia pages
+- PhpStorm-style lookup: CamelHump matching (`gGSEQ`), ranking by match, scope and usage
+- Markup: Tailwind classes (with `hover:`/`md:` variants), Alpine.js and Livewire (`wire:*`, `<livewire:…>`) attributes, Vue directives
 
 **Editor & workspace**
 - Find/replace (⌘F/⌘R), Find/Replace in Files (⇧⌘F/⇧⌘R), Search Everywhere (⇧⇧), Go to File/Class/Symbol
@@ -67,7 +69,11 @@
 - Markdown preview: editor, split or preview (⌥⌘M)
 - Project switcher in the title bar: Open…, Clone Repository…, recent projects, each in its own window
 - Local History (⌥⇧H): the last 10 versions of every file, with diff and revert
-- Auto save, JSON themes (⌘K ⌘T), editable keymap (⌘K ⌘S), settings (⌘,)
+- Tool window stripes with tooltips: drag Project, Structure, Commit, Database, AI, Terminal or Git to any edge; resize any panel
+- Structure (⌘7), breadcrumb of the caret's class and method, right-click menus with New ▸ templates (PHP class, Blade, Livewire, Vue, tests…)
+- Database: the Laravel connection's tables and columns, a SQL console (⌘↵) and a result grid — any driver Laravel supports
+- Modules (nwidart/laravel-modules): list with enable/disable
+- Native menu bar, auto save, JSON themes (⌘K ⌘T), editable keymap (⌘K ⌘S), settings (⌘,)
 - macOS, Windows and Linux
 
 **Git**
@@ -97,6 +103,12 @@
 
 **Artisan**
 - ⌃⇧X: searchable command list; each command opens a small form for its arguments and options; output panel
+
+## Install
+
+Download the macOS `.dmg`, the Windows `Setup.exe` or the Linux tarball from
+[Releases](https://github.com/rasul-chopurov/phpcraft/releases). To build them yourself:
+`./script/bundle-macos.sh` (app + dmg) or the **Release** GitHub workflow (all three).
 
 ## Quick start
 
