@@ -26,6 +26,7 @@ pub enum NavMode {
     Files,
     Symbols,
     Actions,
+    Text,
     Recent,
     UnusedViews,
     Tables,
@@ -37,12 +38,13 @@ impl NavMode {
         matches!(self, Self::Recent | Self::UnusedViews | Self::Tables)
     }
 
-    const TABS: [NavMode; 5] = [
+    const TABS: [NavMode; 6] = [
         Self::All,
         Self::Classes,
         Self::Files,
         Self::Symbols,
         Self::Actions,
+        Self::Text,
     ];
 
     fn label(self) -> &'static str {
@@ -52,6 +54,7 @@ impl NavMode {
             Self::Files => "Files",
             Self::Symbols => "Symbols",
             Self::Actions => "Actions",
+            Self::Text => "Text",
             Self::Recent => "Recent Files",
             Self::UnusedViews => "Unused Views",
             Self::Tables => "Database Tables",
@@ -114,6 +117,14 @@ pub fn file_items(root: &Path, files: &[PathBuf]) -> Vec<NavItem> {
 }
 
 pub struct NavigateDialog {
+    root: std::path::PathBuf,
+    /// Also search vendor/ (PhpStorm's "Include non-project items").
+    include_vendor: bool,
+    /// Full-text matches for the Text tab, for the query they were computed for.
+    text_results: (String, Arc<Vec<NavItem>>),
+    text_task: Option<gpui::Task<()>>,
+    /// Cached file contents for the preview.
+    preview_cache: std::cell::RefCell<Option<(std::path::PathBuf, Arc<String>)>>,
     mode: NavMode,
     query: Entity<TextField>,
     sources: NavSources,
@@ -141,6 +152,9 @@ impl NavigateDialog {
         let query = cx.new(|cx| TextField::new("Type to search", cx));
         let subscription = cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
             this.selected = 0;
+            if this.mode == NavMode::Text {
+                this.search_text(cx);
+            }
             cx.notify();
         });
         window.focus(&query.focus_handle(cx));
@@ -163,6 +177,11 @@ impl NavigateDialog {
             .detach();
         }
         Self {
+            root: root.to_path_buf(),
+            include_vendor: false,
+            text_results: (String::new(), Arc::new(Vec::new())),
+            text_task: None,
+            preview_cache: Default::default(),
             mode,
             query,
             sources,
@@ -170,6 +189,87 @@ impl NavigateDialog {
             focus_handle: cx.focus_handle(),
             _subscription: subscription,
         }
+    }
+
+    /// Full-text search for the Text tab, in the background (newer queries replace it).
+    fn search_text(&mut self, cx: &mut Context<Self>) {
+        let query = self.query.read(cx).text().to_string();
+        if query.trim().len() < 2 {
+            self.text_results = (query, Arc::new(Vec::new()));
+            self.text_task = None;
+            return;
+        }
+        let root = self.root.clone();
+        let include_vendor = self.include_vendor;
+        self.text_task = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(150)).await;
+            let q = query.clone();
+            let items = cx
+                .background_executor()
+                .spawn(async move {
+                    let options = search::FileSearch { mask: String::new(), include_vendor, max_results: 200 };
+                    search::search_files(&root, &search::TextQuery::new(q), &options)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|m| {
+                            let rel = m.path.strip_prefix(&root).unwrap_or(&m.path).display().to_string();
+                            NavItem {
+                                label: m.text.trim().chars().take(120).collect(),
+                                detail: format!("{rel}:{}", m.line + 1),
+                                icon: "≡",
+                                target: NavTarget::Location(Location { path: m.path.clone(), range: m.offset..m.offset }),
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.text_results = (query, Arc::new(items));
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    fn set_include_vendor(&mut self, include: bool, cx: &mut Context<Self>) {
+        self.include_vendor = include;
+        // Reload the file list with or without vendor/.
+        let root = self.root.clone();
+        self.sources.files = None;
+        cx.spawn(async move |this, cx| {
+            let listed_root = root.clone();
+            let files = cx.background_executor().spawn(async move { search::list_files(&listed_root, include) }).await;
+            let files = Arc::new(file_items(&root, &files));
+            this.update(cx, |this, cx| {
+                this.sources.files = Some(files);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        if self.mode == NavMode::Text {
+            self.search_text(cx);
+        }
+        cx.notify();
+    }
+
+    /// Lines around the selected location, for the preview pane.
+    fn preview(&self, item: &NavItem) -> Option<(std::path::PathBuf, usize, Vec<String>)> {
+        let NavTarget::Location(location) = &item.target else { return None };
+        let cached = self.preview_cache.borrow().as_ref().filter(|(p, _)| *p == location.path).map(|(_, t)| t.clone());
+        let text = match cached {
+            Some(text) => text,
+            None => {
+                let text = Arc::new(std::fs::read_to_string(&location.path).ok()?);
+                *self.preview_cache.borrow_mut() = Some((location.path.clone(), text.clone()));
+                text
+            }
+        };
+        let start = location.range.start.min(text.len());
+        let line = text[..start].matches('\n').count();
+        let first = line.saturating_sub(4);
+        let lines = text.lines().skip(first).take(12).map(|l| l.replace('\t', "    ")).collect();
+        Some((location.path.clone(), line - first, lines))
     }
 
     fn ranked(items: &[NavItem], query: &str, limit: usize) -> Vec<(NavItem, Vec<usize>)> {
@@ -190,8 +290,14 @@ impl NavigateDialog {
         let query = self.query.read(cx).text().to_string();
         let empty = Arc::new(Vec::new());
         let files = self.sources.files.clone().unwrap_or(empty);
+        let include_vendor = self.include_vendor;
+        let in_project = |i: &&NavItem| {
+            include_vendor
+                || !matches!(&i.target, NavTarget::Location(l) if l.path.components().any(|c| c.as_os_str() == "vendor"))
+        };
         let section = |items: &[NavItem], limit| {
-            Self::ranked(items, &query, limit)
+            let items: Vec<NavItem> = items.iter().filter(in_project).cloned().collect();
+            Self::ranked(&items, &query, limit)
                 .into_iter()
                 .map(|(i, p)| Row::Item(i, p))
         };
@@ -200,6 +306,7 @@ impl NavigateDialog {
             NavMode::Files => section(&files, LIMIT).collect(),
             NavMode::Symbols => section(&self.sources.symbols, LIMIT).collect(),
             NavMode::Actions => section(&self.sources.actions, LIMIT).collect(),
+            NavMode::Text => self.text_results.1.iter().map(|i| Row::Item(i.clone(), Vec::new())).collect(),
             NavMode::Recent | NavMode::UnusedViews | NavMode::Tables => {
                 section(&self.sources.recent, 500).collect()
             }
@@ -240,6 +347,9 @@ impl NavigateDialog {
     fn set_mode(&mut self, mode: NavMode, cx: &mut Context<Self>) {
         self.mode = mode;
         self.selected = 0;
+        if mode == NavMode::Text {
+            self.search_text(cx);
+        }
         cx.notify();
     }
 
@@ -419,7 +529,9 @@ impl Render for NavigateDialog {
         }
         let loading =
             self.sources.files.is_none() && matches!(self.mode, NavMode::Files | NavMode::All);
-        card(760.)
+        let selected_item = self.items(cx).into_iter().nth(selected);
+        let preview = selected_item.as_ref().and_then(|item| self.preview(item));
+        card(900.)
             .key_context("ListDialog NavigateDialog")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::confirm))
@@ -439,7 +551,10 @@ impl Render for NavigateDialog {
                     .children(tabs)
                     .child(div().flex_1())
                     .when(!self.mode.is_single(), |d| {
-                        d.child(div().text_color(theme::muted()).child("Tab to switch"))
+                        let include = self.include_vendor;
+                        d.child(super::checkbox("nav-vendor", "Include non-project items", include).on_click(cx.listener(move |this, _, _, cx| {
+                            this.set_include_vendor(!include, cx);
+                        })))
                     }),
             )
             .child(div().p_2().child(self.query.clone()))
@@ -460,6 +575,38 @@ impl Render for NavigateDialog {
                     .text_size(px(12.))
                     .children(elements),
             )
+            .when_some(preview, |d, (path, current, lines)| {
+                // Code around the selected result, like PhpStorm's preview.
+                d.child(
+                    div()
+                        .border_t_1()
+                        .border_color(theme::border())
+                        .bg(theme::editor_bg())
+                        .py_1()
+                        .font_family(theme::editor_font())
+                        .text_size(px(12.))
+                        .children(lines.into_iter().enumerate().map(|(i, line)| {
+                            div()
+                                .px_3()
+                                .h(px(18.))
+                                .whitespace_nowrap()
+                                .overflow_hidden()
+                                .text_color(theme::text())
+                                .when(i == current, |d| d.bg(theme::active_row()))
+                                .child(SharedString::from(if line.is_empty() { " ".to_string() } else { line }))
+                        })),
+                )
+                .child(
+                    div()
+                        .px_3()
+                        .py_1()
+                        .border_t_1()
+                        .border_color(theme::border())
+                        .text_size(px(11.))
+                        .text_color(theme::muted())
+                        .child(path.display().to_string()),
+                )
+            })
     }
 }
 
