@@ -23,6 +23,7 @@ mod open_paths;
 mod modules;
 mod project_info;
 mod project_window;
+mod pull_requests;
 mod quality;
 mod run_configs;
 mod settings_import;
