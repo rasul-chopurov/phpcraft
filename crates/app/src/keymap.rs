@@ -128,6 +128,7 @@ const DEFAULTS: &[Default] = &[
     both("secondary-u", "editor::GoToSuperMethod", ED),
     both("secondary-shift-t", "editor::GoToTest", ED),
     both("ctrl-h", "editor::TypeHierarchy", ED),
+    both("ctrl-alt-h", "editor::CallHierarchy", ED),
     both("secondary-alt-v", "editor::IntroduceVariable", ED),
     both("secondary-alt-m", "editor::ExtractMethod", ED),
     both("secondary-alt-n", "editor::InlineVariable", ED),

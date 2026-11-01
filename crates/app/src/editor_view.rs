@@ -101,6 +101,7 @@ actions!(
         HighlightUsages,
         ClearUsageHighlights,
         RenameSymbol,
+        CallHierarchy,
         Generate,
         QuickDocumentation,
         ParameterInfo,
@@ -1124,6 +1125,7 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::highlight_usages))
             .on_action(cx.listener(Self::clear_usage_highlights))
             .on_action(cx.listener(Self::rename_symbol))
+            .on_action(cx.listener(Self::call_hierarchy))
             .on_action(cx.listener(Self::generate))
             .on_action(cx.listener(Self::quick_documentation))
             .on_action(cx.listener(Self::parameter_info))

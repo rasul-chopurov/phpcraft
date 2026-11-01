@@ -3,7 +3,7 @@
 
 use gpui::{Context, Window};
 
-use super::{ClearUsageHighlights, EditorView, FindUsages, HighlightUsages, RenameSymbol};
+use super::{CallHierarchy, ClearUsageHighlights, EditorView, FindUsages, HighlightUsages, RenameSymbol};
 
 impl EditorView {
     pub(super) fn find_usages(&mut self, _: &FindUsages, window: &mut Window, cx: &mut Context<Self>) {
@@ -55,5 +55,34 @@ impl EditorView {
         // Unsaved edits first, so offsets match the files on disk.
         self.save_now(cx);
         self.workspace.update(cx, |ws, cx| ws.start_rename(symbol, window, cx)).ok();
+    }
+
+    /// Navigate ▸ Call Hierarchy (⌃⌥H): who calls the method or function at the caret.
+    pub(super) fn call_hierarchy(&mut self, _: &CallHierarchy, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.path() else { return };
+        let text = self.buffer.text();
+        let Some(symbol) = self.intel.symbol_at(&path, &text, self.caret_byte()) else { return };
+        let open = if self.buffer.is_dirty() { vec![(path, text)] } else { Vec::new() };
+        let intel = self.intel.clone();
+        let workspace = self.workspace.clone();
+        cx.spawn_in(window, async move |_, cx| {
+            let callers = cx
+                .background_executor()
+                .spawn(async move {
+                    let declaration = symbol.declaration.clone();
+                    intel
+                        .find_usages(&symbol, &open)
+                        .into_iter()
+                        .filter(|l| !(l.path == declaration.path && l.range == declaration.range))
+                        .map(|l| {
+                            let caller = std::fs::read_to_string(&l.path).ok().and_then(|t| intel.caller_name(&l.path, &t, l.range.start)).unwrap_or_default();
+                            (caller, l)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            workspace.update_in(cx, |ws, window, cx| ws.show_callers(callers, window, cx)).ok();
+        })
+        .detach();
     }
 }

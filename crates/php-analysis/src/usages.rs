@@ -102,6 +102,24 @@ pub fn usages_in(doc: &Document, index: &Index, symbol: &Symbol) -> Vec<Range<us
     found
 }
 
+/// `Class::method`, `function` or `{main}` for the code at `offset` (Call Hierarchy rows).
+pub fn caller_name(doc: &Document, offset: usize) -> String {
+    let mut node = doc.tree.root_node().descendant_for_byte_range(offset, offset);
+    while let Some(n) = node {
+        if matches!(n.kind(), "method_declaration" | "function_definition")
+            && let Some(name) = n.child_by_field_name("name")
+        {
+            let name = doc.text(name);
+            return match doc.current_class(offset) {
+                Some(class) if n.kind() == "method_declaration" => format!("{}::{name}", class.rsplit('\\').next().unwrap_or(&class)),
+                _ => name.to_string(),
+            };
+        }
+        node = n.parent();
+    }
+    "{main}".into()
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -133,6 +151,8 @@ mod tests {
         assert_eq!(symbol.name, "add");
         assert_eq!(texts(A, &usages_in(&a, &index, &symbol)), ["add"]);
         assert_eq!(texts(B, &usages_in(&b, &index, &symbol)), ["add"]);
+        assert_eq!(caller_name(&b, B.find("->add").unwrap()), "checkout");
+        assert_eq!(caller_name(&a, A.find("$this->total").unwrap()), "Cart::add");
 
         // From a use of the property.
         let symbol = symbol_at(&b, &index, B.find("->total").unwrap() + 3).unwrap();

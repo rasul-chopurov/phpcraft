@@ -266,6 +266,11 @@ impl Intel {
         found
     }
 
+    /// The function or method containing `offset` (Call Hierarchy).
+    pub fn caller_name(&self, path: &Path, text: &str, offset: usize) -> Option<String> {
+        Document::parse(path, text).map(|doc| php_analysis::caller_name(&doc, offset))
+    }
+
     /// Usages of `symbol` in one file's text.
     pub fn find_usages_in(&self, symbol: &php_analysis::Symbol, path: &Path, text: &str) -> Vec<std::ops::Range<usize>> {
         let index = self.index.read().unwrap();

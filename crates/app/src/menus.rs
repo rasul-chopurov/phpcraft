@@ -140,6 +140,7 @@ pub fn set(cx: &mut App) {
                 Some(("Super Method", "editor::GoToSuperMethod")),
                 Some(("Test", "editor::GoToTest")),
                 Some(("Type Hierarchy", "editor::TypeHierarchy")),
+                Some(("Call Hierarchy", "editor::CallHierarchy")),
                 Some(("Matching Brace", "editor::GoToMatchingBrace")),
                 Some(("Back", "workspace::NavigateBack")),
                 None,

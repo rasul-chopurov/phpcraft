@@ -30,7 +30,7 @@ pub use inspect::{Builtins, Problem, Severity, inspect};
 pub use refactor::{extract_method, inline_variable, introduce_variable};
 pub use hierarchy::{InheritanceMark, inheritance_marks, implementations, related_tests, super_declaration, type_hierarchy};
 pub use generate::{generate_accessors, generate_constructor, generate_phpdoc, implement_methods, overridable_methods, override_method};
-pub use usages::{Symbol, symbol_at, usages_in};
+pub use usages::{Symbol, caller_name, symbol_at, usages_in};
 pub use imports::{
     TextEdit, Unresolved, class_insertion, import_edit, optimize_imports, unresolved_classes,
 };

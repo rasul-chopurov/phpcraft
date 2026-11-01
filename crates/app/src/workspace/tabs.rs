@@ -169,6 +169,21 @@ impl Workspace {
         self.open_list(crate::dialogs::NavMode::Usages, items, window, cx);
     }
 
+    /// Call Hierarchy results: one row per call, labelled with the calling function.
+    pub(crate) fn show_callers(&mut self, callers: Vec<(String, php_index::Location)>, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let items = callers
+            .into_iter()
+            .map(|(caller, location)| {
+                let text = std::fs::read_to_string(&location.path).unwrap_or_default();
+                let line = text[..location.range.start.min(text.len())].matches('\n').count() + 1;
+                let file = location.path.strip_prefix(&root).unwrap_or(&location.path).display().to_string();
+                crate::dialogs::NavItem { label: caller, detail: format!("{file}:{line}"), icon: "←", target: crate::dialogs::NavTarget::Location(location) }
+            })
+            .collect();
+        self.open_list(crate::dialogs::NavMode::Callers, items, window, cx);
+    }
+
     fn go_to_bookmark(&mut self, mnemonic: char, window: &mut Window, cx: &mut Context<Self>) {
         let Some(b) = crate::bookmarks::by_mnemonic(mnemonic) else { return };
         let Ok(text) = std::fs::read_to_string(&b.path) else { return };
