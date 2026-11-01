@@ -496,7 +496,27 @@ impl Workspace {
                         d.child(SharedString::from(self.index_status()))
                     }),
             )
-            .child(info)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(info)
+                    .child(
+                        div()
+                            .id("reindex")
+                            .px_1()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
+                            .child("⟳ Reindex")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                // Rebuild the code index and the cached file list.
+                                this.files_cache = None;
+                                this.rescan(cx);
+                            })),
+                    ),
+            )
     }
 }
 
