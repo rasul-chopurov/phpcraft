@@ -108,7 +108,7 @@ impl ProjectDialog {
                 self.clone = Some((url, dir));
                 cx.notify();
             }
-            Some(Row::Project(path, false)) => cx.emit(DialogEvent::OpenProject(path, super::OpenMode::Replace)),
+            Some(Row::Project(path, false)) => cx.emit(DialogEvent::OpenProject(path, super::OpenMode::from_settings())),
             Some(Row::Project(_, true)) => cx.emit(DialogEvent::Dismiss),
             _ => {}
         }

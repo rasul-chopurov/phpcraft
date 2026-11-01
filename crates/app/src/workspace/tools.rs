@@ -496,11 +496,21 @@ impl Workspace {
     fn pick_project_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.dismiss_modal(window, cx);
         let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: false, directories: true, multiple: false, prompt: None });
-        cx.spawn(async move |_, cx| {
+        cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = paths.await
                 && let Some(path) = paths.into_iter().next()
             {
-                let _ = cx.update(|cx| crate::open_project_window(&path, cx));
+                // Settings ▸ System ▸ "Open projects in".
+                let _ = this.update(cx, |this, cx| match crate::dialogs::OpenMode::from_settings() {
+                    crate::dialogs::OpenMode::NewWindow => {
+                        let _ = crate::open_project_window(&path, cx);
+                    }
+                    crate::dialogs::OpenMode::NewTab => cx.emit(super::WorkspaceEvent::OpenTab(path)),
+                    crate::dialogs::OpenMode::Replace => {
+                        this.save_all(cx);
+                        cx.emit(super::WorkspaceEvent::Replace(path));
+                    }
+                });
             }
         })
         .detach();

@@ -104,6 +104,17 @@ pub enum OpenMode {
     NewWindow,
 }
 
+impl OpenMode {
+    /// Settings ▸ System ▸ "Open projects in".
+    pub fn from_settings() -> Self {
+        match crate::config::Settings::load_cached().open_project_in {
+            crate::config::OpenProjectIn::ThisWindow => OpenMode::Replace,
+            crate::config::OpenProjectIn::NewWindow => OpenMode::NewWindow,
+            crate::config::OpenProjectIn::NewTab => OpenMode::NewTab,
+        }
+    }
+}
+
 /// A one-line tooltip.
 pub struct TextTooltip(pub SharedString);
 

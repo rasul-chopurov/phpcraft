@@ -23,6 +23,15 @@ pub enum AutoSave {
     AfterDelay,
 }
 
+/// Where a project picked from the project list or File ▸ Open goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenProjectIn {
+    ThisWindow,
+    NewWindow,
+    NewTab,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -52,6 +61,7 @@ pub struct Settings {
     pub last_seen_version: String,
     /// AI inline completion (ghost text) in the editor.
     pub ai_inline_completion: bool,
+    pub open_project_in: OpenProjectIn,
 }
 
 impl Default for Settings {
@@ -72,6 +82,7 @@ impl Default for Settings {
             skipped_version: String::new(),
             last_seen_version: String::new(),
             ai_inline_completion: true,
+            open_project_in: OpenProjectIn::NewTab,
         }
     }
 }
@@ -114,6 +125,12 @@ impl Settings {
 }
 
 /// Recently opened project folders, newest first.
+/// Recent projects without touching the disk (checking ~/Desktop or ~/Documents can wait on a
+/// macOS privacy prompt).
+pub fn recent_projects_unchecked() -> Vec<PathBuf> {
+    fs::read_to_string(dir().join("recent_projects.json")).ok().and_then(|text| serde_json::from_str::<Vec<PathBuf>>(&text).ok()).unwrap_or_default()
+}
+
 pub fn recent_projects() -> Vec<PathBuf> {
     fs::read_to_string(dir().join("recent_projects.json"))
         .ok()
@@ -131,6 +148,24 @@ pub fn remember_project(root: &std::path::Path) {
     projects.truncate(20);
     let _ = fs::create_dir_all(dir());
     let _ = fs::write(dir().join("recent_projects.json"), serde_json::to_string_pretty(&projects).unwrap_or_default());
+}
+
+/// A named folder of projects in the Welcome window.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProjectGroup {
+    pub name: String,
+    pub projects: Vec<PathBuf>,
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
+pub fn project_groups() -> Vec<ProjectGroup> {
+    fs::read_to_string(dir().join("project_groups.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+pub fn save_project_groups(groups: &[ProjectGroup]) {
+    let _ = fs::create_dir_all(dir());
+    let _ = fs::write(dir().join("project_groups.json"), serde_json::to_string_pretty(groups).unwrap_or_default());
 }
 
 pub fn forget_project(root: &std::path::Path) {

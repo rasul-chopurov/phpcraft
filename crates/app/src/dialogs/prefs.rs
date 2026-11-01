@@ -443,7 +443,7 @@ impl Render for ThemeDialog {
 
 // --- Settings ----------------------------------------------------------------------------
 
-use crate::config::{AutoSave, Settings};
+use crate::config::{OpenProjectIn, AutoSave, Settings};
 
 /// Workspace settings: auto save, project tree behaviour, theme and editor font.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -614,7 +614,16 @@ impl SettingsDialog {
                         cx.notify();
                     }))
                 });
-                body.child(row("Auto save").child(div().flex().gap_1().children(auto_save)))
+                let places = [(OpenProjectIn::ThisWindow, "This window"), (OpenProjectIn::NewWindow, "New window"), (OpenProjectIn::NewTab, "New tab")];
+                let open_in = places.into_iter().map(|(place, text)| {
+                    option_chip(SharedString::from(format!("open-in-{text}")), text, s.open_project_in == place).on_click(cx.listener(move |this, _, _, cx| {
+                        this.settings.open_project_in = place;
+                        cx.notify();
+                    }))
+                });
+                body.child(row("Open projects in").child(div().flex().gap_1().children(open_in)))
+                    .child(row("Updates").child(toggle("check-updates", "Check for updates at startup", s.check_for_updates, |s| s.check_for_updates ^= true)))
+                    .child(row("Auto save").child(div().flex().gap_1().children(auto_save)))
                     .when(s.auto_save == AutoSave::AfterDelay, |d| d.child(row("Delay (ms)").child(div().w(px(120.)).child(self.delay.clone()))))
                     .child(
                         row("Project tree").child(

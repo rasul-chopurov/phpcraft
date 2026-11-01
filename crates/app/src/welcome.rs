@@ -59,6 +59,11 @@ pub struct Welcome {
     page: Page,
     query: Entity<TextField>,
     projects: Vec<(PathBuf, Option<String>)>,
+    groups: Vec<config::ProjectGroup>,
+    /// The project whose "move to group" menu is open.
+    group_menu: Option<PathBuf>,
+    /// Name field while creating a group.
+    new_group: Option<Entity<TextField>>,
     gear_open: bool,
     new_project: Option<NewProject>,
     /// `composer create-project` running for this folder.
@@ -97,6 +102,9 @@ impl Welcome {
             page: Page::Projects,
             query,
             projects: Vec::new(),
+            groups: config::project_groups(),
+            group_menu: None,
+            new_group: None,
             gear_open: false,
             new_project: None,
             creating: None,
@@ -113,6 +121,13 @@ impl Welcome {
     /// Lists recent projects in the background: touching folders like ~/Desktop can wait on
     /// a macOS privacy prompt, which must not keep the window from appearing.
     fn reload_projects(&mut self, cx: &mut Context<Self>) {
+        // Show the list at once; folders that are gone and git branches are filled in later.
+        let previous: std::collections::HashMap<PathBuf, Option<String>> = self.projects.drain(..).collect();
+        self.projects = config::recent_projects_unchecked().into_iter().map(|p| {
+            let branch = previous.get(&p).cloned().flatten();
+            (p, branch)
+        }).collect();
+        cx.notify();
         cx.spawn(async move |this, cx| {
             let projects = cx
                 .background_spawn(async move {
@@ -274,84 +289,224 @@ impl Welcome {
         cx.notify();
     }
 
+    fn save_groups(&mut self, cx: &mut Context<Self>) {
+        config::save_project_groups(&self.groups);
+        cx.notify();
+    }
+
+    /// Moves `path` into the group at `target` (or out of every group with `None`).
+    fn move_to_group(&mut self, path: &Path, target: Option<usize>, cx: &mut Context<Self>) {
+        for group in &mut self.groups {
+            group.projects.retain(|p| p != path);
+        }
+        if let Some(group) = target.and_then(|ix| self.groups.get_mut(ix)) {
+            group.projects.push(path.to_path_buf());
+        }
+        self.group_menu = None;
+        self.save_groups(cx);
+    }
+
+    fn start_new_group(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let field = cx.new(|cx| TextField::new("Group name, e.g. Clients", cx));
+        window.focus(&field.focus_handle(cx));
+        self.new_group = Some(field);
+        cx.notify();
+    }
+
+    fn create_group(&mut self, cx: &mut Context<Self>) {
+        let Some(field) = self.new_group.take() else { return };
+        let name = field.read(cx).text().trim().to_string();
+        if !name.is_empty() && !self.groups.iter().any(|g| g.name == name) {
+            self.groups.push(config::ProjectGroup { name, ..Default::default() });
+            // A project whose menu was open goes straight into the new group.
+            if let Some(path) = self.group_menu.clone() {
+                let ix = self.groups.len() - 1;
+                self.move_to_group(&path, Some(ix), cx);
+            }
+        }
+        self.save_groups(cx);
+    }
+
+    fn project_row(&self, ix: usize, path: &Path, branch: Option<&String>, indent: bool, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let name = project_name(path);
+        let open_path = path.to_path_buf();
+        let forget = path.to_path_buf();
+        let menu_path = path.to_path_buf();
+        let menu_open = self.group_menu.as_deref() == Some(path);
+        let hover_icon = |id: (&'static str, usize), glyph: crate::icons::Icon, tip: &'static str| {
+            div()
+                .id(id)
+                .invisible()
+                .group_hover("project-row", |d| d.visible())
+                .p_1()
+                .rounded_sm()
+                .hover(|d| d.bg(theme::hover()))
+                .child(crate::icons::icon(glyph, 14., theme::muted()))
+                .tooltip(move |_, cx| cx.new(|_| crate::dialogs::TextTooltip(tip.into())).into())
+        };
+        let row = div()
+            .id(("welcome-project", ix))
+            .group("project-row")
+            .flex()
+            .items_center()
+            .gap_3()
+            .when(indent, |d| d.ml_5())
+            .px_3()
+            .py_2()
+            .rounded_md()
+            .cursor_pointer()
+            .hover(|d| d.bg(theme::hover()))
+            .child(avatar(&name, 30.))
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .child(div().text_size(px(14.)).text_color(theme::ui_text()).child(SharedString::from(name)))
+                    .child(div().text_size(px(12.)).text_color(theme::muted()).child(tilde(path)))
+                    .when_some(branch.cloned(), |d, b| d.child(div().text_size(px(12.)).text_color(theme::muted()).child(format!("⎇ {b}")))),
+            )
+            .child(hover_icon(("welcome-group", ix), crate::icons::Icon::folder, "Move to Group").on_click(cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.group_menu = if this.group_menu.as_ref() == Some(&menu_path) { None } else { Some(menu_path.clone()) };
+                cx.notify();
+            })))
+            .child({
+                let new_window = path.to_path_buf();
+                hover_icon(("welcome-new-window", ix), crate::icons::Icon::split, "Open in New Window").on_click(cx.listener(move |this, _, _, cx| {
+                    // Keep the welcome window open for more projects.
+                    cx.stop_propagation();
+                    if let Err(err) = crate::open_project_window(&new_window, cx) {
+                        this.message = Some(err.to_string());
+                    }
+                    cx.notify();
+                }))
+            })
+            .child(hover_icon(("welcome-forget", ix), crate::icons::Icon::close, "Remove from Recent").on_click(cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                config::forget_project(&forget);
+                this.reload_projects(cx);
+                cx.notify();
+            })))
+            .on_click(cx.listener(move |this, _, window, cx| this.open_project(&open_path, window, cx)));
+        if !menu_open {
+            return row.into_any_element();
+        }
+        let path = path.to_path_buf();
+        let in_group = self.groups.iter().any(|g| g.projects.contains(&path));
+        let chip = |id: SharedString, label: String| {
+            div().id(id).px_2().py_0p5().rounded_md().cursor_pointer().border_1().border_color(theme::border()).text_size(px(12.)).hover(|d| d.bg(theme::hover())).child(label)
+        };
+        let mut menu = div().flex().flex_wrap().items_center().gap_1().ml_12().mb_2().child(div().text_size(px(12.)).text_color(theme::muted()).child("Move to:"));
+        for (gix, group) in self.groups.iter().enumerate() {
+            let p = path.clone();
+            menu = menu.child(chip(SharedString::from(format!("move-{ix}-{gix}")), group.name.clone()).on_click(cx.listener(move |this, _, _, cx| this.move_to_group(&p, Some(gix), cx))));
+        }
+        if in_group {
+            let p = path.clone();
+            menu = menu.child(chip(SharedString::from(format!("move-{ix}-none")), "No group".into()).on_click(cx.listener(move |this, _, _, cx| this.move_to_group(&p, None, cx))));
+        }
+        menu = menu.child(chip(SharedString::from(format!("move-{ix}-new")), "+ New group".into()).on_click(cx.listener(|this, _, window, cx| this.start_new_group(window, cx))));
+        div().flex().flex_col().child(row).child(menu).into_any_element()
+    }
+
     fn render_projects(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let query = self.query.read(cx).text().to_ascii_lowercase();
-        let rows = self
-            .projects
-            .iter()
-            .filter(|(p, _)| query.is_empty() || p.to_string_lossy().to_ascii_lowercase().contains(&query))
-            .enumerate()
-            .map(|(ix, (path, branch))| {
-                let name = project_name(path);
-                let open_path = path.clone();
-                let forget = path.clone();
+        let matches = |p: &Path| query.is_empty() || p.to_string_lossy().to_ascii_lowercase().contains(&query);
+        let branch_of = |p: &Path| self.projects.iter().find(|(q, _)| q == p).and_then(|(_, b)| b.clone());
+        let known: std::collections::HashSet<&PathBuf> = self.projects.iter().map(|(p, _)| p).collect();
+        let mut children: Vec<gpui::AnyElement> = Vec::new();
+        let mut ix = 0;
+        if let Some(field) = &self.new_group {
+            children.push(
                 div()
-                    .id(("welcome-project", ix))
-                    .group("project-row")
                     .flex()
-                    .gap_3()
+                    .items_center()
+                    .gap_2()
                     .px_3()
                     .py_2()
+                    .key_context("NewGroup")
+                    .on_action(cx.listener(|this, _: &crate::dialogs::Confirm, _, cx| this.create_group(cx)))
+                    .on_action(cx.listener(|this, _: &crate::dialogs::Cancel, _, cx| {
+                        this.new_group = None;
+                        cx.notify();
+                    }))
+                    .child(crate::icons::icon(crate::icons::Icon::folder, 16., theme::accent()))
+                    .child(div().flex_1().flex().child(field.clone()))
+                    .child(crate::dialogs::button("group-create", "Create", true).on_click(cx.listener(|this, _, _, cx| this.create_group(cx))))
+                    .into_any_element(),
+            );
+        }
+        for (gix, group) in self.groups.iter().enumerate() {
+            let members: Vec<&PathBuf> = group.projects.iter().filter(|p| known.contains(p) && matches(p)).collect();
+            if !query.is_empty() && members.is_empty() {
+                continue;
+            }
+            let collapsed = group.collapsed && query.is_empty();
+            children.push(
+                div()
+                    .id(("welcome-group-row", gix))
+                    .group("group-row")
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_1p5()
                     .rounded_md()
                     .cursor_pointer()
                     .hover(|d| d.bg(theme::hover()))
-                    .child(avatar(&name, 30.))
+                    .child(crate::icons::icon(if collapsed { crate::icons::Icon::chevron_right } else { crate::icons::Icon::chevron_down }, 12., theme::muted()))
+                    .child(crate::icons::icon(if collapsed { crate::icons::Icon::folder } else { crate::icons::Icon::folder_open }, 16., theme::accent()))
+                    .child(div().text_color(theme::ui_text()).font_weight(gpui::FontWeight::SEMIBOLD).child(group.name.clone()))
+                    .child(div().text_size(px(12.)).text_color(theme::muted()).child(members.len().to_string()))
+                    .child(div().flex_1())
                     .child(
                         div()
-                            .flex_1()
-                            .flex()
-                            .flex_col()
-                            .child(div().text_size(px(14.)).text_color(theme::ui_text()).child(SharedString::from(name)))
-                            .child(div().text_size(px(12.)).text_color(theme::muted()).child(tilde(path)))
-                            .when_some(branch.clone(), |d, b| d.child(div().text_size(px(12.)).text_color(theme::muted()).child(format!("⎇ {b}")))),
-                    )
-                    .child({
-                        let new_window = path.clone();
-                        div()
-                            .id(("welcome-new-window", ix))
+                            .id(("welcome-group-delete", gix))
                             .invisible()
-                            .group_hover("project-row", |d| d.visible())
-                            .px_1()
+                            .group_hover("group-row", |d| d.visible())
+                            .p_1()
                             .rounded_sm()
-                            .text_color(theme::muted())
-                            .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
-                            .child("↗")
-                            .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip("Open in New Window".into())).into())
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                // Keep the welcome window open for more projects.
-                                cx.stop_propagation();
-                                if let Err(err) = crate::open_project_window(&new_window, cx) {
-                                    this.message = Some(err.to_string());
-                                }
-                                cx.notify();
-                            }))
-                    })
-                    .child(
-                        div()
-                            .id(("welcome-forget", ix))
-                            .invisible()
-                            .group_hover("project-row", |d| d.visible())
-                            .px_1()
-                            .text_color(theme::muted())
-                            .hover(|d| d.text_color(theme::ui_text()))
-                            .child("×")
+                            .hover(|d| d.bg(theme::hover()))
+                            .child(crate::icons::icon(crate::icons::Icon::close, 13., theme::muted()))
+                            .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip("Delete group (its projects stay in Recent)".into())).into())
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
-                                config::forget_project(&forget);
-                                this.reload_projects(cx);
-                                cx.notify();
+                                this.groups.remove(gix);
+                                this.save_groups(cx);
                             })),
                     )
-                    .on_click(cx.listener(move |this, _, window, cx| this.open_project(&open_path, window, cx)))
-            })
-            .collect::<Vec<_>>();
-        let empty = rows.is_empty();
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(group) = this.groups.get_mut(gix) {
+                            group.collapsed = !group.collapsed;
+                        }
+                        this.save_groups(cx);
+                    }))
+                    .into_any_element(),
+            );
+            if !collapsed {
+                for path in members {
+                    children.push(self.project_row(ix, path, branch_of(path).as_ref(), true, cx));
+                    ix += 1;
+                }
+            }
+        }
+        let grouped: std::collections::HashSet<&PathBuf> = self.groups.iter().flat_map(|g| g.projects.iter()).collect();
+        let loose: Vec<(PathBuf, Option<String>)> = self.projects.iter().filter(|(p, _)| !grouped.contains(p) && matches(p)).cloned().collect();
+        if !self.groups.is_empty() && !loose.is_empty() {
+            children.push(div().px_3().pt_3().pb_1().text_size(px(11.)).text_color(theme::muted()).child("RECENT").into_any_element());
+        }
+        let empty = self.projects.is_empty();
+        for (path, branch) in &loose {
+            children.push(self.project_row(ix, path, branch.as_ref(), false, cx));
+            ix += 1;
+        }
         div()
             .id("welcome-projects")
             .flex_1()
             .overflow_y_scroll()
             .px_2()
-            .children(rows)
+            .children(children)
             .when(empty, |d| d.child(div().p_6().text_color(theme::muted()).child("No recent projects. Open a folder or clone a repository.")))
     }
 
@@ -590,7 +745,11 @@ impl Render for Welcome {
                             .p_3()
                             .border_b_1()
                             .border_color(theme::border())
-                            .child(div().flex_1().child(self.query.clone()))
+                            .child(div().flex_1().flex().child(self.query.clone()))
+                            .child(button("w-new-group", "New Group", false).on_click(cx.listener(|this, _, window, cx| {
+                                this.group_menu = None;
+                                this.start_new_group(window, cx);
+                            })))
                             .child(button("w-new", "New Project", false).on_click(cx.listener(|this, _, window, cx| {
                                 let parent = dirs::home_dir().map(|h| h.join("Projects")).unwrap_or_default().display().to_string();
                                 let name = cx.new(|cx| TextField::new("example-app", cx));
