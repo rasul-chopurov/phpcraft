@@ -20,6 +20,7 @@ mod problems;
 mod tests_view;
 mod composer;
 mod debug_panel;
+mod services_panel;
 pub use git_panel::ShowCommit;
 pub(crate) use db_panel::RunSql;
 
@@ -84,6 +85,8 @@ pub struct Workspace {
     panes: Vec<Option<panes::Pane>>,
     /// Files of closed tabs, newest last (Reopen Closed Tab).
     closed_tabs: Vec<PathBuf>,
+    /// Docker containers, images and volumes (Services tool window).
+    services: services_panel::ServicesState,
     /// The Xdebug session, while listening.
     debug: Option<debug_panel::DebugState>,
     /// Results of the last test run (JUnit report).
@@ -170,6 +173,7 @@ impl Workspace {
             closed_tabs: Vec::new(),
             test_results: Vec::new(),
             debug: None,
+            services: Default::default(),
             pinned: Default::default(),
             focused_pane: 0,
             tables: Vec::new(),

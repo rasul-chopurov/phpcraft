@@ -6,6 +6,7 @@ mod breakpoints;
 mod config;
 mod debugger;
 mod dialogs;
+mod docker;
 mod deployment;
 mod diff_view;
 mod editor_view;

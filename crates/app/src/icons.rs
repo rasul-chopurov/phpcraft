@@ -46,6 +46,7 @@ icons! {
     settings = r#"<circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/>"#;
     play = r#"<path d="M7 4.5v15l12.5-7.5z"/>"#;
     stop = r#"<rect x="6" y="6" width="12" height="12" rx="1.5"/>"#;
+    container = r#"<path d="M3.5 7.5L12 3.5l8.5 4v9L12 20.5l-8.5-4z"/><path d="M3.5 7.5L12 11.5l8.5-4M12 11.5v9"/>"#;
     bug = r#"<rect x="7" y="8" width="10" height="12" rx="5"/><path d="M12 8v12M4 13h3M17 13h3M5 8l2.5 2M19 8l-2.5 2M5 19l2.5-2M19 19l-2.5-2M9 5l1.5 3M15 5l-1.5 3"/>"#;
     bookmark = r#"<path d="M6 3.5h12v17l-6-4-6 4z"/>"#;
     todo = r#"<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M8 12l3 3 5-6"/>"#;
