@@ -97,18 +97,12 @@ terminal, AI agents, settings sync and import (PhpStorm / VS Code / Zed).
 
 ## State at the last handoff (2026-11-01)
 
-- Published releases: **0.1.0-alpha**, **0.2.0-alpha**. A `v0.3.0-alpha` tag exists on GitHub
-  but its release build was cancelled (no release) — the user may delete the tag.
-- `Cargo.toml` version is `0.3.0-alpha`; **~20 local commits are not pushed**.
-- The user asked for **no intermediate builds**: finish the work, then one final release.
-  Open question to the user: final version number (recommended **0.4.0-alpha**; plain `0.1.0`
-  would sort below the published 0.2.0-alpha, so the in-app updater wouldn't offer it).
+- Releases: **0.1.0-alpha**, **0.2.0-alpha**, **0.4.0-alpha** (all the PhpStorm-port waves,
+  Pull Requests UI, spell checker). A `v0.3.0-alpha` tag exists on GitHub without a release
+  (its build was cancelled) — the user may delete it.
+- `Cargo.toml` version is `0.4.0-alpha`.
 
-### In progress / next steps (in this order)
-
-1. Final release (version per the user's answer), then push and deploy the site.
-
-### Known gaps / ideas after that
+### Next steps: known gaps / ideas
 
 JS/TS intelligence (goto/usages/completion for Vue/Inertia), Structural Search & Replace,
 three-pane merge window (conflicts are resolved in the editor today), coverage needs Xdebug or
