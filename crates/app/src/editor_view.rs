@@ -3,6 +3,7 @@
 mod find_bar;
 mod ghost;
 mod intel_ui;
+mod multicaret;
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -62,6 +63,13 @@ actions!(
         MoveLineUp,
         MoveLineDown,
         ToggleBlame,
+        AddNextOccurrence,
+        UnselectOccurrence,
+        SelectAllOccurrences,
+        CaretsAtLineEnds,
+        CloneCaretAbove,
+        CloneCaretBelow,
+        ClearCarets,
     ]
 );
 
@@ -86,6 +94,8 @@ pub struct EditorView {
     /// Scroll so the caret sits near the middle (after navigation).
     center_on_caret: bool,
     is_selecting: bool,
+    /// ⌥-drag: where the column selection started.
+    column_anchor: Option<usize>,
     marked_range: Option<Range<usize>>,
     layout: Option<LayoutInfo>,
     intel: Arc<Intel>,
@@ -142,6 +152,7 @@ impl EditorView {
             autoscroll: false,
             center_on_caret: false,
             is_selecting: false,
+            column_anchor: None,
             marked_range: None,
             layout: None,
             plain: false,
@@ -318,21 +329,24 @@ impl EditorView {
         self.buffer.redo();
         self.moved(cx);
     }
+    fn has_selected_text(&self) -> bool {
+        self.buffer.selections().iter().any(|s| !s.is_empty())
+    }
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.buffer.selection.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(self.buffer.selected_text()));
+        if self.has_selected_text() {
+            cx.write_to_clipboard(ClipboardItem::new_string(self.buffer.selections_text()));
         }
     }
     fn cut(&mut self, _: &Cut, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.buffer.selection.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(self.buffer.selected_text()));
+        if self.has_selected_text() {
+            cx.write_to_clipboard(ClipboardItem::new_string(self.buffer.selections_text()));
             self.buffer.insert("");
             self.changed(cx);
         }
     }
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.buffer.insert(&text);
+            self.buffer.paste(&text);
             self.changed(cx);
         }
     }
@@ -402,6 +416,18 @@ impl EditorView {
             return;
         }
         if let Some(ix) = self.char_for_position(event.position) {
+            // ⌥⇧-click adds a caret; ⌥-drag selects a column.
+            if event.modifiers.alt && event.click_count == 1 {
+                if event.modifiers.shift {
+                    self.buffer.add_selection(Selection::caret(ix));
+                } else {
+                    self.buffer.select_column(ix, ix);
+                    self.column_anchor = Some(ix);
+                }
+                cx.stop_propagation();
+                cx.notify();
+                return;
+            }
             match event.click_count {
                 // Triple click: the whole line.
                 n if n >= 3 => {
@@ -495,10 +521,18 @@ impl EditorView {
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
         self.is_selecting = false;
+        self.column_anchor = None;
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.update_hover_link(event.position, event.modifiers.platform, cx);
+        if let Some(anchor) = self.column_anchor
+            && let Some(ix) = self.char_for_position(event.position)
+        {
+            self.buffer.select_column(anchor, ix);
+            self.changed(cx);
+            return;
+        }
         if self.is_selecting
             && let Some(ix) = self.char_for_position(event.position)
         {
@@ -568,6 +602,13 @@ impl EntityInputHandler for EditorView {
             .map(|r| self.range_from_utf16(&r))
             .or(self.marked_range.take())
             .unwrap_or(self.buffer.selection.range());
+        // Typing with several carets goes to all of them.
+        if self.buffer.has_extra_carets() && range == self.buffer.selection.range() {
+            self.close_menu();
+            self.buffer.insert(new_text);
+            self.changed(cx);
+            return;
+        }
         // Like PhpStorm's lookup char filter: punctuation accepts the selected completion
         // (with its auto-import) before being typed, so `TextInput` + `::` imports the class.
         if range.is_empty() && self.commit_completion_with(new_text, cx) {
@@ -729,6 +770,9 @@ impl Render for EditorView {
         if self.buffer.path().is_some_and(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("sql"))) {
             key_context.add("SqlFile");
         }
+        if self.buffer.has_extra_carets() {
+            key_context.add("multicaret");
+        }
         if self.menu_open() {
             key_context.add("menu");
         } else if self.ghost().is_some() {
@@ -797,6 +841,13 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::move_line_up))
             .on_action(cx.listener(Self::move_line_down))
             .on_action(cx.listener(Self::toggle_blame))
+            .on_action(cx.listener(Self::add_next_occurrence))
+            .on_action(cx.listener(Self::unselect_occurrence))
+            .on_action(cx.listener(Self::select_all_occurrences))
+            .on_action(cx.listener(Self::carets_at_line_ends))
+            .on_action(cx.listener(Self::clone_caret_above))
+            .on_action(cx.listener(Self::clone_caret_below))
+            .on_action(cx.listener(Self::clear_carets))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -859,6 +910,7 @@ pub struct EditorPrepaint {
     selection: Vec<PaintQuad>,
     underlines: Vec<PaintQuad>,
     caret: Option<PaintQuad>,
+    extra_carets: Vec<PaintQuad>,
     gutter_quads: Vec<PaintQuad>,
     blame_lines: Vec<(ShapedLine, Pixels)>,
     plain: bool,
@@ -952,7 +1004,9 @@ impl Element for EditorElement {
             let line_count = (bounds.size.height / line_height).ceil() as usize + 1;
             let last_line = (first_line + line_count).min(view.buffer.len_lines());
             let offset_y = bounds.top() - (view.scroll_y - line_height * first_line as f32);
-            let selection = view.buffer.selection.range();
+            let selections: Vec<Range<usize>> = view.buffer.selections().iter().map(|s| s.range()).filter(|r| !r.is_empty()).collect();
+            let extra_carets: Vec<(usize, usize)> = view.buffer.extra.iter().map(|s| view.buffer.char_to_line_col(s.head)).collect();
+            let mut extra_caret_quads = Vec::new();
             let spans = view.buffer.highlights().to_vec();
             let problems: Vec<Range<usize>> = view
                 .current_diagnostics()
@@ -1015,10 +1069,7 @@ impl Element for EditorElement {
 
                 let line_char_start = view.buffer.line_to_char(line);
                 let line_char_end = line_char_start + text.chars().count();
-                if !selection.is_empty()
-                    && selection.start <= line_char_end
-                    && selection.end > line_char_start
-                {
+                for selection in selections.iter().filter(|r| r.start <= line_char_end && r.end > line_char_start) {
                     let start_col = selection.start.saturating_sub(line_char_start);
                     let end_col = selection.end.min(line_char_end) - line_char_start;
                     let x0 = shaped.x_for_index(byte_of_col(&text, start_col));
@@ -1033,6 +1084,10 @@ impl Element for EditorElement {
                         ),
                         theme::selection(),
                     ));
+                }
+                for (_, col) in extra_carets.iter().filter(|(l, _)| *l == line) {
+                    let x = shaped.x_for_index(byte_of_col(&text, *col));
+                    extra_caret_quads.push(fill(Bounds::new(point(text_x + x, y), size(px(2.), line_height)), theme::caret()));
                 }
                 if line == caret_line {
                     let x = shaped.x_for_index(byte_of_col(&text, caret_col));
@@ -1140,6 +1195,7 @@ impl Element for EditorElement {
                 selection: selection_quads,
                 underlines,
                 caret,
+                extra_carets: extra_caret_quads,
                 gutter_quads,
                 blame_lines,
                 plain: view.plain,
@@ -1206,10 +1262,10 @@ impl Element for EditorElement {
         if let Some((line, origin)) = prepaint.ghost.take() {
             line.paint(origin, line_height, window, cx).ok();
         }
-        if focus_handle.is_focused(window)
-            && let Some(caret) = prepaint.caret.take()
-        {
-            window.paint_quad(caret);
+        if focus_handle.is_focused(window) {
+            for caret in prepaint.caret.take().into_iter().chain(prepaint.extra_carets.drain(..)) {
+                window.paint_quad(caret);
+            }
         }
 
         let lines = std::mem::take(&mut prepaint.lines)

@@ -39,6 +39,9 @@ struct Edit {
     new: String,
     before: Selection,
     after: Selection,
+    /// Secondary carets before and after the edit.
+    extra_before: Vec<Selection>,
+    extra_after: Vec<Selection>,
     /// Edits sharing a group are undone together.
     group: u64,
 }
@@ -46,7 +49,10 @@ struct Edit {
 pub struct Buffer {
     rope: Rope,
     path: Option<PathBuf>,
+    /// The primary caret/selection.
     pub selection: Selection,
+    /// Secondary carets (multi-caret editing); typing, deleting and moving act on all of them.
+    pub extra: Vec<Selection>,
     goal_column: Option<usize>,
     undo: Vec<Edit>,
     redo: Vec<Edit>,
@@ -62,6 +68,7 @@ impl Buffer {
             rope: Rope::from_str(text),
             path: None,
             selection: Selection::default(),
+            extra: Vec::new(),
             goal_column: None,
             undo: Vec::new(),
             redo: Vec::new(),
@@ -189,6 +196,48 @@ impl Buffer {
         self.slice(self.selection.range())
     }
 
+    /// Every caret, primary first.
+    pub fn selections(&self) -> Vec<Selection> {
+        std::iter::once(self.selection).chain(self.extra.iter().copied()).collect()
+    }
+
+    pub fn has_extra_carets(&self) -> bool {
+        !self.extra.is_empty()
+    }
+
+    /// Drops the secondary carets (Escape).
+    pub fn clear_extra_carets(&mut self) {
+        self.extra.clear();
+    }
+
+    /// Adds a caret/selection; ones that coincide with an existing caret are merged.
+    pub fn add_selection(&mut self, selection: Selection) {
+        self.extra.push(selection);
+        self.normalize_selections();
+    }
+
+    /// The text of every selection in document order, joined by line breaks (copy).
+    pub fn selections_text(&self) -> String {
+        let mut ranges: Vec<Range<usize>> = self.selections().iter().map(Selection::range).collect();
+        ranges.sort_by_key(|r| r.start);
+        ranges.into_iter().map(|r| self.slice(r)).collect::<Vec<_>>().join("\n")
+    }
+
+    /// Removes secondary carets that overlap the primary one or each other.
+    fn normalize_selections(&mut self) {
+        let primary = self.selection.range();
+        let mut kept: Vec<Selection> = Vec::new();
+        for s in std::mem::take(&mut self.extra) {
+            let r = s.range();
+            let overlaps = |o: &Range<usize>| r == *o || (r.start < o.end && o.start < r.end);
+            if !overlaps(&primary) && !kept.iter().any(|k| overlaps(&k.range())) {
+                kept.push(s);
+            }
+        }
+        kept.sort_by_key(|s| s.range().start);
+        self.extra = kept;
+    }
+
     /// Language for highlighting, from the path (or `<?php` for unsaved buffers).
     pub fn lang(&self) -> php_syntax::Lang {
         match &self.path {
@@ -234,6 +283,8 @@ impl Buffer {
             new: text.to_string(),
             before,
             after: Selection::caret(caret),
+            extra_before: self.extra.clone(),
+            extra_after: Vec::new(),
             group,
         };
         self.apply(&edit, false);
@@ -267,19 +318,95 @@ impl Buffer {
         }
     }
 
+    /// Runs an edit at every caret as one undo step. `edit` sees the buffer before any change
+    /// and returns the char range to replace and its text (None leaves that caret alone);
+    /// each caret ends up after its inserted text.
+    pub fn edit_each(&mut self, mut edit: impl FnMut(&Self, Selection) -> Option<(Range<usize>, String)>) {
+        let selections = self.selections();
+        let mut planned: Vec<(usize, Selection, Option<(Range<usize>, String)>)> =
+            selections.iter().enumerate().map(|(ix, s)| (ix, *s, edit(self, *s))).collect();
+        planned.sort_by_key(|(_, s, e)| e.as_ref().map_or(s.range().start, |(r, _)| r.start));
+        // Drop edits that overlap an earlier one.
+        let mut last_end = 0;
+        for (_, _, e) in planned.iter_mut() {
+            if let Some((r, _)) = e {
+                if r.start < last_end {
+                    *e = None;
+                } else {
+                    last_end = r.end;
+                }
+            }
+        }
+        // Where each caret lands, accounting for the length change of the edits before it.
+        let mut shift: isize = 0;
+        let mut after = vec![Selection::default(); selections.len()];
+        for (ix, s, e) in &planned {
+            after[*ix] = match e {
+                Some((r, text)) => {
+                    let len = text.chars().count();
+                    let at = (r.start as isize + shift) as usize + len;
+                    shift += len as isize - r.len() as isize;
+                    Selection::caret(at)
+                }
+                None => Selection {
+                    anchor: (s.anchor as isize + shift).max(0) as usize,
+                    head: (s.head as isize + shift).max(0) as usize,
+                },
+            };
+        }
+        let edits: Vec<(Range<usize>, String)> = planned.into_iter().filter_map(|(_, _, e)| e).collect();
+        if edits.is_empty() {
+            return;
+        }
+        self.next_group += 1;
+        let group = self.next_group;
+        for (range, text) in edits.into_iter().rev() {
+            self.replace_in_group(range, &text, group);
+        }
+        self.selection = after[0];
+        self.extra = after[1..].to_vec();
+        self.normalize_selections();
+        if let Some(last) = self.undo.last_mut() {
+            last.after = self.selection;
+            last.extra_after = self.extra.clone();
+        }
+    }
+
     pub fn insert(&mut self, text: &str) {
-        self.replace(self.selection.range(), text);
+        if self.extra.is_empty() {
+            self.replace(self.selection.range(), text);
+        } else {
+            self.edit_each(|_, s| Some((s.range(), text.to_string())));
+        }
+    }
+
+    /// Pastes `text`; with one clipboard line per caret, each caret gets its own line.
+    pub fn paste(&mut self, text: &str) {
+        let lines: Vec<&str> = text.split('\n').collect();
+        if self.extra.is_empty() || lines.len() != self.extra.len() + 1 {
+            return self.insert(text);
+        }
+        // Lines go to carets in document order.
+        let mut order: Vec<Selection> = self.selections();
+        order.sort_by_key(|s| s.range().start);
+        self.edit_each(|_, s| {
+            let ix = order.iter().position(|o| *o == s)?;
+            Some((s.range(), lines[ix].to_string()))
+        });
     }
 
     pub fn newline(&mut self) {
-        let (line, _) = self.char_to_line_col(self.selection.range().start);
-        let current = self.line(line);
-        let mut indent: String = current.chars().take_while(|c| c.is_whitespace()).collect();
-        let before_caret = self.slice(self.line_to_char(line)..self.selection.range().start);
-        if before_caret.trim_end().ends_with(['{', '(', '[']) {
-            indent.push_str(INDENT);
-        }
-        self.insert(&format!("\n{indent}"));
+        self.edit_each(|b, s| {
+            let range = s.range();
+            let (line, _) = b.char_to_line_col(range.start);
+            let current = b.line(line);
+            let mut indent: String = current.chars().take_while(|c| c.is_whitespace()).collect();
+            let before_caret = b.slice(b.line_to_char(line)..range.start);
+            if before_caret.trim_end().ends_with(['{', '(', '[']) {
+                indent.push_str(INDENT);
+            }
+            Some((range, format!("\n{indent}")))
+        });
     }
 
     pub fn tab(&mut self) {
@@ -287,6 +414,12 @@ impl Buffer {
     }
 
     pub fn backspace(&mut self) {
+        if !self.extra.is_empty() {
+            return self.edit_each(|_, s| match s.is_empty() {
+                true => (s.head > 0).then(|| (s.head - 1..s.head, String::new())),
+                false => Some((s.range(), String::new())),
+            });
+        }
         if self.selection.is_empty() {
             let head = self.selection.head;
             if head == 0 {
@@ -299,6 +432,13 @@ impl Buffer {
     }
 
     pub fn delete(&mut self) {
+        if !self.extra.is_empty() {
+            let len = self.len_chars();
+            return self.edit_each(|_, s| match s.is_empty() {
+                true => (s.head < len).then(|| (s.head..s.head + 1, String::new())),
+                false => Some((s.range(), String::new())),
+            });
+        }
         if self.selection.is_empty() {
             let head = self.selection.head;
             if head >= self.len_chars() {
@@ -329,15 +469,16 @@ impl Buffer {
     }
 
     fn apply(&mut self, edit: &Edit, reverse: bool) {
-        let (remove, insert, selection) = if reverse {
-            (&edit.new, &edit.old, edit.before)
+        let (remove, insert, selection, extra) = if reverse {
+            (&edit.new, &edit.old, edit.before, &edit.extra_before)
         } else {
-            (&edit.old, &edit.new, edit.after)
+            (&edit.old, &edit.new, edit.after, &edit.extra_after)
         };
         let end = edit.start + remove.chars().count();
         self.rope.remove(edit.start..end);
         self.rope.insert(edit.start, insert);
         self.selection = selection;
+        self.extra = extra.clone();
         self.goal_column = None;
         self.version += 1;
     }
@@ -347,6 +488,8 @@ impl Buffer {
         if let Some(last) = self.undo.last_mut() {
             let typing = last.old.is_empty()
                 && edit.old.is_empty()
+                && edit.extra_before.is_empty()
+                && last.extra_after.is_empty()
                 && last.start + last.new.chars().count() == edit.start
                 && !edit.new.contains(char::is_whitespace)
                 && !last.new.contains(char::is_whitespace);
@@ -362,6 +505,27 @@ impl Buffer {
 
     // --- movement ------------------------------------------------------
 
+    /// Applies a movement to every caret (each secondary caret is moved as if it were primary).
+    fn move_all(&mut self, mut f: impl FnMut(&mut Self)) {
+        if self.extra.is_empty() {
+            return f(self);
+        }
+        let primary = self.selection;
+        let goal = self.goal_column;
+        let mut moved = Vec::with_capacity(self.extra.len());
+        for s in std::mem::take(&mut self.extra) {
+            self.selection = s;
+            self.goal_column = None;
+            f(self);
+            moved.push(self.selection);
+        }
+        self.selection = primary;
+        self.goal_column = goal;
+        f(self);
+        self.extra = moved;
+        self.normalize_selections();
+    }
+
     fn set_head(&mut self, head: usize, select: bool) {
         self.selection.head = head.min(self.len_chars());
         if !select {
@@ -369,12 +533,18 @@ impl Buffer {
         }
     }
 
+    /// Moves the primary caret (dropping any secondary ones).
     pub fn move_to(&mut self, char_idx: usize, select: bool) {
+        self.extra.clear();
         self.goal_column = None;
         self.set_head(char_idx, select);
     }
 
     pub fn move_left(&mut self, select: bool) {
+        self.move_all(|b| b.move_left_one(select));
+    }
+
+    fn move_left_one(&mut self, select: bool) {
         let target = if !select && !self.selection.is_empty() {
             self.selection.range().start
         } else {
@@ -384,6 +554,10 @@ impl Buffer {
     }
 
     pub fn move_right(&mut self, select: bool) {
+        self.move_all(|b| b.move_right_one(select));
+    }
+
+    fn move_right_one(&mut self, select: bool) {
         let target = if !select && !self.selection.is_empty() {
             self.selection.range().end
         } else {
@@ -393,6 +567,10 @@ impl Buffer {
     }
 
     pub fn move_vertical(&mut self, delta: isize, select: bool) {
+        self.move_all(|b| b.move_vertical_one(delta, select));
+    }
+
+    fn move_vertical_one(&mut self, delta: isize, select: bool) {
         let (line, col) = self.char_to_line_col(self.selection.head);
         let goal = *self.goal_column.get_or_insert(col);
         let last = self.len_lines().saturating_sub(1) as isize;
@@ -409,6 +587,10 @@ impl Buffer {
 
     /// Smart home: first non-blank character, then column 0.
     pub fn move_home(&mut self, select: bool) {
+        self.move_all(|b| b.move_home_one(select));
+    }
+
+    fn move_home_one(&mut self, select: bool) {
         let (line, col) = self.char_to_line_col(self.selection.head);
         let indent = self.line(line).chars().take_while(|c| c.is_whitespace()).count();
         let target = if col == indent { 0 } else { indent };
@@ -416,15 +598,138 @@ impl Buffer {
     }
 
     pub fn move_end(&mut self, select: bool) {
+        self.move_all(|b| b.move_end_one(select));
+    }
+
+    fn move_end_one(&mut self, select: bool) {
         let (line, _) = self.char_to_line_col(self.selection.head);
         self.move_to(self.line_to_char(line) + self.line_len(line), select);
     }
 
     pub fn select_all(&mut self) {
+        self.extra.clear();
         self.selection = Selection {
             anchor: 0,
             head: self.len_chars(),
         };
+    }
+
+    // --- multiple carets ------------------------------------------------
+
+    /// The selected text to look for, selecting the word at the caret first if nothing is
+    /// selected (returns false then: the first press only selects the word).
+    fn occurrence_needle(&mut self) -> Option<(String, bool)> {
+        if self.selection.is_empty() {
+            let word = self.word_range_at(self.selection.head);
+            if word.is_empty() {
+                return None;
+            }
+            self.selection = Selection { anchor: word.start, head: word.end };
+            return Some((self.slice(word), false));
+        }
+        Some((self.selected_text(), true))
+    }
+
+    /// Char ranges of every occurrence of `needle`.
+    fn occurrences(&self, needle: &str) -> Vec<Range<usize>> {
+        let text = self.text();
+        let len = needle.chars().count();
+        text.match_indices(needle).map(|(byte, _)| {
+            let start = self.byte_to_char(byte);
+            start..start + len
+        }).collect()
+    }
+
+    /// Add Selection for Next Occurrence (⌃G): selects the word at the caret, then each press
+    /// adds the next occurrence of the selected text (wrapping around).
+    pub fn add_next_occurrence(&mut self) {
+        let Some((needle, selected)) = self.occurrence_needle() else { return };
+        if !selected {
+            return;
+        }
+        let taken: Vec<Range<usize>> = self.selections().iter().map(Selection::range).collect();
+        let last_end = taken.iter().map(|r| r.end).max().unwrap_or(0);
+        let all = self.occurrences(&needle);
+        let next = all.iter().find(|r| r.start >= last_end && !taken.contains(r))
+            .or_else(|| all.iter().find(|r| !taken.contains(r)));
+        if let Some(next) = next.cloned() {
+            // The newest selection becomes primary so the view follows it.
+            self.extra.push(self.selection);
+            self.selection = Selection { anchor: next.start, head: next.end };
+            self.normalize_selections();
+        }
+    }
+
+    /// Unselect Occurrence (⌃⇧G): drops the most recently added selection.
+    pub fn unselect_occurrence(&mut self) {
+        if let Some(last) = self.extra.iter().enumerate().max_by_key(|(_, s)| s.range().start).map(|(ix, _)| ix) {
+            self.selection = self.extra.remove(last);
+        }
+    }
+
+    /// Select All Occurrences (⌃⌘G).
+    pub fn select_all_occurrences(&mut self) {
+        let Some((needle, _)) = self.occurrence_needle() else { return };
+        let primary = self.selection.range();
+        self.extra = self.occurrences(&needle).into_iter().filter(|r| *r != primary)
+            .map(|r| Selection { anchor: r.start, head: r.end }).collect();
+        self.normalize_selections();
+    }
+
+    /// Add Carets to Ends of Selected Lines (⌥⇧G).
+    pub fn carets_at_line_ends(&mut self) {
+        let lines = self.selected_lines();
+        if lines.len() < 2 {
+            return;
+        }
+        let end = |b: &Self, l: usize| Selection::caret(b.line_to_char(l) + b.line_len(l));
+        self.selection = end(self, lines.start);
+        self.extra = lines.skip(1).map(|l| end(self, l)).collect();
+        self.normalize_selections();
+    }
+
+    /// Clone Caret Above / Below: a new caret on the next line up (`-1`) or down (`1`) from
+    /// the outermost caret in that direction, at the same column.
+    pub fn clone_caret(&mut self, delta: isize) {
+        let all = self.selections();
+        let edge = if delta < 0 { all.iter().min_by_key(|s| s.head) } else { all.iter().max_by_key(|s| s.head) };
+        let Some(edge) = edge.copied() else { return };
+        let (line, col) = self.char_to_line_col(edge.head);
+        let target = line as isize + delta;
+        if target < 0 || target >= self.len_lines() as isize {
+            return;
+        }
+        let caret = Selection::caret(self.line_col_to_char(target as usize, col));
+        self.extra.push(self.selection);
+        self.selection = caret;
+        self.normalize_selections();
+    }
+
+    /// Column (block) selection from `anchor` to `head`: one selection per line, between the
+    /// two columns (short lines get a caret at their end).
+    pub fn select_column(&mut self, anchor: usize, head: usize) {
+        let (a_line, a_col) = self.char_to_line_col(anchor);
+        let (h_line, h_col) = self.char_to_line_col(head);
+        let lines: Vec<usize> = if a_line <= h_line { (a_line..=h_line).collect() } else { (h_line..=a_line).rev().collect() };
+        let mut selections = lines.into_iter().map(|l| Selection {
+            anchor: self.line_col_to_char(l, a_col),
+            head: self.line_col_to_char(l, h_col),
+        });
+        let first = selections.next().unwrap_or_default();
+        let rest: Vec<Selection> = selections.collect();
+        // The line under the mouse is primary.
+        match rest.last().copied() {
+            Some(last) => {
+                self.selection = last;
+                self.extra = std::iter::once(first).chain(rest[..rest.len() - 1].iter().copied()).collect();
+            }
+            None => {
+                self.selection = first;
+                self.extra.clear();
+            }
+        }
+        self.goal_column = None;
+        self.normalize_selections();
     }
 
     // --- words and lines -------------------------------------------------
@@ -686,6 +991,60 @@ mod tests {
         b.backspace();
         assert_eq!(b.text(), "hello");
         assert_eq!(b.selection, Selection::caret(5));
+    }
+
+    #[test]
+    fn multiple_carets_type_delete_and_undo() {
+        let mut b = Buffer::new("a\nb\nc");
+        b.move_to(0, false);
+        b.clone_caret(1);
+        b.clone_caret(1);
+        assert_eq!(b.selections().len(), 3);
+        b.insert("x");
+        assert_eq!(b.text(), "xa\nxb\nxc");
+        b.move_end(false);
+        b.insert(";");
+        assert_eq!(b.text(), "xa;\nxb;\nxc;");
+        b.backspace();
+        assert_eq!(b.text(), "xa\nxb\nxc");
+        b.undo();
+        assert_eq!(b.text(), "xa;\nxb;\nxc;");
+        assert_eq!(b.selections().len(), 3, "undo restores every caret");
+        b.newline();
+        assert_eq!(b.text(), "xa;\n\nxb;\n\nxc;\n");
+    }
+
+    #[test]
+    fn occurrences() {
+        let mut b = Buffer::new("$a = $b + $a; echo $a;");
+        b.move_to(1, false);
+        b.add_next_occurrence(); // selects `$a`
+        assert_eq!(b.selected_text(), "$a");
+        b.add_next_occurrence();
+        b.add_next_occurrence();
+        assert_eq!(b.selections().len(), 3);
+        b.insert("$x");
+        assert_eq!(b.text(), "$x = $b + $x; echo $x;");
+        let mut b = Buffer::new("foo foo foo");
+        b.move_to(0, false);
+        b.select_all_occurrences();
+        assert_eq!(b.selections().len(), 3);
+        b.unselect_occurrence();
+        assert_eq!(b.selections().len(), 2);
+    }
+
+    #[test]
+    fn column_selection_and_paste() {
+        let mut b = Buffer::new("abc\nde\nfghi");
+        b.select_column(1, b.line_col_to_char(2, 3));
+        assert_eq!(b.selections_text(), "bc\ne\ngh");
+        b.paste("1\n2\n3");
+        assert_eq!(b.text(), "a1\nd2\nf3i");
+        let mut b = Buffer::new("one\ntwo");
+        b.select_all();
+        b.carets_at_line_ends();
+        b.insert("!");
+        assert_eq!(b.text(), "one!\ntwo!");
     }
 
     #[test]

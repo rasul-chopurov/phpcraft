@@ -96,6 +96,14 @@ const DEFAULTS: &[Default] = &[
     both("alt-shift-up", "editor::MoveLineUp", ED),
     both("alt-shift-down", "editor::MoveLineDown", ED),
     per("cmd-alt-a", "ctrl-alt-a", "editor::ToggleBlame", ED),
+    // Multiple carets.
+    per("ctrl-g", "alt-j", "editor::AddNextOccurrence", ED),
+    per("ctrl-shift-g", "alt-shift-j", "editor::UnselectOccurrence", ED),
+    per("ctrl-cmd-g", "ctrl-alt-shift-j", "editor::SelectAllOccurrences", ED),
+    per("alt-shift-g", "alt-shift-g", "editor::CaretsAtLineEnds", ED),
+    per("ctrl-shift-up", "ctrl-alt-shift-up", "editor::CloneCaretAbove", ED),
+    per("ctrl-shift-down", "ctrl-alt-shift-down", "editor::CloneCaretBelow", ED),
+    both("escape", "editor::ClearCarets", Some("Editor && multicaret")),
     per("cmd-alt-m", "ctrl-alt-m", "editor::ToggleMarkdownPreview", Some("EditorPane")),
     both("secondary-s", "editor::Save", ED),
     // Code intelligence.
