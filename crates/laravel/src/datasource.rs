@@ -307,6 +307,56 @@ pub fn update_statement(driver: Driver, table: &str, edit: &CellEdit) -> (String
     (sql, params)
 }
 
+/// A parameterised statement for [`execute`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct Statement {
+    pub sql: String,
+    pub params: Vec<Option<String>>,
+}
+
+fn quoter(driver: Driver) -> impl Fn(&str) -> String {
+    let laravel = match driver {
+        Driver::Mysql | Driver::Mariadb => "mysql",
+        Driver::Pgsql => "pgsql",
+        Driver::Sqlite => "sqlite",
+    };
+    move |name: &str| crate::database::quote_ident(laravel, name)
+}
+
+fn key_condition(driver: Driver, key: &[(String, Option<String>)]) -> (String, Vec<Option<String>>) {
+    let q = quoter(driver);
+    let sql = key.iter().map(|(k, v)| if v.is_some() { format!("{} = ?", q(k)) } else { format!("{} IS NULL", q(k)) }).collect::<Vec<_>>().join(" AND ");
+    (sql, key.iter().filter(|(_, v)| v.is_some()).map(|(_, v)| v.clone()).collect())
+}
+
+/// `DELETE FROM table WHERE <primary key>`.
+pub fn delete_statement(driver: Driver, table: &str, key: &[(String, Option<String>)]) -> Statement {
+    let (condition, params) = key_condition(driver, key);
+    Statement { sql: format!("DELETE FROM {} WHERE {condition}", quoter(driver)(table)), params }
+}
+
+/// `INSERT INTO table (…) VALUES (…)`, or `DEFAULT VALUES` when nothing was filled in.
+pub fn insert_statement(driver: Driver, table: &str, values: &[(String, Option<String>)]) -> Statement {
+    let q = quoter(driver);
+    if values.is_empty() {
+        let sql = match driver {
+            Driver::Mysql | Driver::Mariadb => format!("INSERT INTO {} () VALUES ()", q(table)),
+            _ => format!("INSERT INTO {} DEFAULT VALUES", q(table)),
+        };
+        return Statement { sql, params: Vec::new() };
+    }
+    let columns = values.iter().map(|(c, _)| q(c)).collect::<Vec<_>>().join(", ");
+    let marks = vec!["?"; values.len()].join(", ");
+    Statement { sql: format!("INSERT INTO {} ({columns}) VALUES ({marks})", q(table)), params: values.iter().map(|(_, v)| v.clone()).collect() }
+}
+
+/// Runs statements in one transaction; returns affected rows.
+pub fn execute(root: &Path, source: &DataSource, password: &str, statements: &[Statement]) -> Result<usize, String> {
+    let statements: Vec<serde_json::Value> = statements.iter().map(|s| serde_json::json!({"sql": s.sql, "params": s.params})).collect();
+    let value = run(root, source, password, serde_json::json!({"op": "execute", "statements": statements}))?;
+    Ok(value["affected"].as_u64().unwrap_or(0) as usize)
+}
+
 /// Saves grid edits in one transaction ("Submit").
 pub fn apply_edits(root: &Path, source: &DataSource, password: &str, table: &str, edits: &[CellEdit]) -> Result<usize, String> {
     let statements: Vec<serde_json::Value> = edits
@@ -384,6 +434,11 @@ mod tests {
         assert_eq!(lite.dsn(root), "sqlite:/p/database/database.sqlite");
         let edit = CellEdit { column: "name".into(), value: Some("Ann".into()), key: vec![("id".into(), Some("7".into()))] };
         assert_eq!(update_statement(Driver::Mysql, "users", &edit), ("UPDATE `users` SET `name` = ? WHERE `id` = ?".to_string(), vec![Some("Ann".to_string()), Some("7".to_string())]));
+        let del = delete_statement(Driver::Mysql, "users", &[("id".into(), Some("7".into()))]);
+        assert_eq!((del.sql.as_str(), del.params.clone()), ("DELETE FROM `users` WHERE `id` = ?", vec![Some("7".to_string())]));
+        let ins = insert_statement(Driver::Pgsql, "users", &[("name".into(), Some("Ann".into())), ("email".into(), None)]);
+        assert_eq!(ins.sql, "INSERT INTO \"users\" (\"name\", \"email\") VALUES (?, ?)");
+        assert_eq!(insert_statement(Driver::Sqlite, "t", &[]).sql, "INSERT INTO \"t\" DEFAULT VALUES");
         assert_eq!(update_statement(Driver::Pgsql, "users", &edit).0, "UPDATE \"users\" SET \"name\" = ? WHERE \"id\" = ?");
         let env_root = std::env::temp_dir().join(format!("phpcraft-env-{}", std::process::id()));
         std::fs::create_dir_all(&env_root).unwrap();
