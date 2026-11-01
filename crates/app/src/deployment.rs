@@ -147,16 +147,29 @@ pub fn parse_ls(output: &str) -> Vec<RemoteEntry> {
     entries
 }
 
+/// The private key path with `~` expanded (sftp/ssh get it without a shell).
+pub fn key_path(server: &Server) -> Option<String> {
+    let key = server.key.trim();
+    if key.is_empty() {
+        return None;
+    }
+    Some(match (key.strip_prefix("~/"), dirs::home_dir()) {
+        (Some(rest), Some(home)) => home.join(rest).display().to_string(),
+        _ => key.to_string(),
+    })
+}
+
 /// Runs an sftp batch against `server`.
 pub fn run(server: &Server, password: &str, batch: &str) -> Result<String, String> {
     use std::io::Write;
     let mut command = std::process::Command::new("sftp");
     command.args(["-b", "-", "-P", &server.port.to_string(), "-o", "StrictHostKeyChecking=accept-new", "-o", "ConnectTimeout=10"]);
-    if !server.key.trim().is_empty() {
-        command.args(["-i", server.key.trim()]);
+    if let Some(key) = key_path(server) {
+        command.arg("-i").arg(key);
     }
     // Password auth: OpenSSH asks SSH_ASKPASS, a throwaway script that prints it.
-    let askpass = if server.use_password && !password.is_empty() {
+    // The password, or a key's passphrase: OpenSSH asks for either through SSH_ASKPASS.
+    let askpass = if (server.use_password || !server.key.trim().is_empty()) && !password.is_empty() {
         // A fresh name per run: parallel runs (listing + test) must not delete each other's script.
         static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

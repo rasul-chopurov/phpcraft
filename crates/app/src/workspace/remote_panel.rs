@@ -15,6 +15,36 @@ use crate::theme;
 
 actions!(workspace, [UploadToServer, DownloadFromServer]);
 
+/// How the server is logged into.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Auth {
+    Password,
+    /// A private key file, optionally with a passphrase.
+    Key,
+    /// ssh-agent and ~/.ssh/config (OpenSSH defaults).
+    Agent,
+}
+
+impl Auth {
+    fn of(server: &Server) -> Self {
+        if server.use_password {
+            Auth::Password
+        } else if !server.key.trim().is_empty() {
+            Auth::Key
+        } else {
+            Auth::Agent
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Auth::Password => "Password",
+            Auth::Key => "Key pair",
+            Auth::Agent => "OpenSSH agent / config",
+        }
+    }
+}
+
 /// The server editor shown at the top of the window.
 struct ServerForm {
     id: Option<String>,
@@ -25,7 +55,7 @@ struct ServerForm {
     root: Entity<TextField>,
     key: Entity<TextField>,
     password: Entity<TextField>,
-    use_password: bool,
+    auth: Auth,
 }
 
 #[derive(Default)]
@@ -41,6 +71,15 @@ pub(super) struct RemoteState {
     selected_entry: Option<String>,
     /// Bumped by every listing request; only the latest one's result is shown.
     generation: u64,
+}
+
+fn secret(cx: &mut Context<Workspace>, placeholder: &'static str, text: &str) -> Entity<TextField> {
+    let text = text.to_string();
+    cx.new(|cx| {
+        let mut field = TextField::new(placeholder, cx).masked();
+        field.set_text(text, cx);
+        field
+    })
 }
 
 fn field(cx: &mut Context<Workspace>, placeholder: &'static str, text: &str) -> Entity<TextField> {
@@ -231,8 +270,8 @@ impl Workspace {
         // Every field is quoted for the local shell; the remote command is quoted again for the
         // remote shell, so folder names from the server can't run anything.
         let mut command = format!("ssh -p {} -o StrictHostKeyChecking=accept-new", server.port);
-        if !server.key.trim().is_empty() {
-            command.push_str(&format!(" -i {}", sh_quote(server.key.trim())));
+        if let Some(key) = deployment::key_path(&server) {
+            command.push_str(&format!(" -i {}", sh_quote(&key)));
         }
         let remote = format!("cd {} 2>/dev/null; exec \"$SHELL\" -l", sh_quote(&self.remote.cwd));
         command.push_str(&format!(" -t -- {} {}", sh_quote(&format!("{}@{}", server.user, server.host)), sh_quote(&remote)));
@@ -264,11 +303,26 @@ impl Workspace {
             port: field(cx, "Port", &server.port.to_string()),
             user: field(cx, "User", &server.user),
             root: field(cx, "Remote root (/var/www/app)", &server.remote_root),
-            key: field(cx, "Private key (empty = ssh-agent)", &server.key),
-            password: field(cx, "Password", &password),
-            use_password: server.use_password,
+            key: field(cx, "~/.ssh/id_ed25519", &server.key),
+            password: secret(cx, "Password or key passphrase", &password),
+            auth: Auth::of(&server),
         });
         cx.notify();
+    }
+
+    /// Picks a private key file (starts in ~/.ssh when the system dialog allows).
+    fn browse_key(&mut self, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("Choose Key".into()) });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = paths.await else { return };
+            let Some(path) = paths.into_iter().next() else { return };
+            let _ = this.update(cx, |this, cx| {
+                if let Some(form) = &this.remote.form {
+                    form.key.update(cx, |field, cx| field.set_text(path.display().to_string(), cx));
+                }
+            });
+        })
+        .detach();
     }
 
     fn save_form(&mut self, cx: &mut Context<Self>) {
@@ -289,10 +343,16 @@ impl Workspace {
             port: text(&form.port).parse().unwrap_or(22),
             user: text(&form.user),
             remote_root: text(&form.root),
-            key: text(&form.key),
-            use_password: form.use_password,
+            key: if form.auth == Auth::Key { text(&form.key) } else { String::new() },
+            use_password: form.auth == Auth::Password,
         };
-        let password = if form.use_password { form.password.read(cx).text().to_string() } else { String::new() };
+        if form.auth == Auth::Key && server.key.is_empty() {
+            self.remote.form = Some(form);
+            self.set_status("Choose the private key file", false, cx);
+            return;
+        }
+        // The password, or the key's passphrase; nothing for the agent.
+        let password = if form.auth == Auth::Agent { String::new() } else { form.password.read(cx).text().to_string() };
         deployment::set_password(self.project.root(), &id, &password);
         let servers = &mut self.remote.deployment.servers;
         match servers.iter_mut().find(|s| s.id == id) {
@@ -331,7 +391,27 @@ impl Workspace {
                 .child(div().w(px(76.)).flex_none().text_color(theme::muted()).child(label))
                 .child(div().flex_1().flex().child(field.clone()))
         };
-        let use_password = form.use_password;
+        let auth = form.auth;
+        let chips = [Auth::Password, Auth::Key, Auth::Agent].map(|kind| {
+            let on = kind == auth;
+            div()
+                .id(SharedString::from(format!("remote-auth-{}", kind.label())))
+                .px_2()
+                .py_0p5()
+                .rounded_md()
+                .cursor_pointer()
+                .border_1()
+                .border_color(if on { theme::accent() } else { theme::border() })
+                .when(on, |d| d.bg(theme::selection()))
+                .text_color(if on { theme::ui_text() } else { theme::muted() })
+                .child(kind.label())
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(form) = this.remote.form.as_mut() {
+                        form.auth = kind;
+                    }
+                    cx.notify();
+                }))
+        });
         div()
             .flex()
             .flex_col()
@@ -345,24 +425,30 @@ impl Workspace {
             .child(row("Port", &form.port))
             .child(row("User", &form.user))
             .child(row("Root path", &form.root))
-            .child(row("Key file", &form.key))
             .child(
                 div()
-                    .id("remote-use-password")
                     .flex()
                     .items_center()
                     .gap_2()
-                    .cursor_pointer()
-                    .child(icon(if use_password { Icon::todo } else { Icon::stop }, 14., if use_password { theme::accent() } else { theme::muted() }))
-                    .child("Password authentication")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        if let Some(form) = this.remote.form.as_mut() {
-                            form.use_password = !form.use_password;
-                        }
-                        cx.notify();
-                    })),
+                    .child(div().w(px(76.)).flex_none().text_color(theme::muted()).child("Auth"))
+                    .child(div().flex().flex_wrap().gap_1().children(chips)),
             )
-            .when(use_password, |d| d.child(row("Password", &form.password)))
+            .when(auth == Auth::Key, |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(div().w(px(76.)).flex_none().text_color(theme::muted()).child("Key file"))
+                        .child(div().flex_1().flex().child(form.key.clone()))
+                        .child(crate::dialogs::button("remote-browse-key", "Browse…", false).on_click(cx.listener(|this, _, _, cx| this.browse_key(cx)))),
+                )
+                .child(row("Passphrase", &form.password))
+            })
+            .when(auth == Auth::Password, |d| d.child(row("Password", &form.password)))
+            .when(auth == Auth::Agent, |d| {
+                d.child(div().pl(px(84.)).text_size(px(11.)).text_color(theme::muted()).child("Uses ssh-agent and ~/.ssh/config, like `ssh user@host` in a terminal."))
+            })
             .child(
                 div()
                     .flex()

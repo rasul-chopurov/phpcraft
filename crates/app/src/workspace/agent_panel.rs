@@ -127,7 +127,7 @@ impl Workspace {
         }
         let config = load_config();
         if config.provider == "anthropic" && config.resolved_key().is_none() && self.agent.key_field.is_none() {
-            self.agent.key_field = Some(cx.new(|cx| TextField::new("sk-ant-…", cx)));
+            self.agent.key_field = Some(cx.new(|cx| TextField::new("sk-ant-…", cx).masked()));
         }
     }
 

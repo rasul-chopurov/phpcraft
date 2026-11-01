@@ -32,7 +32,11 @@ pub struct TextField {
     marked: Option<Range<usize>>,
     last_line: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
+    /// Shows `•` for every character (passwords); copying is disabled.
+    masked: bool,
 }
+
+const MASK: char = '•';
 
 impl EventEmitter<FieldEvent> for TextField {}
 
@@ -46,7 +50,33 @@ impl TextField {
             marked: None,
             last_line: None,
             last_bounds: None,
+            masked: false,
         }
+    }
+
+    /// A password field.
+    pub fn masked(mut self) -> Self {
+        self.masked = true;
+        self
+    }
+
+    /// The text as drawn.
+    fn shown(&self) -> String {
+        if self.masked { MASK.to_string().repeat(self.text.chars().count()) } else { self.text.clone() }
+    }
+
+    /// A byte offset in the text → the same position in the drawn text.
+    fn to_shown(&self, offset: usize) -> usize {
+        if self.masked { self.text[..offset.min(self.text.len())].chars().count() * MASK.len_utf8() } else { offset }
+    }
+
+    /// A byte offset in the drawn text → the same position in the text.
+    fn from_shown(&self, offset: usize) -> usize {
+        if !self.masked {
+            return offset;
+        }
+        let chars = offset / MASK.len_utf8();
+        self.text.char_indices().nth(chars).map_or(self.text.len(), |(i, _)| i)
     }
 
     pub fn text(&self) -> &str {
@@ -156,7 +186,7 @@ impl TextField {
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.selected.is_empty() {
+        if !self.selected.is_empty() && !self.masked {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.text[self.selected.clone()].to_string(),
             ));
@@ -172,7 +202,7 @@ impl TextField {
         window.focus(&self.focus_handle);
         let at = match (&self.last_line, &self.last_bounds) {
             (Some(line), Some(bounds)) => {
-                line.closest_index_for_x(event.position.x - bounds.left())
+                self.from_shown(line.closest_index_for_x(event.position.x - bounds.left()))
             }
             _ => self.text.len(),
         };
@@ -274,7 +304,7 @@ impl EntityInputHandler for TextField {
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let line = self.last_line.as_ref()?;
-        let start = self.from_utf16(range.start);
+        let start = self.to_shown(self.from_utf16(range.start));
         Some(Bounds::new(
             point(bounds.left() + line.x_for_index(start), bounds.top()),
             size(px(2.), bounds.size.height),
@@ -289,7 +319,7 @@ impl EntityInputHandler for TextField {
     ) -> Option<usize> {
         let bounds = self.last_bounds?;
         let line = self.last_line.as_ref()?;
-        Some(self.to_utf16(line.closest_index_for_x(point.x - bounds.left())))
+        Some(self.to_utf16(self.from_shown(line.closest_index_for_x(point.x - bounds.left()))))
     }
 }
 
@@ -373,7 +403,7 @@ impl Element for FieldElement {
         // Fill the field, but never collapse below the text: a percentage width resolves to
         // nothing while the parent's width is still unknown, and the text then spilled out.
         let field = self.field.read(cx);
-        let text: SharedString = if field.text.is_empty() { field.placeholder.clone() } else { field.text.clone().into() };
+        let text: SharedString = if field.text.is_empty() { field.placeholder.clone() } else { field.shown().into() };
         let run = TextRun { len: text.len(), font: font(theme::editor_font()), color: theme::text(), background_color: None, underline: None, strikethrough: None };
         let width = window.text_system().shape_line(text, px(13.), &[run], None).width;
         let mut style = Style::default();
@@ -396,7 +426,7 @@ impl Element for FieldElement {
         let (text, color): (SharedString, _) = if field.text.is_empty() {
             (field.placeholder.clone(), theme::muted())
         } else {
-            (field.text.clone().into(), theme::text())
+            (field.shown().into(), theme::text())
         };
         let run = TextRun {
             len: text.len(),
@@ -411,7 +441,7 @@ impl Element for FieldElement {
             if field.text.is_empty() {
                 px(0.)
             } else {
-                line.x_for_index(i)
+                line.x_for_index(field.to_shown(i))
             }
         };
         let caret = field.selected.is_empty().then(|| {

@@ -491,6 +491,15 @@ pub struct SettingsDialog {
 
 impl EventEmitter<DialogEvent> for SettingsDialog {}
 
+/// A password / key field: shown as dots.
+fn secret_field(placeholder: &'static str, text: String, cx: &mut Context<SettingsDialog>) -> Entity<TextField> {
+    cx.new(|cx| {
+        let mut f = TextField::new(placeholder, cx).masked();
+        f.set_text(text, cx);
+        f
+    })
+}
+
 fn field(placeholder: &'static str, text: String, cx: &mut Context<SettingsDialog>) -> Entity<TextField> {
     cx.new(|cx| {
         let mut f = TextField::new(placeholder, cx);
@@ -507,7 +516,7 @@ impl SettingsDialog {
         let font_size = field("13.5", settings.editor_font_size.to_string(), cx);
         let shell = field("Login shell", settings.terminal_shell.clone(), cx);
         let agent = crate::workspace::load_agent_config();
-        let api_key = field("sk-ant-… (or ANTHROPIC_API_KEY)", agent.api_key.clone(), cx);
+        let api_key = secret_field("sk-ant-… (or ANTHROPIC_API_KEY)", agent.api_key.clone(), cx);
         let model = field(agent::DEFAULT_MODEL, agent.model.clone(), cx);
         let search = cx.new(|cx| TextField::new("Search settings", cx));
         let subscription = cx.subscribe(&search, |this: &mut Self, _, _: &FieldEvent, cx| {

@@ -29,6 +29,15 @@ pub struct DataSourceDialog {
 
 impl EventEmitter<DialogEvent> for DataSourceDialog {}
 
+/// A password / key field: shown as dots.
+fn secret_field(placeholder: &'static str, text: String, cx: &mut Context<DataSourceDialog>) -> Entity<TextField> {
+    cx.new(|cx| {
+        let mut f = TextField::new(placeholder, cx).masked();
+        f.set_text(text, cx);
+        f
+    })
+}
+
 fn field(placeholder: &'static str, text: String, cx: &mut Context<DataSourceDialog>) -> Entity<TextField> {
     cx.new(|cx| {
         let mut f = TextField::new(placeholder, cx);
@@ -43,7 +52,7 @@ impl DataSourceDialog {
         let host = field("127.0.0.1", source.host.clone(), cx);
         let port = field("3306", source.port.to_string(), cx);
         let user = field("root", source.user.clone(), cx);
-        let password = field("Password", password, cx);
+        let password = secret_field("Password", password, cx);
         let database = field("Database", source.database.clone(), cx);
         let path = field(if source.driver == Driver::Sqlite { "database/database.sqlite" } else { "/tmp/mysql.sock" }, source.path.clone(), cx);
         let url = field("mysql:host=127.0.0.1;port=3306;dbname=app", source.url.clone(), cx);
