@@ -58,12 +58,55 @@ impl EditorView {
     }
 
     pub(super) fn after_save(&mut self, cx: &mut Context<Self>) {
-        if !self.buffer.is_php() || !crate::config::Settings::load_cached().reformat_on_save {
+        if !self.buffer.is_php() {
             return;
         }
+        let settings = crate::config::Settings::load_cached();
         let root = self.intel.root().to_path_buf();
-        if let (Some(path), Some(formatter)) = (self.path(), crate::quality::formatter(&root)) {
-            self.run_formatter(root, formatter, path, cx);
+        let Some(path) = self.path() else { return };
+        if settings.reformat_on_save
+            && let Some(formatter) = crate::quality::formatter(&root)
+        {
+            self.run_formatter(root.clone(), formatter, path.clone(), cx);
         }
+        self.run_analysers(root, path, cx);
+    }
+
+    /// PHPStan / Psalm / PHPCS on the saved file, in the background; their findings show with
+    /// the inspections until the text changes.
+    fn run_analysers(&mut self, root: std::path::PathBuf, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        let settings = crate::config::Settings::load_cached();
+        if !crate::quality::Analyser::ALL.iter().any(|a| a.enabled(&settings)) {
+            return;
+        }
+        let version = self.buffer.version();
+        cx.spawn(async move |this, cx| {
+            let found = cx.background_executor().spawn(async move { crate::quality::analyse(&root, &path, &settings) }).await;
+            this.update(cx, |this, cx| {
+                if this.buffer.version() != version {
+                    return;
+                }
+                let problems = found
+                    .into_iter()
+                    .filter(|(_, f)| f.line >= 1 && f.line <= this.buffer.len_lines())
+                    .map(|(tool, f)| {
+                        let line = f.line - 1;
+                        let text = this.buffer.line(line);
+                        let start = this.buffer.line_to_byte(line) + (text.len() - text.trim_start().len());
+                        let end = this.buffer.line_to_byte(line) + text.trim_end().len();
+                        php_analysis::Problem {
+                            range: start..end.max(start),
+                            severity: if f.minor { php_analysis::Severity::Weak } else { php_analysis::Severity::Warning },
+                            message: format!("{}: {}", tool.name(), f.message),
+                            id: "external",
+                        }
+                    })
+                    .collect();
+                this.external_problems = Some((version, problems));
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 }

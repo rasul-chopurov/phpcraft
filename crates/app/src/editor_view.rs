@@ -197,6 +197,8 @@ pub struct EditorView {
     info: Option<info::Info>,
     /// Inspection problems for a buffer version.
     problems: Option<(u64, Vec<php_analysis::Problem>)>,
+    /// PHPStan / Psalm / PHPCS findings for the version that was saved.
+    external_problems: Option<(u64, Vec<php_analysis::Problem>)>,
 }
 
 impl EditorView {
@@ -228,6 +230,7 @@ impl EditorView {
             usage_highlights: None,
             info: None,
             problems: None,
+            external_problems: None,
             buffer,
             focus_handle: cx.focus_handle(),
             scroll_y: px(0.),

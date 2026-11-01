@@ -43,7 +43,8 @@ impl Workspace {
             let Some(path) = buffer.path().map(|p| p.to_path_buf()) else { return };
             (path, buffer.text())
         };
-        let found = self.intel.problems(&path, &text).into_iter().map(|p| (path.clone(), text.clone(), p)).collect();
+        // The editor's list includes PHPStan / Psalm / PHPCS findings from the last save.
+        let found = tab.update(cx, |editor, _| editor.all_problems()).into_iter().map(|p| (path.clone(), text.clone(), p)).collect();
         let items = self.problem_items(found);
         self.open_list(NavMode::Problems, items, window, cx);
     }

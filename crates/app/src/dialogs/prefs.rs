@@ -634,6 +634,18 @@ impl SettingsDialog {
                                 .child(toggle("optimize-on-save", "Optimize imports", s.optimize_imports_on_save, |s| s.optimize_imports_on_save ^= true)),
                         ),
                     )
+                    .child(
+                        row("Quality tools").child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap_2()
+                                .child(toggle("phpstan", "PHPStan", s.phpstan, |s| s.phpstan ^= true))
+                                .child(toggle("psalm", "Psalm", s.psalm, |s| s.psalm ^= true))
+                                .child(toggle("phpcs", "PHP_CodeSniffer", s.phpcs, |s| s.phpcs ^= true))
+                                .child(div().text_size(px(12.)).text_color(theme::muted()).child("Run on saved files when installed in the project's vendor/bin.")),
+                        ),
+                    )
                     .when(s.auto_save == AutoSave::AfterDelay, |d| d.child(row("Delay (ms)").child(div().w(px(120.)).child(self.delay.clone()))))
                     .child(
                         row("Project tree").child(

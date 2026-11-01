@@ -18,7 +18,19 @@ impl EditorView {
             let version = if self.intel.is_ready() { version } else { u64::MAX };
             self.problems = Some((version, found));
         }
-        self.problems.as_ref().map(|(_, p)| p.clone()).unwrap_or_default()
+        let mut problems = self.problems.as_ref().map(|(_, p)| p.clone()).unwrap_or_default();
+        if let Some((v, external)) = &self.external_problems
+            && *v == self.buffer.version()
+        {
+            problems.extend(external.iter().cloned());
+            problems.sort_by_key(|p| p.range.start);
+        }
+        problems
+    }
+
+    /// Every problem of the file (inspections and external analysers), for the Problems list.
+    pub fn all_problems(&mut self) -> Vec<php_analysis::Problem> {
+        self.current_problems()
     }
 
     /// Problems at the caret, for the intentions menu.
