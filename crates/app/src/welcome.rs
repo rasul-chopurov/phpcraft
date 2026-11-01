@@ -655,7 +655,7 @@ impl Render for Welcome {
                     cx.notify();
                 })))
                 .child(item("g-about", "About", "").on_click(cx.listener(|this, _, _, cx| {
-                    this.message = Some(format!("PhpCraft {} — PhpStorm in pure Rust. github.com/rasul-chopurov/phpcraft", env!("CARGO_PKG_VERSION")));
+                    this.message = Some(format!("PhpCraft {} · Made with ❤️ in Azerbaijan · path.az", env!("CARGO_PKG_VERSION")));
                     this.gear_open = false;
                     cx.notify();
                 })))

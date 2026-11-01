@@ -4,24 +4,39 @@
 #ifndef AppVersion
   #define AppVersion "0.1.0"
 #endif
+; Numeric file version (AppVersion may carry a suffix such as -alpha).
+#ifndef NumVersion
+  #define NumVersion "0.1.0"
+#endif
+; Folder under target\ holding phpcraft.exe
+#ifndef BinDir
+  #define BinDir "release"
+#endif
+; x64 or x86
+#ifndef Arch
+  #define Arch "x64"
+#endif
 
 [Setup]
 AppId={{6F2C0E9B-4F1E-4C1B-9D2A-5A7E3C1B9F10}
 AppName=PhpCraft
 AppVersion={#AppVersion}
-AppPublisher=PhpCraft
+AppPublisher=PhpCraft (path.az)
 AppPublisherURL=https://github.com/rasul-chopurov/phpcraft
 DefaultDirName={autopf}\PhpCraft
 DefaultGroupName=PhpCraft
 UninstallDisplayIcon={app}\phpcraft.exe
 SetupIconFile=..\..\assets\icon\phpcraft.ico
 OutputDir=..\..\target\release
-OutputBaseFilename=PhpCraft-{#AppVersion}-Setup
+OutputBaseFilename=PhpCraft-{#AppVersion}-windows-{#Arch}-Setup
+VersionInfoVersion={#NumVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+#if Arch == "x64"
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+#endif
 PrivilegesRequiredOverridesAllowed=dialog
 ChangesAssociations=yes
 
@@ -33,7 +48,7 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "..\..\target\release\phpcraft.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\{#BinDir}\phpcraft.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

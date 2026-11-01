@@ -449,7 +449,7 @@ impl Workspace {
         self.output = Some(Output {
             title: "About".into(),
             text: format!(
-                "PhpCraft {} — PhpStorm in pure Rust.\nOpen source: https://github.com/rasul-chopurov/phpcraft\nNot affiliated with JetBrains or Laravel Idea.",
+                "PhpCraft {} — a PHP & Laravel IDE in pure Rust.\nMade with ❤️ in Azerbaijan · https://path.az\nOpen source: https://github.com/rasul-chopurov/phpcraft\nNot affiliated with JetBrains or Laravel Idea.",
                 env!("CARGO_PKG_VERSION")
             ),
             running: false,

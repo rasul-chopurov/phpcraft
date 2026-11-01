@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhpCraft: a fast, open-source PHP &amp; Laravel IDE, rebuilt in pure Rust · path.az</title>
+<meta name="description" content="PhpCraft is a native PHP and Laravel IDE written in pure Rust. Completion with auto-import, Laravel navigation, generators, Git, database, terminal and AI agents. Open source, offline, fast. Made with ❤️ in Azerbaijan.">
+<meta property="og:title" content="PhpCraft: a fast, open-source PHP IDE, rebuilt in pure Rust">
+<meta property="og:description" content="Open source products from Azerbaijan ❤️ path.az">
+<meta property="og:image" content="img/split.jpg">
+<link rel="icon" href="img/phpcraft.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0c10; --bg2:#111319; --panel:#14161d; --line:#23262f; --line2:#2d313c;
+  --text:#e8e9ee; --muted:#8b90a0; --dim:#5d6272;
+  --accent:#8b6cf6; --accent2:#2dd4bf; --heart:#ef4444;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --sans:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1240px;margin:0 auto;padding:0 24px}
+.mono{font-family:var(--mono);text-transform:uppercase;letter-spacing:.14em;font-size:12px}
+
+/* nav */
+nav{position:sticky;top:0;z-index:20;background:rgba(11,12,16,.82);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;gap:28px;height:58px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em}
+.brand b{font-family:var(--mono);font-size:15px}
+.brand .heart{color:var(--heart)}
+.links{display:flex;gap:22px;margin-left:auto}
+.links a{color:var(--muted);transition:color .15s}
+.links a:hover{color:var(--text)}
+.btn{display:inline-flex;align-items:center;gap:10px;padding:13px 20px;border:1px solid var(--line2);font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;transition:background .15s,border-color .15s,color .15s;cursor:pointer;background:transparent;color:var(--text)}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--text);color:var(--bg);border-color:var(--text)}
+.btn.primary:hover{background:#fff}
+nav .btn{padding:9px 14px}
+
+/* sections */
+section{border-bottom:1px solid var(--line)}
+.label{display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid var(--line);color:var(--dim)}
+.label span:first-child{color:var(--muted)}
+
+/* hero */
+.hero{padding:72px 0 0;position:relative}
+.hero::before{content:"";position:absolute;inset:0;background:radial-gradient(60% 50% at 70% 0%,rgba(139,108,246,.18),transparent 70%),radial-gradient(40% 40% at 10% 30%,rgba(45,212,191,.08),transparent 70%);pointer-events:none}
+.hero .wrap{position:relative}
+.crumb{color:var(--dim);margin-bottom:36px}
+.crumb b{color:var(--muted);font-weight:500}
+.app{display:flex;align-items:center;gap:14px;margin-bottom:28px}
+.app img{width:72px;height:72px;border-radius:16px;box-shadow:0 10px 40px rgba(139,108,246,.35)}
+.badge{border:1px solid var(--line2);padding:6px 10px;color:var(--muted)}
+.badge .alpha{color:var(--accent2)}
+h1{font-size:clamp(40px,7vw,92px);line-height:.98;letter-spacing:-.045em;font-weight:800;margin:0 0 26px;max-width:1050px}
+h1 em{font-style:normal;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{font-size:clamp(17px,1.6vw,20px);line-height:1.55;color:var(--muted);max-width:720px;margin:0 0 36px}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:14px}
+.os-hint{color:var(--dim);margin-bottom:56px}
+.shot{border:1px solid var(--line2);border-bottom:none;border-radius:12px 12px 0 0;overflow:hidden;box-shadow:0 -20px 80px rgba(139,108,246,.12)}
+.shot img{display:block;width:100%;height:auto}
+
+/* highlights */
+.grid{display:grid;grid-template-columns:repeat(3,1fr)}
+.cell{padding:34px 30px 40px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-height:240px}
+.cell:nth-child(3n){border-right:none}
+.cell .n{color:var(--dim);text-align:right;margin-bottom:26px}
+.cell h3{font-size:26px;line-height:1.15;letter-spacing:-.02em;margin:0 0 14px;font-weight:700}
+.cell p{color:var(--muted);line-height:1.6;margin:0;font-size:15.5px}
+.cell code{font-family:var(--mono);font-size:13px;color:var(--text);background:var(--panel);padding:1px 5px;border-radius:4px}
+
+/* screenshots */
+.shots{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line)}
+.shots figure{margin:0;background:var(--bg)}
+.shots figure.wide{grid-column:1/-1}
+.shots img{display:block;width:100%;height:auto}
+.shots figcaption{display:flex;justify-content:space-between;padding:14px 20px;color:var(--muted);border-top:1px solid var(--line)}
+
+/* download */
+.get{padding:56px 0 64px}
+.get h2,.family h2{font-size:clamp(32px,4.5vw,56px);letter-spacing:-.035em;line-height:1.02;margin:0 0 16px;font-weight:800}
+.get h2 em,.family h2 em{font-style:normal;color:var(--accent)}
+.get .lead{color:var(--muted);max-width:640px;line-height:1.6;margin:0 0 40px}
+.platforms{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.pf{border:1px solid var(--line2);background:var(--bg2);padding:26px;display:flex;flex-direction:column;gap:10px}
+.pf.mine{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.pf h3{margin:0 0 6px;font-size:22px;display:flex;justify-content:space-between;align-items:center}
+.pf h3 small{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--accent2);font-weight:500;visibility:hidden}
+.pf.mine h3 small{visibility:visible}
+.pf a{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid var(--line);font-size:14.5px;transition:border-color .15s,background .15s}
+.pf a:hover{border-color:var(--muted);background:var(--panel)}
+.pf a span{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.pf p{color:var(--dim);font-size:13px;line-height:1.5;margin:6px 0 0}
+.all{margin-top:22px;color:var(--muted)}
+.all a{border-bottom:1px solid var(--line2)}
+
+/* family */
+.family{padding:64px 0}
+.family .row{display:grid;grid-template-columns:1.1fr 1fr;gap:48px;align-items:center}
+.family p{color:var(--muted);line-height:1.65;font-size:17px;margin:0 0 26px}
+.flag{display:flex;height:10px;width:120px;margin-bottom:26px}
+.flag i{flex:1}
+.products{border:1px solid var(--line2)}
+.products div{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid var(--line)}
+.products div:last-child{border-bottom:none}
+.products b{font-size:17px}
+.products .soon{color:var(--dim)}
+.products .live{color:var(--accent2)}
+
+footer{padding:34px 0 46px;color:var(--dim)}
+footer .wrap{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}
+footer .made{font-size:15px;color:var(--muted);text-transform:none;letter-spacing:0;font-family:var(--sans)}
+footer .made .heart{color:var(--heart)}
+.legal{max-width:1240px;margin:20px auto 0;padding:0 24px;font-size:12px;line-height:1.6;color:var(--dim)}
+
+@media (max-width:900px){
+  .links{display:none}
+  .grid,.platforms{grid-template-columns:1fr}
+  .cell{border-right:none;min-height:0}
+  .shots{grid-template-columns:1fr}
+  .family .row{grid-template-columns:1fr}
+}
+@media (max-width:520px){
+  .wrap{padding:0 16px}
+  nav .btn{display:none}
+  .cta .btn{flex:1;justify-content:center}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="https://path.az/"><b>path.az</b><span class="heart">❤</span></a>
+    <div class="links mono">
+      <a href="#highlights">Highlights</a>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#download">Download</a>
+      <a href="#family">path.az</a>
+      <a href="https://github.com/rasul-chopurov/phpcraft">GitHub</a>
+    </div>
+    <a class="btn primary" href="#download">Download</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="crumb mono">01 / <b>PhpCraft</b></div>
+    <div class="app">
+      <img src="img/phpcraft.svg" alt="PhpCraft icon">
+      <div class="badge mono">PhpCraft · <span class="alpha">v0.0.1 alpha</span></div>
+    </div>
+    <h1>A fast, open-source PHP IDE, <em>rebuilt in pure&nbsp;Rust.</em></h1>
+    <p class="sub">Completion with auto-import, Laravel-aware navigation, code generators, Git, database, terminal and AI agents in a native IDE with no JVM. Open source, offline and fast.</p>
+    <div class="cta">
+      <a class="btn primary" id="dl-main" href="#download">↓ Download</a>
+      <a class="btn" href="https://github.com/rasul-chopurov/phpcraft">View on GitHub</a>
+    </div>
+    <div class="os-hint mono" id="os-hint">macOS · Windows · Linux</div>
+    <div class="shot"><img src="img/split.jpg" alt="PhpCraft with three split editors and the Commit tool window" width="1400" height="911"></div>
+  </div>
+</section>
+
+<section id="highlights">
+  <div class="wrap">
+    <div class="label mono"><span>02 / Highlights</span><span>What works today</span></div>
+  </div>
+  <div class="wrap grid">
+    <div class="cell"><div class="n mono">01</div><h3>PHP intelligence</h3><p>Project-wide index including <code>vendor/</code>, go to declaration, type inference through phpdoc and call chains, completion with automatic <code>use</code> import.</p></div>
+    <div class="cell"><div class="n mono">02</div><h3>Laravel, natively</h3><p>Navigation and completion for <code>route()</code>, <code>view()</code>, <code>config()</code>, Blade, Eloquent, facades, validation rules, Livewire and Filament.</p></div>
+    <div class="cell"><div class="n mono">03</div><h3>44 code generators</h3><p>Models with fields and relations, migrations, factories, controllers, policies, Filament resources and more, all from <code>⇧⌘,</code>.</p></div>
+    <div class="cell"><div class="n mono">04</div><h3>Git built in</h3><p>Commit window, side-by-side diff with syntax and word highlighting, log, branches, push and pull.</p></div>
+    <div class="cell"><div class="n mono">05</div><h3>Database &amp; terminal</h3><p>MySQL, MariaDB, PostgreSQL and SQLite: browse tables, edit rows, run queries. A real terminal and Artisan runner sit next to your code.</p></div>
+    <div class="cell"><div class="n mono">06</div><h3>Agent-ready</h3><p>Chat with Claude, Codex, OpenCode or Gemini through ACP or an API key, right inside the editor.</p></div>
+  </div>
+</section>
+
+<section id="screenshots">
+  <div class="wrap">
+    <div class="label mono"><span>03 / Screenshots</span><span>Captured in PhpCraft</span></div>
+  </div>
+  <div class="wrap">
+    <div class="shots">
+      <figure><img src="img/diff2.jpg" alt="Side-by-side diff" loading="lazy" width="1400" height="911"><figcaption class="mono"><span>Diff with word highlighting</span><span>01</span></figcaption></figure>
+      <figure><img src="img/table.jpg" alt="Database table editor" loading="lazy" width="1400" height="911"><figcaption class="mono"><span>Database tables as editor tabs</span><span>02</span></figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="download" class="get">
+  <div class="wrap">
+    <div class="label mono" style="margin-bottom:44px"><span>04 / Get PhpCraft</span><span>Free · Open source</span></div>
+    <h2>Get PhpCraft for <em id="os-name">your computer</em>.</h2>
+    <p class="lead">Alpha builds for every desktop. Pick your platform; PhpCraft runs fully offline and needs only PHP on your machine for Laravel features.</p>
+    <div class="platforms">
+      <div class="pf" data-os="mac">
+        <h3>macOS <small>Your system</small></h3>
+        <a data-file="macos-arm64.dmg">Apple silicon (M1–M4) <span>.dmg</span></a>
+        <a data-file="macos-x64.dmg">Intel <span>.dmg</span></a>
+        <p>macOS 11 or later. First launch: right-click the app → Open.</p>
+      </div>
+      <div class="pf" data-os="win">
+        <h3>Windows <small>Your system</small></h3>
+        <a data-file="windows-x64-Setup.exe">64-bit (x64) installer <span>.exe</span></a>
+        <a data-file="windows-x86-Setup.exe">32-bit (x86) installer <span>.exe</span></a>
+        <a data-file="windows-x64-portable.zip">Portable, no install <span>.zip</span></a>
+        <p>Windows 10 or 11. Adds “Open as PhpCraft Project” to Explorer.</p>
+      </div>
+      <div class="pf" data-os="linux">
+        <h3>Linux <small>Your system</small></h3>
+        <a data-deb="amd64">Ubuntu / Debian x86_64 <span>.deb</span></a>
+        <a data-deb="arm64">Ubuntu / Debian arm64 <span>.deb</span></a>
+        <a data-file="linux-x86_64.tar.gz">Any distro x86_64 <span>.tar.gz</span></a>
+        <a data-file="linux-arm64.tar.gz">Any distro arm64 <span>.tar.gz</span></a>
+      </div>
+    </div>
+    <div class="all mono"><a href="https://github.com/rasul-chopurov/phpcraft/releases">All releases and checksums →</a></div>
+  </div>
+</section>
+
+<section id="family" class="family">
+  <div class="wrap row">
+    <div>
+      <div class="label mono" style="border:none;padding:0 0 22px"><span>05 / path.az</span></div>
+      <div class="flag" aria-label="Flag of Azerbaijan colors"><i style="background:#0092bc"></i><i style="background:#e4002b"></i><i style="background:#00af66"></i></div>
+      <h2>Open source products <em>from Azerbaijan.</em></h2>
+      <p>path.az is a home for free, open-source software built in Azerbaijan: fast native tools that respect your machine and your data. PhpCraft is the first of them.</p>
+      <a class="btn" href="https://path.az/">Visit path.az</a>
+    </div>
+    <div class="products">
+      <div><b>PhpCraft</b><span class="mono live">Alpha</span></div>
+      <div><b>More crafts</b><span class="mono soon">Coming soon</span></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap mono">
+    <span class="made">Made with <span class="heart">❤️</span> in Azerbaijan</span>
+    <span>path.az · Apache-2.0 · <a href="https://github.com/rasul-chopurov/phpcraft">GitHub</a></span>
+  </div>
+  <p class="legal">PhpCraft is an independent open-source project and is not affiliated with, endorsed by or sponsored by JetBrains s.r.o. (PhpStorm) or the authors of Laravel Idea. Product names are used only to describe compatibility.</p>
+</footer>
+
+<script>
+(function(){
+  var VERSION = "0.0.1-alpha";
+  var base = "https://github.com/rasul-chopurov/phpcraft/releases/download/v" + VERSION + "/";
+  document.querySelectorAll("[data-file]").forEach(function(a){
+    a.href = base + "PhpCraft-" + VERSION + "-" + a.dataset.file;
+  });
+  document.querySelectorAll("[data-deb]").forEach(function(a){
+    a.href = base + "phpcraft_" + VERSION + "_" + a.dataset.deb + ".deb";
+  });
+  var ua = navigator.userAgent, os = null, name = null;
+  if (/Mac/.test(ua)) { os = "mac"; name = "macOS"; }
+  else if (/Win/.test(ua)) { os = "win"; name = "Windows"; }
+  else if (/Linux|X11/.test(ua) && !/Android/.test(ua)) { os = "linux"; name = "Linux"; }
+  if (!os) return;
+  var card = document.querySelector('.pf[data-os="' + os + '"]');
+  card.classList.add("mine");
+  document.getElementById("os-name").textContent = name;
+  var first = card.querySelector("a");
+  var main = document.getElementById("dl-main");
+  main.href = first.href;
+  main.textContent = "↓ Download for " + name;
+  document.getElementById("os-hint").textContent = first.firstChild.textContent.trim() + " · v" + VERSION;
+})();
+</script>
+</body>
+</html>

@@ -1,7 +1,11 @@
 name: Release
 
-# Builds installers: macOS .dmg, Windows Setup .exe (Inno Setup) and a Linux tarball.
-# Run it by hand (artifacts only) or push a v* tag to also publish a GitHub release.
+# Builds installers for every platform:
+#   macOS   .dmg + .zip      Apple silicon (arm64) and Intel (x64)
+#   Windows Setup .exe + portable .zip   x64 and x86
+#   Linux   .tar.gz + .deb   x86_64 and arm64
+# Run it by hand (artifacts only) or push a v* tag to also publish a GitHub release
+# (tags with a suffix such as v0.0.1-alpha are published as pre-releases).
 on:
   workflow_dispatch:
   push:
@@ -12,44 +16,76 @@ env:
 
 jobs:
   macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
       - name: Bundle app and disk image
-        run: ./script/bundle-macos.sh
+        run: TARGET=${{ matrix.target }} ./script/bundle-macos.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: PhpCraft-macos
+          name: PhpCraft-macos-${{ matrix.target }}
           path: |
             target/release/PhpCraft-*.dmg
-            target/release/PhpCraft-macos.zip
+            target/release/PhpCraft-*-macos-*.zip
 
   windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x64
+          - target: i686-pc-windows-msvc
+            arch: x86
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
       - name: Build
-        run: cargo build --release -p phpcraft --locked
+        run: cargo build --release -p phpcraft --locked --target ${{ matrix.target }}
       - name: Installer
         shell: pwsh
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+          $num = ($version -split '-')[0]
+          $bin = "${{ matrix.target }}\release"
           if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer\windows\phpcraft.iss
-          Compress-Archive -Path target\release\phpcraft.exe -DestinationPath "target\release\PhpCraft-$version-windows-portable.zip"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" "/DNumVersion=$num" "/DArch=${{ matrix.arch }}" "/DBinDir=$bin" installer\windows\phpcraft.iss
+          Compress-Archive -Path "target\$bin\phpcraft.exe" -DestinationPath "target\release\PhpCraft-$version-windows-${{ matrix.arch }}-portable.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: PhpCraft-windows
+          name: PhpCraft-windows-${{ matrix.arch }}
           path: |
             target/release/PhpCraft-*-Setup.exe
-            target/release/PhpCraft-*-windows-portable.zip
+            target/release/PhpCraft-*-portable.zip
 
   linux:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+            deb: amd64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+            deb: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Linux dependencies
@@ -61,20 +97,49 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --release -p phpcraft --locked
-      - name: Package
+      - name: Package (.tar.gz and .deb)
         run: |
           version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
           mkdir -p dist/phpcraft
-          cp target/release/phpcraft README.md dist/phpcraft/
-          cp assets/icon/phpcraft.svg dist/phpcraft/
-          tar -czf "target/release/PhpCraft-$version-linux-x86_64.tar.gz" -C dist phpcraft
+          cp target/release/phpcraft README.md assets/icon/phpcraft.svg dist/phpcraft/
+          tar -czf "target/release/PhpCraft-$version-linux-${{ matrix.arch }}.tar.gz" -C dist phpcraft
+
+          root=dist/deb
+          mkdir -p $root/DEBIAN $root/usr/bin $root/usr/share/applications $root/usr/share/icons/hicolor/scalable/apps
+          cp target/release/phpcraft $root/usr/bin/
+          cp assets/icon/phpcraft.svg $root/usr/share/icons/hicolor/scalable/apps/phpcraft.svg
+          cat > $root/usr/share/applications/phpcraft.desktop <<DESKTOP
+          [Desktop Entry]
+          Name=PhpCraft
+          Comment=PHP & Laravel IDE in pure Rust
+          Exec=phpcraft %F
+          Icon=phpcraft
+          Terminal=false
+          Type=Application
+          Categories=Development;IDE;
+          DESKTOP
+          cat > $root/DEBIAN/control <<CONTROL
+          Package: phpcraft
+          Version: ${version/-/~}
+          Architecture: ${{ matrix.deb }}
+          Maintainer: Rasul Chopurov <rasulchopurov@gmail.com>
+          Depends: libxkbcommon-x11-0, libvulkan1, libfontconfig1, libfreetype6, libasound2 | libasound2t64
+          Section: devel
+          Priority: optional
+          Homepage: https://path.az/phpcraft
+          Description: PHP & Laravel IDE in pure Rust
+           Open-source PHP and Laravel IDE. Made with love in Azerbaijan.
+          CONTROL
+          dpkg-deb --build --root-owner-group $root "target/release/phpcraft_${version}_${{ matrix.deb }}.deb"
       - uses: actions/upload-artifact@v4
         with:
-          name: PhpCraft-linux
-          path: target/release/PhpCraft-*-linux-x86_64.tar.gz
+          name: PhpCraft-linux-${{ matrix.arch }}
+          path: |
+            target/release/PhpCraft-*-linux-*.tar.gz
+            target/release/phpcraft_*.deb
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && !cancelled()
     needs: [macos, windows, linux]
     runs-on: ubuntu-latest
     permissions:
@@ -87,4 +152,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true

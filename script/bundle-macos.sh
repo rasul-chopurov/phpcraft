@@ -1,13 +1,23 @@
 #!/bin/sh
 # Builds target/release/PhpCraft.app (and a zip of it) from a release build.
+# TARGET=x86_64-apple-darwin (Intel) or aarch64-apple-darwin (Apple silicon) cross-builds;
+# without it the host architecture is used.
 set -e
 cd "$(dirname "$0")/.."
-cargo build --release -p phpcraft
 VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+if [ -n "$TARGET" ]; then
+  cargo build --release -p phpcraft --target "$TARGET"
+  BIN=target/$TARGET/release/phpcraft
+  case "$TARGET" in x86_64-*) ARCH=x64 ;; *) ARCH=arm64 ;; esac
+else
+  cargo build --release -p phpcraft
+  BIN=target/release/phpcraft
+  case "$(uname -m)" in x86_64) ARCH=x64 ;; *) ARCH=arm64 ;; esac
+fi
 APP=target/release/PhpCraft.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp target/release/phpcraft "$APP/Contents/MacOS/phpcraft"
+cp "$BIN" "$APP/Contents/MacOS/phpcraft"
 
 # Icon: SVG -> 1024px PNG (Quick Look) -> iconset -> icns.
 ICONSET=target/release/PhpCraft.iconset
@@ -42,7 +52,7 @@ PLIST
 
 # Ad-hoc signature so Gatekeeper lets the local build run.
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
-(cd target/release && rm -f PhpCraft-macos.zip && ditto -c -k --keepParent PhpCraft.app PhpCraft-macos.zip)
+(cd target/release && rm -f "PhpCraft-$VERSION-macos-$ARCH.zip" && ditto -c -k --keepParent PhpCraft.app "PhpCraft-$VERSION-macos-$ARCH.zip")
 echo "Built $APP"
 
 # Disk image: the app plus a link to /Applications for drag-and-drop install.
@@ -50,6 +60,7 @@ DMG_STAGE=target/release/dmg
 rm -rf "$DMG_STAGE" && mkdir -p "$DMG_STAGE"
 cp -R "$APP" "$DMG_STAGE/"
 ln -s /Applications "$DMG_STAGE/Applications"
-rm -f "target/release/PhpCraft-$VERSION.dmg"
-hdiutil create -volname "PhpCraft" -srcfolder "$DMG_STAGE" -ov -format UDZO "target/release/PhpCraft-$VERSION.dmg" >/dev/null
-echo "Built target/release/PhpCraft-$VERSION.dmg"
+DMG="target/release/PhpCraft-$VERSION-macos-$ARCH.dmg"
+rm -f "$DMG"
+hdiutil create -volname "PhpCraft" -srcfolder "$DMG_STAGE" -ov -format UDZO "$DMG" >/dev/null
+echo "Built $DMG"

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Cool violet-to-teal frame: same "tool icon" style, PhpCraft's own colours. -->
+    <linearGradient id="a" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#6a5cff"/>
+      <stop offset="0.55" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="b" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+  <!-- Back shapes -->
+  <path d="M112 300 L420 96 L912 160 L912 640 L700 928 L160 912 Z" fill="url(#a)"/>
+  <circle cx="820" cy="250" r="150" fill="url(#b)" opacity="0.9"/>
+  <!-- Dark tile -->
+  <rect x="212" y="212" width="600" height="600" rx="28" fill="#0b0b10"/>
+  <!-- Name in two lines -->
+  <text x="268" y="430" font-family="JetBrains Mono, SF Mono, Menlo, monospace" font-weight="800" font-size="170" fill="#ffffff" letter-spacing="-4">Php</text>
+  <text x="268" y="610" font-family="JetBrains Mono, SF Mono, Menlo, monospace" font-weight="800" font-size="170" fill="#ffffff" letter-spacing="-4">Craft</text>
+  <!-- Underscore cursor -->
+  <rect x="280" y="680" width="220" height="40" fill="#ffffff"/>
+</svg>
