@@ -662,6 +662,11 @@ impl Render for Welcome {
         });
         div()
             .track_focus(&self.focus_handle)
+            // Drop a project folder (or files) here to open it.
+            .on_drop(cx.listener(|_, paths: &gpui::ExternalPaths, _, cx| {
+                let paths = paths.paths().to_vec();
+                cx.defer(move |cx| crate::open_paths::open(paths, cx));
+            }))
             .relative()
             .size_full()
             .flex()

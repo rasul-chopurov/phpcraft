@@ -258,6 +258,21 @@ impl Workspace {
         self.focus_active(window, cx);
     }
 
+    fn drop_paths(&mut self, paths: &[PathBuf], window: &mut Window, cx: &mut Context<Self>) {
+        let mut outside = Vec::new();
+        for path in paths {
+            if path.is_file() && path.starts_with(self.project.root()) {
+                self.open_file(path, window, cx);
+            } else {
+                outside.push(path.clone());
+            }
+        }
+        if !outside.is_empty() {
+            // After this update: opening may need to update this window too.
+            cx.defer(move |cx| crate::open_paths::open(outside, cx));
+        }
+    }
+
     pub fn project_root(&self) -> &Path {
         self.project.root()
     }
@@ -938,6 +953,8 @@ impl Render for Workspace {
         div()
             .key_context("Workspace")
             .track_focus(&self.focus_handle)
+            // Files dropped from Finder / Explorer open in the editor; folders open as projects.
+            .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| this.drop_paths(paths.paths(), window, cx)))
             .on_action(cx.listener(Self::close_tab))
             .on_action(cx.listener(Self::next_tab))
             .on_action(cx.listener(Self::prev_tab))

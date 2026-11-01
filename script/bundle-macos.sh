@@ -46,6 +46,50 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+  <!-- Shown when macOS asks for access to protected folders and disks; without these the
+       access is denied silently (projects on Desktop, Documents or another disk won't open). -->
+  <key>NSDesktopFolderUsageDescription</key><string>PhpCraft opens and edits the projects you keep on your Desktop.</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>PhpCraft opens and edits the projects you keep in Documents.</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>PhpCraft opens projects and files from Downloads.</string>
+  <key>NSRemovableVolumesUsageDescription</key><string>PhpCraft opens projects stored on external drives.</string>
+  <key>NSNetworkVolumesUsageDescription</key><string>PhpCraft opens projects stored on network drives.</string>
+  <key>NSAppleEventsUsageDescription</key><string>PhpCraft opens folders in Finder and Terminal.</string>
+  <!-- "Open With → PhpCraft" for source files, and folders dropped on the Dock icon. -->
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>PHP Source</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeIconFile</key><string>PhpCraft</string>
+      <key>CFBundleTypeExtensions</key><array><string>php</string><string>phtml</string><string>inc</string></array>
+      <key>LSItemContentTypes</key><array><string>public.php-script</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Web and Source Files</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>html</string><string>htm</string><string>css</string><string>scss</string><string>js</string><string>mjs</string>
+        <string>ts</string><string>tsx</string><string>jsx</string><string>vue</string><string>json</string><string>xml</string>
+        <string>yml</string><string>yaml</string><string>md</string><string>sql</string><string>env</string><string>http</string>
+        <string>rest</string><string>txt</string><string>log</string><string>sh</string><string>neon</string><string>twig</string>
+      </array>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.html</string><string>public.css</string><string>com.netscape.javascript-source</string>
+        <string>public.json</string><string>public.xml</string><string>public.yaml</string><string>net.daringfireball.markdown</string>
+        <string>public.plain-text</string><string>public.source-code</string><string>public.shell-script</string>
+      </array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>Folder</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>LSItemContentTypes</key><array><string>public.folder</string></array>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST

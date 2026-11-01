@@ -44,6 +44,14 @@ impl ProjectWindow {
         this
     }
 
+    /// Activates the tab showing `root`, if this window has one.
+    pub fn show_project(&mut self, root: &Path, window: &mut Window, cx: &mut Context<Self>) -> Option<Entity<Workspace>> {
+        let ix = self.tabs.iter().position(|(w, _)| w.read(cx).project_root() == root)?;
+        self.activate(ix, window, cx);
+        cx.notify();
+        Some(self.tabs[ix].0.clone())
+    }
+
     /// Opens another project as a tab.
     pub fn open_tab(&mut self, root: &Path, window: &mut Window, cx: &mut Context<Self>) {
         match new_workspace(root, window, cx) {

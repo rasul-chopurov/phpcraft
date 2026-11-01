@@ -14,6 +14,7 @@ mod keymap;
 mod local_history;
 mod markdown_preview;
 mod menus;
+mod open_paths;
 mod modules;
 mod project_info;
 mod project_window;
@@ -87,31 +88,31 @@ fn main() {
     inherit_shell_path();
     // Ask `php` for its version off the UI thread (the status bar shows it).
     std::thread::spawn(|| project_info::php_version());
-    // `phpcraft <folder>` opens a project; without arguments the welcome window shows.
-    let root = std::env::args().nth(1);
-    if let Some(root) = &root
-        && let Err(err) = Project::open(root)
-    {
-        eprintln!("cannot open project {root}: {err:#}");
+    // `phpcraft <folder or files…>` opens them (file associations on Windows and Linux pass the
+    // file this way); without arguments the welcome window shows.
+    let args: Vec<std::path::PathBuf> = std::env::args().skip(1).filter(|a| !a.starts_with('-')).map(Into::into).collect();
+    if let Some(missing) = args.iter().find(|p| !p.exists()) {
+        eprintln!("cannot open {}: no such file or folder", missing.display());
         std::process::exit(1);
     }
 
-    Application::new().with_assets(icons::Assets).run(move |cx: &mut App| {
+    let app = Application::new().with_assets(icons::Assets);
+    // Files and folders opened from Finder, the Dock or `open -a PhpCraft` on macOS.
+    let opened = open_paths::listen(&app);
+    app.run(move |cx: &mut App| {
         theme::init(cx);
         keymap::apply(cx);
         cx.on_action(|_: &Quit, cx| cx.quit());
         menus::set(cx);
         cx.activate(true);
         splash::show(cx, move |cx| {
-            match &root {
-                Some(root) => {
-                    if let Err(err) = open_project_window(std::path::Path::new(root), cx) {
-                        eprintln!("failed to open window: {err:#}");
-                        cx.quit();
-                    }
-                }
-                None => welcome::open(cx),
+            let has_project = cx.windows().iter().any(|w| w.downcast::<project_window::ProjectWindow>().is_some());
+            if !args.is_empty() {
+                open_paths::open(args, cx);
+            } else if !has_project {
+                welcome::open(cx);
             }
+            open_paths::handle(opened, cx);
                 // Closing the last window quits, except after Close Project, which goes back to
             // the welcome window.
             cx.on_window_closed(|cx| {
