@@ -50,7 +50,7 @@
       <a class="btn" href="/phpcraft/">{{learn_more}}</a>
       <a class="btn" href="https://github.com/rasul-chopurov/phpcraft">GitHub</a>
     </div>
-    <div class="hint mono" id="os-hint">macOS · Windows · Linux · {{free_open}}</div>
+    <div class="hint mono" id="os-hint">macOS · Windows · {{free_open}}</div>
     <div class="shot"><img src="/img/split.jpg" alt="PhpCraft" width="1400" height="911"></div>
   </div>
 </section>
@@ -132,13 +132,6 @@
         <a data-file="windows-x86-Setup.exe">32-bit (x86) <span>.exe</span></a>
         <a data-file="windows-x64-portable.zip">{{portable}} <span>.zip</span></a>
       </div>
-      <div class="pf" data-os="linux">
-        <h3>Linux <small>{{your_system}}</small></h3>
-        <a data-deb="amd64">Ubuntu / Debian x86_64 <span>.deb</span></a>
-        <a data-deb="arm64">Ubuntu / Debian arm64 <span>.deb</span></a>
-        <a data-file="linux-x86_64.tar.gz">{{any_distro}} x86_64 <span>.tar.gz</span></a>
-        <a data-file="linux-arm64.tar.gz">{{any_distro}} arm64 <span>.tar.gz</span></a>
-      </div>
     </div>
     <div class="all mono"><a href="https://github.com/rasul-chopurov/phpcraft/releases">{{all_releases}} →</a></div>
   </div>
@@ -166,14 +159,13 @@
 
 <script>
 (function(){
-  var VERSION = "0.4.1-alpha";
+  var VERSION = "0.4.2-alpha";
   // Download links open the release page on GitHub, where every installer is listed.
   var page = "https://github.com/rasul-chopurov/phpcraft/releases/tag/v" + VERSION;
   document.querySelectorAll("[data-file], [data-deb]").forEach(function(a){ a.href = page; });
   var ua = navigator.userAgent, os = null, name = null;
   if (/Mac/.test(ua)) { os = "mac"; name = "macOS"; }
   else if (/Win/.test(ua)) { os = "win"; name = "Windows"; }
-  else if (/Linux|X11/.test(ua) && !/Android/.test(ua)) { os = "linux"; name = "Linux"; }
   if (!os) return;
   var card = document.querySelector('.pf[data-os="' + os + '"]');
   card.classList.add("mine");

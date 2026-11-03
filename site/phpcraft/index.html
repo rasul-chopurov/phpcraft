@@ -86,7 +86,7 @@ h1 em{font-style:normal;background:linear-gradient(90deg,var(--accent),var(--acc
 .get h2,.family h2{font-size:clamp(32px,4.5vw,56px);letter-spacing:-.035em;line-height:1.02;margin:0 0 16px;font-weight:800}
 .get h2 em,.family h2 em{font-style:normal;color:var(--accent)}
 .get .lead{color:var(--muted);max-width:640px;line-height:1.6;margin:0 0 40px}
-.platforms{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.platforms{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
 .pf{border:1px solid var(--line2);background:var(--bg2);padding:26px;display:flex;flex-direction:column;gap:10px}
 .pf.mine{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
 .pf h3{margin:0 0 6px;font-size:22px;display:flex;justify-content:space-between;align-items:center}
@@ -161,7 +161,7 @@ footer .made .heart{color:var(--heart)}
       <a class="btn primary" id="dl-main" href="#download">↓ Download</a>
       <a class="btn" href="https://github.com/rasul-chopurov/phpcraft">View on GitHub</a>
     </div>
-    <div class="os-hint mono" id="os-hint">macOS · Windows · Linux</div>
+    <div class="os-hint mono" id="os-hint">macOS · Windows</div>
     <div class="shot"><img src="../img/split.jpg" alt="PhpCraft with three split editors and the Commit tool window" width="1400" height="911"></div>
   </div>
 </section>
@@ -211,13 +211,6 @@ footer .made .heart{color:var(--heart)}
         <a data-file="windows-x64-portable.zip">Portable, no install <span>.zip</span></a>
         <p>Windows 10 or 11. Adds “Open as PhpCraft Project” to Explorer.</p>
       </div>
-      <div class="pf" data-os="linux">
-        <h3>Linux <small>Your system</small></h3>
-        <a data-deb="amd64">Ubuntu / Debian x86_64 <span>.deb</span></a>
-        <a data-deb="arm64">Ubuntu / Debian arm64 <span>.deb</span></a>
-        <a data-file="linux-x86_64.tar.gz">Any distro x86_64 <span>.tar.gz</span></a>
-        <a data-file="linux-arm64.tar.gz">Any distro arm64 <span>.tar.gz</span></a>
-      </div>
     </div>
     <div class="all mono"><a href="https://github.com/rasul-chopurov/phpcraft/releases">All releases and checksums →</a></div>
   </div>
@@ -249,14 +242,13 @@ footer .made .heart{color:var(--heart)}
 
 <script>
 (function(){
-  var VERSION = "0.4.1-alpha";
+  var VERSION = "0.4.2-alpha";
   // Download links open the release page on GitHub, where every installer is listed.
   var page = "https://github.com/rasul-chopurov/phpcraft/releases/tag/v" + VERSION;
   document.querySelectorAll("[data-file], [data-deb]").forEach(function(a){ a.href = page; });
   var ua = navigator.userAgent, os = null, name = null;
   if (/Mac/.test(ua)) { os = "mac"; name = "macOS"; }
   else if (/Win/.test(ua)) { os = "win"; name = "Windows"; }
-  else if (/Linux|X11/.test(ua) && !/Android/.test(ua)) { os = "linux"; name = "Linux"; }
   if (!os) return;
   var card = document.querySelector('.pf[data-os="' + os + '"]');
   card.classList.add("mine");

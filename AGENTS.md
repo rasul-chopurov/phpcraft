@@ -76,8 +76,8 @@ as data — see `crates/php-index/STUBS-LICENSE`.)
 - `INSPECT_ROOT=/path cargo test -p php-analysis survey -- --ignored --nocapture` surveys
   inspections on a real project (false-positive check).
 - Releases: bump `version` in `Cargo.toml` and `VERSION` in `site/src/home.html` +
-  `site/phpcraft/index.html`; push; tag `vX.Y.Z-alpha` → GitHub Actions `Release` builds 12
-  installers. CI (`ci.yml`) must be green first. The site deploys with `./site/deploy.sh`
+  `site/phpcraft/index.html`; push; tag `vX.Y.Z-alpha` → GitHub Actions `Release` builds 8
+  installers (macOS + Windows). CI (`ci.yml`) must be green first. The site deploys with `./site/deploy.sh`
   (FTP password asked interactively).
 
 ## What exists (high level)
@@ -100,7 +100,10 @@ terminal, AI agents, settings sync and import (PhpStorm / VS Code / Zed).
 - Releases: **0.1.0-alpha**, **0.2.0-alpha**, **0.4.0-alpha** (all the PhpStorm-port waves,
   Pull Requests UI, spell checker). A `v0.3.0-alpha` tag exists on GitHub without a release
   (its build was cancelled) — the user may delete it.
-- **0.4.1-alpha**: git status polled only while the window is active (Windows users saw cmd windows flashing). `Cargo.toml` version is `0.4.1-alpha`.
+- **0.4.1-alpha**: git status polled only while the window is active (Windows users saw cmd
+  windows flashing). **0.4.2-alpha**: windows and dialogs fit small screens.
+- Releases are built for **macOS and Windows only** (the user paused Linux builds; the site
+  doesn't list Linux). `Cargo.toml` version is `0.4.2-alpha`.
 
 ### Next steps: known gaps / ideas
 
