@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "agent"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "process",
  "search",
@@ -1331,7 +1331,7 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 
 [[package]]
 name = "dbgp"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "base64 0.22.1",
 ]
@@ -1522,7 +1522,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "editor"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "anyhow",
  "php-syntax",
@@ -2105,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "git"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "dunce",
  "process",
@@ -2545,7 +2545,7 @@ dependencies = [
 
 [[package]]
 name = "history"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "serde",
  "serde_json",
@@ -3039,7 +3039,7 @@ dependencies = [
 
 [[package]]
 name = "laravel"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "php-analysis",
  "php-index",
@@ -3889,7 +3889,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "php-analysis"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "dunce",
  "php-index",
@@ -3900,7 +3900,7 @@ dependencies = [
 
 [[package]]
 name = "php-index"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "flate2",
  "php-syntax",
@@ -3910,7 +3910,7 @@ dependencies = [
 
 [[package]]
 name = "php-syntax"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "streaming-iterator",
  "tree-sitter",
@@ -3925,7 +3925,7 @@ dependencies = [
 
 [[package]]
 name = "phpcraft"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "agent",
  "anyhow",
@@ -4144,7 +4144,7 @@ dependencies = [
 
 [[package]]
 name = "process"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 
 [[package]]
 name = "profiling"
@@ -4167,7 +4167,7 @@ dependencies = [
 
 [[package]]
 name = "project"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "anyhow",
  "dunce",
@@ -4955,7 +4955,7 @@ checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
 
 [[package]]
 name = "search"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "ignore",
  "regex",
@@ -5283,7 +5283,7 @@ dependencies = [
 
 [[package]]
 name = "spell"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "flate2",
 ]
@@ -5690,7 +5690,7 @@ dependencies = [
 
 [[package]]
 name = "terminal"
-version = "0.4.2-alpha"
+version = "0.4.3-alpha"
 dependencies = [
  "alacritty_terminal",
  "async-channel 2.5.0",

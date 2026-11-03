@@ -103,8 +103,9 @@ terminal, AI agents, settings sync and import (PhpStorm / VS Code / Zed).
   (its build was cancelled) — the user may delete it.
 - **0.4.1-alpha**: git status polled only while the window is active (Windows users saw cmd
   windows flashing). **0.4.2-alpha**: windows and dialogs fit small screens.
+  **0.4.3-alpha**: Update and Restart (self-update in place).
 - Releases are built for **macOS and Windows only** (the user paused Linux builds; the site
-  doesn't list Linux). `Cargo.toml` version is `0.4.2-alpha`.
+  doesn't list Linux). `Cargo.toml` version is `0.4.3-alpha`.
 
 ### Next steps: known gaps / ideas
 
