@@ -100,7 +100,7 @@ terminal, AI agents, settings sync and import (PhpStorm / VS Code / Zed).
 - Releases: **0.1.0-alpha**, **0.2.0-alpha**, **0.4.0-alpha** (all the PhpStorm-port waves,
   Pull Requests UI, spell checker). A `v0.3.0-alpha` tag exists on GitHub without a release
   (its build was cancelled) — the user may delete it.
-- `Cargo.toml` version is `0.4.0-alpha`.
+- **0.4.1-alpha**: git status polled only while the window is active (Windows users saw cmd windows flashing). `Cargo.toml` version is `0.4.1-alpha`.
 
 ### Next steps: known gaps / ideas
 
