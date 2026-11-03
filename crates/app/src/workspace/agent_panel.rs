@@ -276,7 +276,17 @@ impl Workspace {
                 self.rescan(cx);
             }
             AgentEvent::Notice(text) => items.push(ChatItem::Notice(text)),
-            AgentEvent::Error(text) => items.push(ChatItem::Error(text)),
+            AgentEvent::Error(text) => {
+                // Not signed in: drop the agent so it rereads its credentials after a login
+                // (from the Sign in button or any other terminal).
+                let lower = text.to_lowercase();
+                if (lower.contains("auth") || lower.contains("login") || lower.contains("sign in") || lower.contains("api key") || lower.contains("provider"))
+                    && let Some(session) = self.agent.session.take()
+                {
+                    session.cancel();
+                }
+                self.agent.items.push(ChatItem::Error(text));
+            }
             AgentEvent::Done => self.agent.running = false,
         }
     }
@@ -447,6 +457,7 @@ impl Workspace {
         // ACP agents sign in with their own account: run their login in a terminal.
         let login = KNOWN_AGENTS.iter().find(|a| a.name == config.provider).map(|agent| {
             let command = agent.login;
+            let signed_in = agent.signed_in();
             div()
                 .flex()
                 .items_center()
@@ -455,8 +466,13 @@ impl Workspace {
                 .py_1()
                 .text_size(px(12.))
                 .text_color(theme::muted())
-                .child(div().flex_1().child(format!("{} uses its own account, no API key.", agent.name)))
-                .child(small_button("agent-login".into(), "Sign in…").on_click(cx.listener(move |this, _, window, cx| {
+                .child(div().flex_1().child(if signed_in { format!("Signed in to {}.", agent.name) } else { format!("{} uses its own account, no API key.", agent.name) }))
+                .child(small_button("agent-login".into(), if signed_in { "Switch account…" } else { "Sign in…" }).on_click(cx.listener(move |this, _, window, cx| {
+                    // An agent started before signing in keeps its old (missing) credentials:
+                    // the next message starts a fresh one.
+                    if let Some(session) = this.agent.session.take() {
+                        session.cancel();
+                    }
                     let root = this.project.root().to_path_buf();
                     let config = crate::run_configs::RunConfig {
                         name: format!("{} login", command[0]),

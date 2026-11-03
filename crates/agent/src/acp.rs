@@ -21,14 +21,33 @@ pub struct AcpAgent {
     pub args: &'static [&'static str],
     /// Command that signs in to the agent's own account (run in a terminal).
     pub login: &'static [&'static str],
+    /// Where the agent keeps its sign-in, relative to the home folder (empty when it uses the
+    /// system keychain and there's nothing to look at).
+    pub credentials: &'static [&'static str],
+}
+
+impl AcpAgent {
+    /// Whether one of the agent's credential files has something in it (OpenCode leaves `{}`
+    /// behind after logging out).
+    pub fn signed_in(&self) -> bool {
+        let Some(home) = dirs_home() else { return false };
+        let data = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".local/share"));
+        self.credentials.iter().any(|file| {
+            let path = match file.strip_prefix("$data/") {
+                Some(rest) => data.join(rest),
+                None => home.join(file),
+            };
+            std::fs::read_to_string(path).is_ok_and(|text| text.trim().len() > 2)
+        })
+    }
 }
 
 pub const KNOWN_AGENTS: &[AcpAgent] = &[
-    AcpAgent { name: "OpenCode", program: "opencode", args: &["acp"], login: &["opencode", "auth", "login"] },
-    AcpAgent { name: "Claude Code", program: "claude-code-acp", args: &[], login: &["claude", "/login"] },
-    AcpAgent { name: "Codex", program: "codex-acp", args: &[], login: &["codex", "login"] },
+    AcpAgent { name: "OpenCode", program: "opencode", args: &["acp"], login: &["opencode", "auth", "login"], credentials: &["$data/opencode/auth.json"] },
+    AcpAgent { name: "Claude Code", program: "claude-code-acp", args: &[], login: &["claude", "/login"], credentials: &[".claude/.credentials.json"] },
+    AcpAgent { name: "Codex", program: "codex-acp", args: &[], login: &["codex", "login"], credentials: &[".codex/auth.json"] },
     // Google AI subscription (Gemini CLI signed in with a Google account).
-    AcpAgent { name: "Gemini", program: "gemini", args: &["--experimental-acp"], login: &["gemini"] },
+    AcpAgent { name: "Gemini", program: "gemini", args: &["--experimental-acp"], login: &["gemini"], credentials: &[".gemini/oauth_creds.json"] },
 ];
 
 /// Finds `program` on PATH (and common install folders GUI apps don't inherit).
