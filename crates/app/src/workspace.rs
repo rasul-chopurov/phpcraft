@@ -114,6 +114,8 @@ pub struct Workspace {
     _diff_subscription: Option<gpui::Subscription>,
     git: git_panel::GitState,
     _git_poll: Option<gpui::Task<()>>,
+    /// Whether the window is the active one (background windows don't poll git).
+    window_active: bool,
     /// Running background work shown in the status bar: (id, label).
     tasks: Vec<(u64, String)>,
     next_task: u64,
@@ -137,6 +139,11 @@ impl Workspace {
         .detach();
         // Save everything when the window loses focus (PhpStorm's "save on frame deactivation").
         cx.observe_window_activation(window, |this, window, cx| {
+            this.window_active = window.is_window_active();
+            // Git status is polled only while the window is active; catch up on return.
+            if this.window_active {
+                this.refresh_git(cx);
+            }
             if !window.is_window_active()
                 && crate::config::Settings::load_cached().auto_save != crate::config::AutoSave::Off
             {
@@ -157,6 +164,7 @@ impl Workspace {
                 git
             },
             _git_poll: None,
+            window_active: true,
             tasks: vec![(0, "Indexing…".into())],
             next_task: 1,
             intel,

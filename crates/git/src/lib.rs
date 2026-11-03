@@ -164,6 +164,9 @@ impl Repo {
             .args(args)
             .current_dir(&self.root)
             .env("GIT_TERMINAL_PROMPT", "0")
+            // Background `git status` must not take the index lock (it would fight the user's
+            // own git commands and rewrite .git/index every poll).
+            .env("GIT_OPTIONAL_LOCKS", "0")
             .output()
             .map_err(|e| format!("failed to run git: {e}"))?;
         if output.status.success() {

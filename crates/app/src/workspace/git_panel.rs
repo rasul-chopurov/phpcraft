@@ -107,7 +107,14 @@ impl Workspace {
         self._git_poll = Some(cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_secs(3)).await;
-                if this.update(cx, |this, cx| this.refresh_git(cx)).is_err() {
+                // Every refresh starts three git processes: not while PhpCraft is in the
+                // background (on Windows each one can flash a console).
+                let poll = |this: &mut Self, cx: &mut Context<Self>| {
+                    if this.window_active {
+                        this.refresh_git(cx);
+                    }
+                };
+                if this.update(cx, poll).is_err() {
                     break;
                 }
             }
