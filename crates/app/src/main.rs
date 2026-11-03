@@ -26,6 +26,7 @@ mod project_window;
 mod pull_requests;
 mod quality;
 mod run_configs;
+mod self_update;
 mod settings_import;
 mod splash;
 mod test_results;
@@ -137,6 +138,7 @@ fn shell_path(shell: &str, args: &[&str]) -> Option<String> {
 }
 
 fn main() {
+    self_update::clean_up();
     inherit_shell_path();
     // Ask `php` for its version off the UI thread (the status bar shows it).
     std::thread::spawn(|| project_info::php_version());

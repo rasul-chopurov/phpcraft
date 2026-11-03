@@ -1,6 +1,6 @@
 //! Updates and What's New: releases come from GitHub. At every start PhpCraft looks for a newer
-//! release (alpha builds included) and offers it — Download, Remind Me Later or Skip This
-//! Version. The first run after an update shows the changelog; Help ▸ What's New shows it any
+//! release (alpha builds included) and offers it — Update and Restart (in place, see
+//! `self_update`), Download, Remind Me Later or Skip This Version. The first run after an update shows the changelog; Help ▸ What's New shows it any
 //! time.
 
 use std::time::Duration;
@@ -117,6 +117,11 @@ pub struct UpdateWindow {
     mode: Mode,
     releases: Vec<Release>,
     error: Option<String>,
+    /// Update and Restart in progress (download bytes), and its failure if any.
+    installing: Option<std::sync::Arc<crate::self_update::Progress>>,
+    install_error: Option<String>,
+    _install: Option<gpui::Task<()>>,
+    _tick: Option<gpui::Task<()>>,
 }
 
 fn open_window(mode: Mode, releases: Vec<Release>, error: Option<String>, cx: &mut App) {
@@ -129,7 +134,7 @@ fn open_window(mode: Mode, releases: Vec<Release>, error: Option<String>, cx: &m
         }),
         ..Default::default()
     };
-    let _ = cx.open_window(options, |_, cx| cx.new(|_| UpdateWindow { mode, releases, error }));
+    let _ = cx.open_window(options, |_, cx| cx.new(|_| UpdateWindow { mode, releases, error, installing: None, install_error: None, _install: None, _tick: None }));
 }
 
 /// The start-up check: offer a newer release, or show What's New once after an update.
@@ -192,7 +197,55 @@ impl UpdateWindow {
     fn latest(&self) -> Option<&Release> {
         self.releases.first()
     }
+
+    /// Downloads the latest release, puts it in place and restarts into it.
+    fn update_and_restart(&mut self, cx: &mut Context<Self>) {
+        let Some(release) = self.latest().cloned() else { return };
+        let progress = std::sync::Arc::new(crate::self_update::Progress::default());
+        self.installing = Some(progress.clone());
+        self.install_error = None;
+        self._install = Some(cx.spawn(async move |this, cx| {
+            let task = cx.background_spawn(async move { crate::self_update::install(&release, progress) });
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(restart) => crate::self_update::restart(restart, cx),
+                Err(err) => {
+                    this.installing = None;
+                    this.install_error = Some(err);
+                    cx.notify();
+                }
+            });
+        }));
+        // Repaint the progress line while the download runs.
+        self._tick = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_millis(200)).await;
+                let running = this.update(cx, |this, cx| {
+                    cx.notify();
+                    this.installing.is_some()
+                });
+                if !running.unwrap_or(false) {
+                    break;
+                }
+            }
+        }));
+        cx.notify();
+    }
+
+    fn progress_text(&self) -> Option<String> {
+        let progress = self.installing.as_ref()?;
+        let done = progress.done.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1_048_576.;
+        let total = progress.total.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1_048_576.;
+        Some(if total > 0. && done >= total {
+            "Installing…".to_string()
+        } else if total > 0. {
+            format!("Downloading… {done:.1} of {total:.1} MB")
+        } else {
+            format!("Downloading… {done:.1} MB")
+        })
+    }
 }
+
 
 impl Render for UpdateWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -206,14 +259,19 @@ impl Render for UpdateWindow {
             _ => format!("What's New · you're up to date ({current})"),
         };
         let button = |id: &'static str, label: &'static str, primary: bool| crate::dialogs::button(id, label, primary);
+        let in_place = crate::self_update::supported();
+        let status = self.progress_text().or_else(|| self.install_error.clone());
+        let failed = self.install_error.is_some() && self.installing.is_none();
         let actions = div()
             .flex()
+            .items_center()
             .justify_end()
             .gap_2()
             .px_5()
             .py_3()
             .border_t_1()
             .border_color(theme::border())
+            .child(div().flex_1().overflow_hidden().text_size(px(12.)).text_color(if failed { theme::error() } else { theme::muted() }).children(status))
             .when(newer, |d| {
                 let release = latest.clone();
                 let skip = latest.as_ref().map(|r| r.version.clone()).unwrap_or_default();
@@ -224,12 +282,19 @@ impl Render for UpdateWindow {
                     window.remove_window();
                 })))
                 .child(button("update-later", "Remind Me Later", false).on_click(cx.listener(|_, _, window, _| window.remove_window())))
-                .child(button("update-download", "Download", true).on_click(cx.listener(move |_, _, window, cx| {
+                .child(button("update-download", "Download", !in_place).on_click(cx.listener(move |_, _, window, cx| {
                     if let Some(release) = &release {
                         cx.open_url(&download_url(release));
                     }
                     window.remove_window();
                 })))
+                .when(in_place, |d| {
+                    d.child(button("update-install", "Update and Restart", true).on_click(cx.listener(|this, _, _, cx| {
+                        if this.installing.is_none() {
+                            this.update_and_restart(cx);
+                        }
+                    })))
+                })
             })
             .when(!newer, |d| {
                 d.child(button("changelog-releases", "All Releases", false).on_click(cx.listener(|_, _, _, cx| cx.open_url(RELEASES_PAGE))))

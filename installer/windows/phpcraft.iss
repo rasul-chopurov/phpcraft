@@ -85,3 +85,5 @@ Root: HKA; Subkey: "Software\Classes\Directory\shell\PhpCraft\command"; ValueTyp
 
 [Run]
 Filename: "{app}\phpcraft.exe"; Description: "{cm:LaunchProgram,PhpCraft}"; Flags: nowait postinstall skipifsilent
+; Update and Restart runs this installer with /SILENT: start PhpCraft again afterwards.
+Filename: "{app}\phpcraft.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent

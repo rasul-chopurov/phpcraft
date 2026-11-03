@@ -53,7 +53,8 @@ as data — see `crates/php-index/STUBS-LICENSE`.)
   `DialogEvent` → `Workspace::on_dialog_event` (`workspace/tools.rs`).
   `navigate.rs` is the list/search popup reused for many result lists (`NavMode::*`).
 - `menus.rs` (menu bar), `keymap.rs` (default shortcuts, mac + Windows/Linux),
-  `config.rs` (settings.json), `run_configs.rs` (run/test configs, PHP interpreter local /
+  `config.rs` (settings.json), `updates.rs` + `self_update.rs` (update check, What's New,
+  Update and Restart in place), `run_configs.rs` (run/test configs, PHP interpreter local /
   docker / sail / ssh), `quality.rs` (Pint, PHP CS Fixer, PHPStan, Psalm, PHPCS), `debugger.rs`
   (Xdebug controller thread), `docker.rs`, `test_results.rs` (JUnit, Clover), `http_client.rs`
   + `http_convert.rs`, `pull_requests.rs`, `twig.rs`, `bookmarks.rs`, `breakpoints.rs`.
