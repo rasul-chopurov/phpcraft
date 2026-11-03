@@ -6,8 +6,8 @@
 use std::time::Duration;
 
 use gpui::{
-    App, AppContext, Bounds, Context, FontWeight, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div,
-    prelude::*, px, size,
+    App, AppContext, Context, FontWeight, SharedString, TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div,
+    prelude::*, px,
 };
 
 use crate::config::Settings;
@@ -121,7 +121,8 @@ pub struct UpdateWindow {
 
 fn open_window(mode: Mode, releases: Vec<Release>, error: Option<String>, cx: &mut App) {
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(680.), px(560.)), cx))),
+        window_bounds: Some(WindowBounds::Windowed(crate::window_state::centered(680., 560., cx))),
+        window_min_size: Some(crate::window_state::min_size()),
         titlebar: Some(TitlebarOptions {
             title: Some(if mode == Mode::Update { "Update available" } else { "What's New in PhpCraft" }.into()),
             ..Default::default()

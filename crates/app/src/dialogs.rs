@@ -133,6 +133,25 @@ impl OpenMode {
     }
 }
 
+/// The dimmed layer under a modal dialog: the dialog centered near the top, the layer
+/// scrolling when the dialog is taller than the window, a click outside dismissing it.
+pub(crate) fn modal_overlay(modal: gpui::AnyView) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id("modal-overlay")
+        .absolute()
+        .inset_0()
+        .bg(theme::overlay())
+        .occlude()
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
+        .items_center()
+        .px_4()
+        .pt(px(56.))
+        .pb_4()
+        .child(modal)
+}
+
 /// A one-line tooltip.
 pub struct TextTooltip(pub SharedString);
 
@@ -200,6 +219,10 @@ pub(crate) fn button(id: &'static str, text: &'static str, primary: bool) -> gpu
 fn card(width: f32) -> gpui::Div {
     div()
         .w(px(width))
+        // Narrow windows (laptops at 125–150% scaling): never wider than the window, and
+        // never squeezed in height (the overlay scrolls instead, see `modal_overlay`).
+        .max_w(gpui::relative(1.))
+        .flex_none()
         .bg(theme::panel_bg())
         .border_1()
         .border_color(theme::border_strong())

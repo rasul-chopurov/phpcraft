@@ -83,9 +83,10 @@ fn branch(root: &Path) -> Option<String> {
 
 /// Opens the welcome window.
 pub fn open(cx: &mut App) {
-    let bounds = gpui::Bounds::centered(None, gpui::size(px(900.), px(620.)), cx);
+    let bounds = crate::window_state::centered(900., 620., cx);
     let options = gpui::WindowOptions {
         window_bounds: Some(gpui::WindowBounds::Windowed(bounds)),
+        window_min_size: Some(crate::window_state::min_size()),
         titlebar: Some(gpui::TitlebarOptions { title: Some("Welcome to PhpCraft".into()), ..Default::default() }),
         ..Default::default()
     };
@@ -914,18 +915,6 @@ impl Render for Welcome {
                     }),
             )
             .children(gear_menu)
-            .when_some(self.modal.clone(), |d, modal| {
-                d.child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .bg(theme::overlay())
-                        .flex()
-                        .justify_center()
-                        .items_start()
-                        .pt(px(60.))
-                        .child(modal),
-                )
-            })
+            .when_some(self.modal.clone(), |d, modal| d.child(crate::dialogs::modal_overlay(modal)))
     }
 }

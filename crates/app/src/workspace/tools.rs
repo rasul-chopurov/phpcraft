@@ -1131,20 +1131,11 @@ impl Workspace {
             );
         }
         Some(
-            div()
-                .absolute()
-                .inset_0()
-                .bg(theme::overlay())
-                .occlude()
-                .flex()
-                .justify_center()
-                .items_start()
-                .pt(px(70.))
+            crate::dialogs::modal_overlay(modal)
                 .on_mouse_down(
                     gpui::MouseButton::Left,
                     cx.listener(|this, _, window, cx| this.dismiss_modal(window, cx)),
                 )
-                .child(modal)
                 .into_any_element(),
         )
     }
