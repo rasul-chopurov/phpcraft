@@ -205,7 +205,7 @@ fn string_paths_resolve_to_files() {
     let doc = Document::parse(&index_php, src).unwrap();
     let helpers = [("base_path", root.clone())];
     let at = |needle: &str| src.find(needle).unwrap() + 2;
-    let canon = |p: &str| std::fs::canonicalize(root.join(p)).unwrap();
+    let canon = |p: &str| dunce::canonicalize(root.join(p)).unwrap();
     assert_eq!(file_path_at(&doc, at("/../bootstrap"), &helpers, &[]), Some(canon("bootstrap/app.php")));
     assert_eq!(file_path_at(&doc, at("routes/web.php')"), &helpers, &[]), Some(canon("routes/web.php")));
     assert_eq!(file_path_at(&doc, at("/routes/web.php';"), &helpers, &[]), Some(canon("routes/web.php")));
