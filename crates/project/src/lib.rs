@@ -31,7 +31,7 @@ pub struct Project {
 
 impl Project {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self> {
-        let root = fs::canonicalize(root.into())?;
+        let root = dunce::canonicalize(root.into())?;
         let mut expanded = HashSet::new();
         expanded.insert(root.clone());
         Ok(Self { root, expanded })

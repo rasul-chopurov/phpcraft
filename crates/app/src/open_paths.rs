@@ -52,7 +52,7 @@ pub fn path_from_url(url: &str) -> Option<PathBuf> {
 pub fn open(paths: Vec<PathBuf>, cx: &mut App) {
     let mut opened = false;
     for path in paths {
-        let path = std::fs::canonicalize(&path).unwrap_or(path);
+        let path = dunce::canonicalize(&path).unwrap_or(path);
         if path.is_dir() {
             opened |= focus_or_open(&path, None, cx);
         } else if path.is_file() {

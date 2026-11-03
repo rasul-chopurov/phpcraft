@@ -2107,6 +2107,7 @@ dependencies = [
 name = "git"
 version = "0.4.2-alpha"
 dependencies = [
+ "dunce",
  "process",
  "similar",
 ]
@@ -3890,6 +3891,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 name = "php-analysis"
 version = "0.4.2-alpha"
 dependencies = [
+ "dunce",
  "php-index",
  "php-syntax",
  "spell",
@@ -3930,6 +3932,7 @@ dependencies = [
  "async-channel 2.5.0",
  "dbgp",
  "dirs 6.0.0",
+ "dunce",
  "editor",
  "git",
  "gpui",
@@ -4167,6 +4170,7 @@ name = "project"
 version = "0.4.2-alpha"
 dependencies = [
  "anyhow",
+ "dunce",
 ]
 
 [[package]]

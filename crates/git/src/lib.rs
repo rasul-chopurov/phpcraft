@@ -194,8 +194,8 @@ impl Repo {
     pub fn relative(&self, path: &Path) -> Option<String> {
         let relative = path.strip_prefix(&self.root).ok().or_else(|| {
             // Symlinked temp dirs (macOS /var -> /private/var) differ textually.
-            let canonical = std::fs::canonicalize(path).ok()?;
-            let root = std::fs::canonicalize(&self.root).ok()?;
+            let canonical = dunce::canonicalize(path).ok()?;
+            let root = dunce::canonicalize(&self.root).ok()?;
             let rel = canonical.strip_prefix(&root).ok()?.to_path_buf();
             Some(Box::leak(rel.into_boxed_path()))
         })?;

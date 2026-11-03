@@ -28,4 +28,6 @@ tree-sitter = "0.25"
 tree-sitter-php = "0.25.1"
 streaming-iterator = "0.1"
 anyhow = "1"
+# `canonicalize` without Windows' `\\?\` prefix, which shells and many tools reject.
+dunce = "1"
 rayon = "1.12"

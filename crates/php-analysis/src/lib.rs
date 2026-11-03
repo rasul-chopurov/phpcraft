@@ -275,7 +275,7 @@ pub fn file_path_at(
     }
     bases.into_iter().find_map(|base| {
         let candidate = base.join(value.trim_start_matches('/'));
-        let candidate = std::fs::canonicalize(&candidate).ok()?;
+        let candidate = dunce::canonicalize(&candidate).ok()?;
         candidate.is_file().then_some(candidate)
     })
 }
