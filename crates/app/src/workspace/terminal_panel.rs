@@ -30,6 +30,19 @@ pub(super) struct TerminalState {
     renaming: Option<(usize, Entity<crate::text_field::TextField>)>,
 }
 
+/// PowerShell's PSReadLine reads one history shared by every session on the machine, so ↑/↓
+/// in a new tab walked commands typed anywhere in Windows. Each tab gets an empty history of
+/// its own (a fresh file, nothing written back), set before the first prompt reads it.
+fn own_history(command: Option<terminal::Command>) -> Option<terminal::Command> {
+    let program = command.as_ref().map_or("powershell", |c| c.program.as_str());
+    let name = program.rsplit(['\\', '/']).next().unwrap_or(program).to_ascii_lowercase();
+    if !matches!(name.as_str(), "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe") || command.as_ref().is_some_and(|c| !c.args.is_empty()) {
+        return command;
+    }
+    let setup = "Import-Module PSReadLine -ErrorAction SilentlyContinue; if (Get-Module PSReadLine) { Set-PSReadLineOption -HistorySaveStyle SaveNothing -HistorySavePath (Join-Path $env:TEMP ('phpcraft-history-' + [guid]::NewGuid() + '.txt')); [Microsoft.PowerShell.PSConsoleReadLine]::ClearHistory() }";
+    Some(terminal::Command { program: program.to_string(), args: ["-NoLogo", "-NoExit", "-Command", setup].map(str::to_string).to_vec() })
+}
+
 impl Workspace {
     pub(super) fn add_terminal(&mut self, run: Option<RunConfig>, cx: &mut Context<Self>) -> Option<Entity<TerminalView>> {
         let root = self.project.root().to_path_buf();
@@ -50,6 +63,7 @@ impl Workspace {
                     let mut parts = shell.split_whitespace().map(str::to_string);
                     terminal::Command { program: parts.next().unwrap_or_default(), args: parts.collect() }
                 });
+                let command = if cfg!(windows) { own_history(command) } else { command };
                 (command, "Local".to_string(), HashMap::new())
             }
         };
@@ -456,5 +470,24 @@ impl Workspace {
                 )
                 .child(div().flex_1().min_h(px(0.)).child(view)),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::own_history;
+
+    #[test]
+    fn powershell_tabs_get_their_own_history() {
+        let default = own_history(None).unwrap();
+        assert_eq!((default.program.as_str(), default.args.len()), ("powershell", 4));
+        assert!(default.args[3].contains("HistorySaveStyle SaveNothing"));
+        let pwsh = own_history(Some(terminal::Command { program: r"C:\Program Files\PowerShell\7\pwsh.exe".into(), args: vec![] })).unwrap();
+        assert_eq!(pwsh.args[0], "-NoLogo");
+        // Other shells, or a shell the user gave arguments to, start as configured.
+        let cmd = own_history(Some(terminal::Command { program: "cmd".into(), args: vec![] })).unwrap();
+        assert!(cmd.args.is_empty());
+        let custom = own_history(Some(terminal::Command { program: "pwsh".into(), args: vec!["-NoProfile".into()] })).unwrap();
+        assert_eq!(custom.args, ["-NoProfile"]);
     }
 }
