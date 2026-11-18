@@ -22,7 +22,7 @@
 - **PHP**: project index with `vendor/`, go to declaration, type inference, completion with auto-import,
   Import Class (Code ▸ Import Class…, editor context menu), Optimize Imports, copy/paste carries `use`
   statements into the target file, Move Class (F6) to another namespace with its references
-- **JS/TS & Vue**: go to declaration, find usages, rename and completion across ES modules, `@/` aliases, `require`, and the `<script>` blocks of Vue/Svelte components
+- **JS/TS & Vue**: go to declaration, find usages, rename and completion across ES modules, JSX/TSX, `require`, the `<script>` blocks of Vue/Svelte components, aliases from `tsconfig.json` `paths` / `baseUrl` and Vite's `resolve.alias`, and import rewriting when a file is renamed
 - **Laravel**: `route()`, `view()`, `config()`, Blade, Eloquent, facades, validation rules, Livewire, Filament, Inertia; 44 code generators (⇧⌘,)
 - **Git**: Commit window, side-by-side diff, three-way merge window for conflicts (common ancestor, line-level auto-merge), log with graph, branches, blame
 - **Database**: MySQL, MariaDB, PostgreSQL, SQLite; tables open as editable tabs

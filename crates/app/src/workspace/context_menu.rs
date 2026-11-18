@@ -273,6 +273,7 @@ impl Workspace {
                         for tab in &self.tabs {
                             tab.update(cx, |editor, _| editor.buffer.rename_path(path, &target));
                         }
+                        self.retarget_js_imports(path, &target, cx);
                         None
                     }).map_err(|e| e.to_string())
                 }

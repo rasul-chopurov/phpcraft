@@ -218,6 +218,52 @@ impl Workspace {
         Ok(None)
     }
 
+    /// Renaming or moving a JS / TS module rewrites the import specifiers that point at it, in the
+    /// style each one already uses. Open files change through their editors, the rest on disk.
+    pub(super) fn retarget_js_imports(&mut self, old: &std::path::Path, new: &std::path::Path, cx: &mut Context<Self>) {
+        if !js_analysis::is_js(old) && !js_analysis::is_js(new) {
+            return;
+        }
+        let at = js_analysis::Resolve::load(self.project.root());
+        let load = |path: &std::path::Path| std::fs::read_to_string(path).ok();
+        let editors = self.open_editors();
+        let files: Vec<PathBuf> = search::list_files(self.project.root(), false)
+            .into_iter()
+            .filter(|path| js_analysis::is_js(path))
+            .collect();
+        for path in files {
+            let open = editors.iter().find(|editor| editor.read(cx).buffer.path() == Some(path.as_path())).cloned();
+            let text = match &open {
+                Some(editor) => editor.read(cx).buffer.text(),
+                None => match std::fs::read_to_string(&path) {
+                    Ok(text) => text,
+                    Err(_) => continue,
+                },
+            };
+            let Some(doc) = js_analysis::parse(&path, &text) else { continue };
+            let mut edits = js_analysis::retarget(&doc, &at, old, new, &load);
+            if edits.is_empty() {
+                continue;
+            }
+            edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+            match open {
+                Some(editor) => editor.update(cx, |editor, cx| {
+                    let caret = editor.buffer.char_to_byte(editor.buffer.selection.head);
+                    editor.buffer.apply_edits(edits, caret);
+                    editor.save_now(cx);
+                    cx.notify();
+                }),
+                None => {
+                    let mut text = text;
+                    for (range, replacement) in edits {
+                        text.replace_range(range, &replacement);
+                    }
+                    let _ = std::fs::write(&path, &text);
+                }
+            }
+        }
+    }
+
     /// Refactor ▸ Extract Blade Component / Extract View: asks for the name.
     pub(crate) fn start_extract_blade(&mut self, component: bool, path: PathBuf, range: std::ops::Range<usize>, text: String, window: &mut Window, cx: &mut Context<Self>) {
         let dialog = cx.new(|cx| InputDialog::new(FileOp::ExtractBlade { component, path, range, text }, window, cx));

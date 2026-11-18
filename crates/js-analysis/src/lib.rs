@@ -5,9 +5,13 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use tree_sitter::{Language, Node, Parser, Tree};
+
+mod aliases;
+
+pub use aliases::Resolve;
 
 /// What a declaration is, for completion icons and detail text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +88,9 @@ pub struct Document {
     /// `export * from './m'`.
     star_exports: Vec<String>,
     default_export: Option<String>,
+    /// Every module specifier in the file with its byte range, for rewriting imports when a file
+    /// is renamed or moved.
+    sources: Vec<(Range<usize>, String)>,
 }
 
 pub fn is_js(path: &Path) -> bool {
@@ -116,6 +123,7 @@ pub fn parse(path: &Path, source: &str) -> Option<Document> {
         reexports: collected.reexports,
         star_exports: collected.star_exports,
         default_export: collected.default_export,
+        sources: collected.sources,
     })
 }
 
@@ -159,10 +167,10 @@ impl Document {
 pub fn definition(
     doc: &Document,
     offset: usize,
-    root: &Path,
+    at: &Resolve,
     load: &dyn Fn(&Path) -> Option<String>,
 ) -> Vec<Location> {
-    resolve(doc, offset, root, load)
+    resolve(doc, offset, at, load)
         .map(|symbol| vec![symbol.declaration])
         .unwrap_or_default()
 }
@@ -171,7 +179,7 @@ pub fn definition(
 pub fn resolve(
     doc: &Document,
     offset: usize,
-    root: &Path,
+    at: &Resolve,
     load: &dyn Fn(&Path) -> Option<String>,
 ) -> Option<Symbol> {
     let (name, _) = doc.identifier_at(offset)?;
@@ -183,35 +191,35 @@ pub fn resolve(
     }
     let import = doc.imports.iter().find(|i| i.local == name)?;
     let mut seen = Vec::new();
-    follow_import(&doc.path, &import.source, &import.imported, root, load, &mut seen)
+    follow_import(&doc.path, &import.source, &import.imported, at, load, &mut seen)
 }
 
 fn follow_import(
     from: &Path,
     source: &str,
     imported: &str,
-    root: &Path,
+    at: &Resolve,
     load: &dyn Fn(&Path) -> Option<String>,
     seen: &mut Vec<PathBuf>,
 ) -> Option<Symbol> {
     if seen.len() > 4 {
         return None;
     }
-    let target = resolve_import(from, source, root, load)?;
+    let target = at.resolve_import(from, source, load)?;
     if seen.contains(&target) {
         return None;
     }
     seen.push(target.clone());
     let text = load(&target)?;
     let module = parse(&target, &text)?;
-    find_export(&module, imported, root, load, seen)
+    find_export(&module, imported, at, load, seen)
 }
 
 /// Declaration of `name` exported by `module`, following re-exports and `export *`.
 fn find_export(
     module: &Document,
     name: &str,
-    root: &Path,
+    at: &Resolve,
     load: &dyn Fn(&Path) -> Option<String>,
     seen: &mut Vec<PathBuf>,
 ) -> Option<Symbol> {
@@ -242,12 +250,12 @@ fn find_export(
         return here(&decl.name, decl.range.clone());
     }
     if let Some((_, target, source)) = module.reexports.iter().find(|(exported, _, _)| exported == name)
-        && let Some(found) = follow_import(&module.path, source, target, root, load, seen)
+        && let Some(found) = follow_import(&module.path, source, target, at, load, seen)
     {
         return Some(found);
     }
     for source in &module.star_exports {
-        if let Some(found) = follow_import(&module.path, source, name, root, load, seen) {
+        if let Some(found) = follow_import(&module.path, source, name, at, load, seen) {
             return Some(found);
         }
     }
@@ -258,7 +266,7 @@ fn find_export(
 pub fn usages_in(
     doc: &Document,
     symbol: &Symbol,
-    root: &Path,
+    at: &Resolve,
     load: &dyn Fn(&Path) -> Option<String>,
 ) -> Vec<Range<usize>> {
     let names: Vec<&str> = if doc.path == symbol.declaration.path {
@@ -266,7 +274,7 @@ pub fn usages_in(
     } else {
         doc.imports
             .iter()
-            .filter(|import| import_names_symbol(doc, import, symbol, root, load))
+            .filter(|import| import_names_symbol(doc, import, symbol, at, load))
             .map(|import| import.local.as_str())
             .collect()
     };
@@ -280,15 +288,41 @@ pub fn usages_in(
         .collect()
 }
 
+/// Edits that make this file's imports and re-exports point at `new` instead of `old`, written the
+/// way each specifier already was: an alias stays an alias, a relative path stays relative.
+pub fn retarget(
+    doc: &Document,
+    at: &Resolve,
+    old: &Path,
+    new: &Path,
+    load: &dyn Fn(&Path) -> Option<String>,
+) -> Vec<(Range<usize>, String)> {
+    doc.sources
+        .iter()
+        .filter_map(|(range, source)| {
+            if at.resolve_import(&doc.path, source, load)? != old {
+                return None;
+            }
+            let specifier = at.specifier(&doc.path, new, source)?;
+            if specifier == *source {
+                return None;
+            }
+            // The recorded range covers the quotes; keep the quote style the file already uses.
+            let quote = doc.text[range.clone()].chars().next().filter(|c| *c == '\'' || *c == '"').unwrap_or('"');
+            Some((range.clone(), format!("{quote}{specifier}{quote}")))
+        })
+        .collect()
+}
+
 /// Whether `import` brings `symbol` into `doc` (through `@/` aliases and extensions).
 fn import_names_symbol(
     doc: &Document,
     import: &Import,
     symbol: &Symbol,
-    root: &Path,
+    at: &Resolve,
     load: &dyn Fn(&Path) -> Option<String>,
 ) -> bool {
-    let Some(target) = resolve_import(&doc.path, &import.source, root, load) else { return false };
+    let Some(target) = at.resolve_import(&doc.path, &import.source, load) else { return false };
     if target != symbol.declaration.path {
         return false;
     }
@@ -307,7 +341,7 @@ fn import_names_symbol(
 pub fn usages(
     doc: &Document,
     offset: usize,
-    root: &Path,
+    at: &Resolve,
     files: &[PathBuf],
     open: &HashMap<PathBuf, String>,
 ) -> Vec<Location> {
@@ -316,7 +350,7 @@ pub fn usages(
             .cloned()
             .or_else(|| std::fs::read_to_string(path).ok())
     };
-    let Some(symbol) = resolve(doc, offset, root, &load) else { return Vec::new() };
+    let Some(symbol) = resolve(doc, offset, at, &load) else { return Vec::new() };
     let mut found = Vec::new();
     for path in files {
         let parsed = if *path == doc.path {
@@ -325,7 +359,7 @@ pub fn usages(
             load(path).and_then(|text| parse(path, &text))
         };
         let Some(parsed) = parsed else { continue };
-        for range in usages_in(&parsed, &symbol, root, &load) {
+        for range in usages_in(&parsed, &symbol, at, &load) {
             let location = Location { path: path.clone(), range };
             if !found.contains(&location) {
                 found.push(location);
@@ -340,7 +374,7 @@ pub fn usages(
 pub fn complete(
     doc: &Document,
     offset: usize,
-    root: &Path,
+    at: &Resolve,
     load: &dyn Fn(&Path) -> Option<String>,
 ) -> Vec<(String, String, Kind)> {
     let (prefix, _) = word_at(&doc.text, offset);
@@ -357,7 +391,7 @@ pub fn complete(
     }
     for import in &doc.imports {
         add(&import.local, format!("from '{}'", import.source), Kind::Const);
-        let Some(target) = resolve_import(&doc.path, &import.source, root, load) else { continue };
+        let Some(target) = at.resolve_import(&doc.path, &import.source, load) else { continue };
         let Some(text) = load(&target) else { continue };
         let Some(module) = parse(&target, &text) else { continue };
         let detail = format!("from '{}'", import.source);
@@ -410,61 +444,6 @@ pub fn word_at(text: &str, offset: usize) -> (String, Range<usize>) {
 pub fn in_script(source: &str, offset: usize) -> bool {
     let ranges = script_ranges(source);
     ranges.is_empty() || ranges.iter().any(|range| range.contains(&offset))
-}
-
-/// Paths a module specifier may point at, in probe order.
-pub fn module_candidates(from: &Path, source: &str, root: &Path) -> Vec<PathBuf> {
-    let base = if let Some(rest) = strip_alias(source) {
-        root.join("resources").join("js").join(rest)
-    } else if source.starts_with('.') {
-        from.parent().unwrap_or(Path::new("")).join(source)
-    } else {
-        return Vec::new();
-    };
-    let base = normalize(&base);
-    const EXTENSIONS: [&str; 8] = ["ts", "tsx", "js", "jsx", "mjs", "cjs", "vue", "svelte"];
-    let mut out = Vec::new();
-    if base.extension().is_some() {
-        out.push(base.clone());
-    }
-    for extension in EXTENSIONS {
-        out.push(base.with_extension(extension));
-    }
-    for extension in EXTENSIONS {
-        out.push(base.join(format!("index.{extension}")));
-    }
-    out
-}
-
-/// The file a module specifier points at, when it exists in `load`.
-pub fn resolve_import(
-    from: &Path,
-    source: &str,
-    root: &Path,
-    load: &dyn Fn(&Path) -> Option<String>,
-) -> Option<PathBuf> {
-    module_candidates(from, source, root)
-        .into_iter()
-        .find(|candidate| load(candidate).is_some())
-}
-
-fn strip_alias(source: &str) -> Option<&str> {
-    // Laravel / Inertia convention: `@/Pages/User` lives in `resources/js`.
-    source.strip_prefix("@/").or_else(|| source.strip_prefix("~/"))
-}
-
-fn normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::ParentDir => {
-                out.pop();
-            }
-            Component::CurDir => {}
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
 }
 
 fn extension(path: &Path) -> Option<String> {
@@ -520,6 +499,7 @@ struct Collected {
     reexports: Vec<(String, String, String)>,
     star_exports: Vec<String>,
     default_export: Option<String>,
+    sources: Vec<(Range<usize>, String)>,
 }
 
 fn collect(node: &Node, text: &str, exported: bool, out: &mut Collected) {
@@ -565,7 +545,10 @@ fn collect_export(node: &Node, text: &str, out: &mut Collected) {
     for child in node.children(&mut cursor) {
         match child.kind() {
             "default" => default = true,
-            "string" => source = Some(unquote(text, &child)),
+            "string" => {
+                out.sources.push((child.byte_range(), unquote(text, &child)));
+                source = Some(unquote(text, &child));
+            }
             "export_clause" => clause = Some(child),
             "*" => star = true,
             _ => {}
@@ -625,13 +608,9 @@ fn collect_export(node: &Node, text: &str, out: &mut Collected) {
 
 fn collect_import(node: &Node, text: &str, out: &mut Collected) {
     let mut cursor = node.walk();
-    let Some(source) = node
-        .children(&mut cursor)
-        .find(|child| child.kind() == "string")
-        .map(|child| unquote(text, &child))
-    else {
-        return;
-    };
+    let Some(string) = node.children(&mut cursor).find(|child| child.kind() == "string") else { return };
+    let source = unquote(text, &string);
+    out.sources.push((string.byte_range(), source.clone()));
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() != "import_clause" {
@@ -705,9 +684,10 @@ fn collect_variables(node: &Node, text: &str, exported: bool, out: &mut Collecte
             let source = value
                 .children(&mut inner)
                 .find(|child| child.kind() == "arguments")
-                .and_then(|arguments| arguments.children(&mut arguments.walk()).find(|c| c.kind() == "string"))
-                .map(|string| unquote(text, &string));
-            if let Some(source) = source {
+                .and_then(|arguments| arguments.children(&mut arguments.walk()).find(|c| c.kind() == "string"));
+            if let Some(string) = source {
+                let source = unquote(text, &string);
+                out.sources.push((string.byte_range(), source.clone()));
                 out.imports.push(Import {
                     local: text[name.byte_range()].to_string(),
                     imported: "*".into(),
@@ -838,7 +818,8 @@ mod tests {
         let (root, files) = project();
         let doc = parse(&PathBuf::from(ROOT).join("resources/js/Pages/Home.ts"), HOME).unwrap();
         let load = |path: &Path| files.get(path).cloned();
-        let found = definition(&doc, at(HOME, "new Card", 5), &root, &load);
+        let resolve = Resolve::new(&root);
+        let found = definition(&doc, at(HOME, "new Card", 5), &resolve, &load);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].path, root.join("resources/js/Card.ts"));
         assert_eq!(found[0].range.start, name_offset(CARD, "Card {}"));
@@ -849,7 +830,8 @@ mod tests {
         let (root, files) = project();
         let doc = parse(&PathBuf::from(ROOT).join("resources/js/Pages/Home.ts"), HOME).unwrap();
         let load = |path: &Path| files.get(path).cloned();
-        let found = definition(&doc, at(HOME, "new P", 5), &root, &load);
+        let resolve = Resolve::new(&root);
+        let found = definition(&doc, at(HOME, "new P", 5), &resolve, &load);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].range.start, name_offset(CARD, "Panel"));
     }
@@ -859,7 +841,8 @@ mod tests {
         let (root, files) = project();
         let doc = parse(&PathBuf::from(ROOT).join("resources/js/Pages/Home.ts"), HOME).unwrap();
         let load = |path: &Path| files.get(path).cloned();
-        let found = definition(&doc, at(HOME, "format(1)", 0), &root, &load);
+        let resolve = Resolve::new(&root);
+        let found = definition(&doc, at(HOME, "format(1)", 0), &resolve, &load);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].path, root.join("resources/js/lib/format.ts"));
         assert_eq!(found[0].range.start, name_offset(FORMAT, "format"));
@@ -871,7 +854,8 @@ mod tests {
         let home = "import { format } from '@/lib'\nformat(1)\n";
         let doc = parse(&PathBuf::from(ROOT).join("resources/js/Pages/Reexport.ts"), home).unwrap();
         let load = |path: &Path| files.get(path).cloned();
-        let found = definition(&doc, at(home, "format(1)", 0), &root, &load);
+        let resolve = Resolve::new(&root);
+        let found = definition(&doc, at(home, "format(1)", 0), &resolve, &load);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].path, root.join("resources/js/lib/format.ts"));
     }
@@ -884,10 +868,11 @@ mod tests {
         assert!(doc.decls().iter().any(|decl| decl.name == "Props"));
         assert!(doc.decls().iter().any(|decl| decl.name == "label"));
         let load = |path: &Path| files.get(path).cloned();
+        let resolve = Resolve::new(&root);
         let usage = usages_in(
             &doc,
             &Symbol { name: "label".into(), declaration: Location { path: path.clone(), range: at(BUTTON, "const label", 6)..at(BUTTON, "const label", 11) } },
-            &root,
+            &resolve,
             &load,
         );
         assert_eq!(usage.len(), 2, "the template must be blanked out: {usage:?}");
@@ -906,7 +891,8 @@ mod tests {
         };
         let home = parse(&root.join("resources/js/Pages/Home.ts"), HOME).unwrap();
         let load = |path: &Path| files.get(path).cloned();
-        let found = usages_in(&home, &symbol, &root, &load);
+        let resolve = Resolve::new(&root);
+        let found = usages_in(&home, &symbol, &resolve, &load);
         assert_eq!(found.len(), 2, "the import alias and its use: {found:?}");
         assert!(found.iter().all(|range| &HOME[range.clone()] == "P"));
     }
@@ -924,7 +910,8 @@ mod tests {
         let home = "import { format as fmt } from '@/lib/format'\nfmt(1)\n";
         let doc = parse(&root.join("resources/js/Pages/Typed.ts"), home).unwrap();
         let load = |path: &Path| files.get(path).cloned();
-        let found = usages_in(&doc, &symbol, &root, &load);
+        let resolve = Resolve::new(&root);
+        let found = usages_in(&doc, &symbol, &resolve, &load);
         assert_eq!(found.len(), 2, "{found:?}");
         assert!(found.iter().all(|range| &home[range.clone()] == "fmt"));
     }
@@ -935,7 +922,8 @@ mod tests {
         let doc = parse(&PathBuf::from(ROOT).join("resources/js/Pages/Home.ts"), HOME).unwrap();
         let offset = HOME.len();
         let load = |path: &Path| files.get(path).cloned();
-        let items = complete(&doc, offset, &root, &load);
+        let resolve = Resolve::new(&root);
+        let items = complete(&doc, offset, &resolve, &load);
         let labels: Vec<&str> = items.iter().map(|(label, _, _)| label.as_str()).collect();
         assert!(labels.contains(&"currency"), "{labels:?}");
         assert!(labels.contains(&"format"), "{labels:?}");
@@ -949,7 +937,8 @@ mod tests {
         let source = "const Card = require('../Card')\nnew Card()\n";
         let doc = parse(&root.join("resources/js/Pages/Cjs.js"), source).unwrap();
         let load = |path: &Path| files.get(path).cloned();
-        let found = definition(&doc, at(source, "new Card", 5), &root, &load);
+        let resolve = Resolve::new(&root);
+        let found = definition(&doc, at(source, "new Card", 5), &resolve, &load);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].path, root.join("resources/js/Card.ts"));
     }
@@ -960,5 +949,35 @@ mod tests {
         assert_eq!(ranges.len(), 1);
         assert!(BUTTON[ranges[0].clone()].starts_with("\nimport { computed }"));
         assert!(ranges[0].end <= BUTTON.len());
+    }
+
+    #[test]
+    fn renaming_a_module_rewrites_the_imports_that_point_at_it() {
+        let (root, files) = project();
+        let resolve = Resolve::new(&root);
+        let load = |path: &Path| files.get(path).cloned();
+        let doc = parse(&root.join("resources/js/Pages/Home.ts"), HOME).unwrap();
+        let edits = retarget(&doc, &resolve, &root.join("resources/js/Card.ts"), &root.join("resources/js/ui/Card.vue"), &load);
+        assert_eq!(edits.len(), 1, "{edits:?}");
+        assert_eq!(&HOME[edits[0].0.clone()], "'../Card'");
+        assert_eq!(edits[0].1, "'../ui/Card.vue'");
+        // An alias stays an alias.
+        let alias = "import { format } from '@/lib/format'\nformat(1)\n";
+        let doc = parse(&root.join("resources/js/Pages/Alias.ts"), alias).unwrap();
+        let edits = retarget(&doc, &resolve, &root.join("resources/js/lib/format.ts"), &root.join("resources/js/lib/number/format.ts"), &load);
+        assert_eq!(edits.len(), 1, "{edits:?}");
+        assert_eq!(edits[0].1, "'@/lib/number/format'");
+    }
+
+    #[test]
+    fn tsx_components_resolve_through_jsx_tags() {
+        let (root, files) = project();
+        let source = "import Card from '../Card'\n\nexport default function App() {\n  return <Card title=\"x\" />\n}\n";
+        let doc = parse(&root.join("resources/js/Pages/App.tsx"), source).unwrap();
+        assert!(doc.decls().iter().any(|decl| decl.name == "App" && decl.exported));
+        let load = |path: &Path| files.get(path).cloned();
+        let found = definition(&doc, at(source, "<Card", 1), &Resolve::new(&root), &load);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, root.join("resources/js/Card.ts"));
     }
 }

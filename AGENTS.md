@@ -22,7 +22,7 @@ bundled as data — its name appears only where that license requires attributio
 | `editor` | Text buffer: rope, multi-caret selections, undo/redo groups, anchors, smart pairs, indentation, extend selection |
 | `php-syntax` | tree-sitter grammars + highlighting (PHP, HTML, JS/TS, CSS, JSON, YAML), hand-written highlighters (Blade overlay, Twig, SQL, Markdown, .env…), fold ranges, node ranges |
 | `php-index` | Project symbol index (classes, members, functions), binary cache, bundled PHP stubs (`stubs.bin.gz`, `stubs.rs`, Apache-2.0) |
-| `js-analysis` | JS/TS intelligence: declarations, imports and re-exports, `@/`-alias resolution, Vue/Svelte `<script>` blocks (goto, usages, rename, completion) |
+| `js-analysis` | JS/TS intelligence: declarations, imports and re-exports, module resolution (tsconfig `paths`/`baseUrl`, Vite `resolve.alias`, `@/`), Vue/Svelte `<script>` blocks (goto, usages, rename, completion, import rewriting on rename) |
 | `php-analysis` | Code intelligence on one parsed `Document` + `Index`: completion, goto, usages, rename symbol, generate, docs/parameter info, hierarchy, refactorings, inspections, intentions |
 | `laravel` | Laravel awareness: string navigation (views, routes, config, lang, env), Blade (sections/stacks/props, extract), route refs from routes/*.php, generators, artisan, DB, Laravel intentions |
 | `git` | git CLI wrapper: status, log, diff, blame, rebase (interactive), shelve, conflicts parsing, worktrees, remotes |

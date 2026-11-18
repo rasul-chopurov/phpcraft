@@ -23,6 +23,8 @@ pub struct Intel {
     routes: std::sync::Mutex<Option<(u128, Arc<Vec<laravel::route_refs::RouteRef>>)>>,
     /// Spelling: the bundled word list plus `.phpcraft/dictionary.txt`.
     dictionary: RwLock<spell::Dictionary>,
+    /// Module aliases for JS/TS, read from tsconfig and vite.config once per project.
+    js_resolve: std::sync::OnceLock<js_analysis::Resolve>,
 }
 
 /// PHP's built-in functions, asked from the `php` binary once (in the background: until then,
@@ -66,6 +68,7 @@ impl Intel {
             repo: git::Repo::discover(root),
             routes: Default::default(),
             dictionary: RwLock::new(spell::Dictionary::load(root)),
+            js_resolve: Default::default(),
         })
     }
 
@@ -298,6 +301,11 @@ impl Intel {
         marks
     }
 
+    /// The project's module aliases: `@/`, tsconfig `paths`, Vite `resolve.alias`.
+    pub(crate) fn js_resolve(&self) -> &js_analysis::Resolve {
+        self.js_resolve.get_or_init(|| js_analysis::Resolve::load(&self.root))
+    }
+
     /// Reads a file for JS/TS resolution, preferring unsaved editor text.
     fn js_load<'a>(open: &'a [(PathBuf, String)]) -> impl Fn(&Path) -> Option<String> + 'a {
         move |path: &Path| {
@@ -312,7 +320,7 @@ impl Intel {
     fn js_definition(&self, path: &Path, source: &str, offset: usize) -> Vec<Location> {
         let Some(doc) = js_analysis::parse(path, source) else { return Vec::new() };
         let load = |path: &Path| std::fs::read_to_string(path).ok();
-        js_analysis::definition(&doc, offset, &self.root, &load)
+        js_analysis::definition(&doc, offset, self.js_resolve(), &load)
             .into_iter()
             .map(|location| Location { path: location.path, range: location.range })
             .collect()
@@ -323,7 +331,7 @@ impl Intel {
         let Some(doc) = js_analysis::parse(path, source) else { return Vec::new() };
         let load = |path: &Path| std::fs::read_to_string(path).ok();
         let (_, replace) = js_analysis::word_at(source, offset);
-        js_analysis::complete(&doc, offset, &self.root, &load)
+        js_analysis::complete(&doc, offset, self.js_resolve(), &load)
             .into_iter()
             .map(|(label, detail, kind)| {
                 let kind = match kind {
@@ -343,7 +351,7 @@ impl Intel {
         if js_analysis::is_js(path) && js_analysis::in_script(source, offset) {
             let doc = js_analysis::parse(path, source)?;
             let load = |path: &Path| std::fs::read_to_string(path).ok();
-            let symbol = js_analysis::resolve(&doc, offset, &self.root, &load)?;
+            let symbol = js_analysis::resolve(&doc, offset, self.js_resolve(), &load)?;
             return Some(php_analysis::Symbol {
                 name: symbol.name,
                 declaration: Location { path: symbol.declaration.path, range: symbol.declaration.range },
@@ -359,7 +367,6 @@ impl Intel {
     /// text of files with unsaved changes. Runs on a background thread.
     pub fn find_usages(&self, symbol: &php_analysis::Symbol, open: &[(PathBuf, String)]) -> Vec<Location> {
         if js_analysis::is_js(&symbol.declaration.path) {
-            let root = self.root.clone();
             let load = Self::js_load(open);
             let js_symbol = js_analysis::Symbol {
                 name: symbol.name.clone(),
@@ -372,7 +379,7 @@ impl Intel {
             for path in search::list_files(&self.root, false).into_iter().filter(|path| js_analysis::is_js(path)) {
                 let Some(text) = load(&path) else { continue };
                 let Some(doc) = js_analysis::parse(&path, &text) else { continue };
-                for range in js_analysis::usages_in(&doc, &js_symbol, &root, &load) {
+                for range in js_analysis::usages_in(&doc, &js_symbol, self.js_resolve(), &load) {
                     found.push(Location { path: path.clone(), range });
                 }
             }
@@ -422,7 +429,7 @@ impl Intel {
                 },
             };
             let load = |path: &Path| std::fs::read_to_string(path).ok();
-            return js_analysis::usages_in(&doc, &js_symbol, &self.root, &load);
+            return js_analysis::usages_in(&doc, &js_symbol, self.js_resolve(), &load);
         }
         let index = self.index.read().unwrap();
         Document::parse(path, text).map(|doc| php_analysis::usages_in(&doc, &index, symbol)).unwrap_or_default()
