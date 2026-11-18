@@ -10,6 +10,7 @@ use gpui::{AppContext, Context, Entity, Window};
 
 use super::Workspace;
 use crate::dialogs::{FileOp, InputDialog};
+use crate::i18n::{tr, trf};
 use crate::editor_view::EditorView;
 
 impl Workspace {
@@ -102,10 +103,17 @@ impl Workspace {
                 .or_else(|| std::fs::read_to_string(path).ok())
         };
         let source = text_of(&class.path).ok_or_else(|| format!("{} is gone", class.path.display()))?;
+        // A trait or interface declared next to the class and used only by it travels along.
+        let companions = self.intel.moved_companions(&class.path, &source, class);
         let new_source = self
             .intel
-            .moved_class_source(&class.path, &source, class, &namespace)
+            .moved_class_source(&class.path, &source, class, &companions, &namespace)
             .ok_or("Could not parse the class")?;
+        let mut moves: Vec<(&php_analysis::Moving, String)> = vec![(class, new_fqn.clone())];
+        for companion in &companions {
+            let fqn = if namespace.is_empty() { companion.name.clone() } else { format!("{namespace}\\{}", companion.name) };
+            moves.push((companion, fqn));
+        }
         let symbol = php_analysis::Symbol {
             name: class.name.clone(),
             declaration: php_index::Location {
@@ -115,22 +123,34 @@ impl Workspace {
             local: false,
         };
         let mut files: Vec<PathBuf> = self.intel.find_usages(&symbol, &open).into_iter().map(|l| l.path).collect();
+        // References to a companion come along with the references to the class.
+        let mut companions_symbols = Vec::new();
+        for companion in &companions {
+            companions_symbols.push(php_analysis::Symbol {
+                name: companion.name.clone(),
+                declaration: php_index::Location { path: companion.path.clone(), range: companion.name_range.clone() },
+                local: false,
+            });
+        }
+        for companion_symbol in &companions_symbols {
+            files.extend(self.intel.find_usages(companion_symbol, &open).into_iter().map(|l| l.path));
+        }
         files.push(class.path.clone());
         files.sort();
         files.dedup();
         let mut by_file: HashMap<PathBuf, Vec<(std::ops::Range<usize>, String)>> = HashMap::new();
         for path in files {
             let Some(text) = text_of(&path) else { continue };
-            let mut edits: Vec<(std::ops::Range<usize>, String)> = self
-                .intel
-                .move_class_edits(&path, &text, class, &new_fqn)
-                .into_iter()
-                .map(|e| (e.range, e.text))
-                .collect();
-            if path == class.path
-                && let Some(removal) = self.intel.remove_moved_class(&path, &text, class)
-            {
-                edits.push((removal.range, removal.text));
+            let mut edits: Vec<(std::ops::Range<usize>, String)> = Vec::new();
+            for (moved, fqn) in &moves {
+                edits.extend(self.intel.move_class_edits(&path, &text, moved, fqn).into_iter().map(|e| (e.range, e.text)));
+            }
+            if path == class.path {
+                for (moved, _) in &moves {
+                    if let Some(removal) = self.intel.remove_moved_class(&path, &text, moved) {
+                        edits.push((removal.range, removal.text));
+                    }
+                }
             }
             if !edits.is_empty() {
                 by_file.insert(path, edits);
@@ -145,6 +165,22 @@ impl Workspace {
         }
         std::fs::write(&target, &new_source).map_err(|e| e.to_string())?;
         self.intel.update_file(&target, &new_source);
+        // What changed, so the move is easy to review (Local History keeps the previous text).
+        let root = self.project.root().to_path_buf();
+        let mut listed: Vec<String> = by_file.keys().map(|path| path.strip_prefix(&root).unwrap_or(path).display().to_string()).collect();
+        listed.sort();
+        let moved = if companions.is_empty() {
+            class.fqn.clone()
+        } else {
+            let names: Vec<String> = std::iter::once(class.name.clone()).chain(companions.iter().map(|c| c.name.clone())).collect();
+            format!("{} ({})", class.fqn, names.join(", "))
+        };
+        self.output = Some(super::tools::Output {
+            title: tr("Move Class").to_string(),
+            text: trf("{} → {}\nFiles updated: {}\n{}", &[&moved, &new_fqn, &listed.len().to_string(), &listed.join("\n")]),
+            running: false,
+            ok: true,
+        });
         Ok(Some(target))
     }
 

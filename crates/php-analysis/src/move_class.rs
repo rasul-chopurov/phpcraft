@@ -42,17 +42,7 @@ pub fn moving_class(doc: &Document, offset: usize) -> Option<Moving> {
         .find(|c| c.range == name_range)
         .map(|c| c.fqn.clone())
         .or_else(|| doc.ctx.resolve_class(doc.text(name)))?;
-    // A docblock sits above the declaration; attributes are part of the node.
-    let mut start = node.start_byte();
-    let mut sibling = node.prev_named_sibling();
-    while let Some(prev) = sibling {
-        if prev.kind() == "comment" && doc.text(prev).starts_with("/**") {
-            start = prev.start_byte();
-            sibling = prev.prev_named_sibling();
-            continue;
-        }
-        break;
-    }
+    let start = declared_range(doc, &node).start;
     Some(Moving {
         name: doc.text(name).to_string(),
         namespace: doc.ctx.namespace.clone(),
@@ -63,33 +53,126 @@ pub fn moving_class(doc: &Document, offset: usize) -> Option<Moving> {
     })
 }
 
-/// The file the class moves to: header, the imports its body needs, then the declaration.
-pub fn moved_source(doc: &Document, index: &Index, class: &Moving, new_namespace: &str) -> String {
-    let mut body = doc.source[class.range.clone()].to_string();
-    // `Foo\Bar` was resolved from the old namespace: qualify it, an import would not help.
-    let mut rewrites: Vec<(Range<usize>, String)> = Vec::new();
-    for node in class_references(doc) {
-        let range = node.byte_range();
-        if range.start < class.range.start || range.end > class.range.end {
+/// The range of a declaration with the docblock above it (attributes are part of the node).
+fn declared_range(doc: &Document, node: &tree_sitter::Node) -> Range<usize> {
+    let mut start = node.start_byte();
+    let mut sibling = node.prev_named_sibling();
+    while let Some(prev) = sibling {
+        if prev.kind() == "comment" && doc.text(prev).starts_with("/**") {
+            start = prev.start_byte();
+            sibling = prev.prev_named_sibling();
             continue;
         }
-        let text = doc.text(node);
-        if text.contains('\\')
-            && !text.starts_with('\\')
-            && let Some(fqn) = doc.ctx.resolve_class(text)
-            && !fqn.eq_ignore_ascii_case(&class.fqn)
-        {
-            rewrites.push((range.start - class.range.start..range.end - class.range.start, format!("\\{fqn}")));
+        break;
+    }
+    start..node.end_byte()
+}
+
+/// Whether `name` appears in `text` as a whole word (PHP names are case-insensitive).
+fn mentions(text: &str, name: &str) -> bool {
+    let text = text.to_ascii_lowercase();
+    let name = name.to_ascii_lowercase();
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '\\');
+    let mut from = 0;
+    while let Some(at) = text[from..].find(name.as_str()) {
+        let start = from + at;
+        let end = start + name.len();
+        if !word(text[..start].chars().next_back()) && !word(text[end..].chars().next()) {
+            return true;
         }
+        from = end;
     }
-    rewrites.sort_by_key(|(r, _)| std::cmp::Reverse(r.start));
-    for (range, text) in rewrites {
-        body.replace_range(range, &text);
+    false
+}
+
+/// Declarations in the same file that the class needs and that nothing else there refers to: the
+/// trait it uses, the interface it implements, the enum its properties are typed with. They move
+/// together with the class instead of staying behind in the old namespace.
+pub fn companions(doc: &Document, class: &Moving) -> Vec<Moving> {
+    let mut cursor = doc.tree.root_node().walk();
+    let siblings: Vec<(Range<usize>, String, Range<usize>)> = doc
+        .tree
+        .root_node()
+        .children(&mut cursor)
+        .into_iter()
+        .filter(|node| php_index::is_class_like(node.kind()))
+        .filter_map(|node| {
+            let name = node.child_by_field_name("name")?;
+            let name_range = name.byte_range();
+            Some((declared_range(doc, &node), doc.text(name).to_string(), name_range))
+        })
+        .filter(|(_, _, name_range)| *name_range != class.name_range)
+        .collect();
+    let class_text = &doc.source[class.range.clone()];
+    let mut out = Vec::new();
+    for (range, name, name_range) in &siblings {
+        if !mentions(class_text, name) {
+            continue;
+        }
+        // Another declaration of the file uses it too, or the class does not: leave it alone.
+        let used_elsewhere = siblings
+            .iter()
+            .any(|(other, _, _)| other != range && mentions(&doc.source[other.clone()], name));
+        if used_elsewhere {
+            continue;
+        }
+        let Some(fqn) = doc
+            .symbols
+            .classes
+            .iter()
+            .find(|c| c.range == *name_range)
+            .map(|c| c.fqn.clone())
+        else {
+            continue;
+        };
+        out.push(Moving {
+            name: name.clone(),
+            fqn,
+            namespace: doc.ctx.namespace.clone(),
+            range: range.clone(),
+            name_range: name_range.clone(),
+            path: doc.path.to_path_buf(),
+        });
     }
-    let mut imports: Vec<String> = used_imports(doc, index, &[class.range.clone()])
+    out
+}
+
+/// The file the class moves to: header, the imports the moved declarations need, then them in the
+/// order they had in the old file.
+pub fn moved_source(doc: &Document, index: &Index, class: &Moving, companions: &[Moving], new_namespace: &str) -> String {
+    let mut moved: Vec<&Moving> = std::iter::once(class).chain(companions.iter()).collect();
+    moved.sort_by_key(|m| m.range.start);
+    let mut bodies = Vec::new();
+    for item in &moved {
+        let mut body = doc.source[item.range.clone()].to_string();
+        // `Foo\Bar` was resolved from the old namespace: qualify it, an import would not help.
+        let mut rewrites: Vec<(Range<usize>, String)> = Vec::new();
+        for node in class_references(doc) {
+            let range = node.byte_range();
+            if range.start < item.range.start || range.end > item.range.end {
+                continue;
+            }
+            let text = doc.text(node);
+            if text.contains('\\')
+                && !text.starts_with('\\')
+                && let Some(fqn) = doc.ctx.resolve_class(text)
+                && !moved.iter().any(|m| fqn.eq_ignore_ascii_case(&m.fqn))
+            {
+                rewrites.push((range.start - item.range.start..range.end - item.range.start, format!("\\{fqn}")));
+            }
+        }
+        rewrites.sort_by_key(|(r, _)| std::cmp::Reverse(r.start));
+        for (range, text) in rewrites {
+            body.replace_range(range, &text);
+        }
+        bodies.push(body.trim_end().to_string());
+    }
+    let ranges: Vec<Range<usize>> = moved.iter().map(|m| m.range.clone()).collect();
+    let mut imports: Vec<String> = used_imports(doc, index, &ranges)
         .into_iter()
         .filter(|fqn| {
-            !fqn.eq_ignore_ascii_case(&class.fqn) && !namespace_of(fqn).eq_ignore_ascii_case(new_namespace)
+            !moved.iter().any(|m| fqn.eq_ignore_ascii_case(&m.fqn))
+                && !namespace_of(fqn).eq_ignore_ascii_case(new_namespace)
         })
         .collect();
     imports.sort_by_key(|fqn| fqn.to_ascii_lowercase());
@@ -105,7 +188,7 @@ pub fn moved_source(doc: &Document, index: &Index, class: &Moving, new_namespace
         }
     }
     out.push('\n');
-    out.push_str(body.trim_end());
+    out.push_str(&bodies.join("\n\n"));
     out.push('\n');
     out
 }

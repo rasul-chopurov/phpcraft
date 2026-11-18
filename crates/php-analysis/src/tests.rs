@@ -359,13 +359,13 @@ fn move_class_takes_the_docblock_and_attributes_with_it() {
 fn moved_class_gets_the_imports_its_body_needs() {
     let doc = Document::parse(Path::new("/p/User.php"), MOVED).unwrap();
     let class = moving_class(&doc, at(MOVED, "class User", 7)).unwrap();
-    let src = moved_source(&doc, &index(), &class, "App\\Domain");
+    let src = moved_source(&doc, &index(), &class, &[], "App\\Domain");
     assert!(src.starts_with("<?php\n\nnamespace App\\Domain;\n\nuse App\\Models\\Post;\nuse Illuminate\\Database\\Eloquent\\Model;\n\n/** A user of the shop. */"));
     assert!(src.contains("class User extends Model"));
     assert!(src.contains("new Post()"));
 
     // Classes of the new namespace need no import.
-    let same = moved_source(&doc, &index(), &class, "App\\Models");
+    let same = moved_source(&doc, &index(), &class, &[], "App\\Models");
     assert!(!same.contains("use App\\Models\\Post;"));
     assert!(same.contains("use Illuminate\\Database\\Eloquent\\Model;"));
 }
@@ -401,4 +401,29 @@ fn references_follow_the_class_to_its_new_namespace() {
     let doc_qualified = Document::parse(Path::new("/p/h.php"), qualified).unwrap();
     let out = apply(qualified, reference_edits(&doc_qualified, &class, new_fqn));
     assert!(out.contains("function f(\\App\\Domain\\User $u)"));
+}
+
+const WITH_TRAIT: &str = "<?php\nnamespace App\\Models;\n\ntrait HasPosts\n{\n    public function posts() {}\n}\n\nclass User\n{\n    use HasPosts;\n}\n";
+
+#[test]
+fn companions_travel_with_the_class_they_serve() {
+    let doc = Document::parse(Path::new("/p/User.php"), WITH_TRAIT).unwrap();
+    let class = moving_class(&doc, at(WITH_TRAIT, "class User", 7)).unwrap();
+    let traits = companions(&doc, &class);
+    assert_eq!(traits.len(), 1, "{traits:?}");
+    assert_eq!(traits[0].name, "HasPosts");
+
+    let src = moved_source(&doc, &index(), &class, &traits, "App\\Domain");
+    assert!(src.contains("trait HasPosts"), "{src}");
+    assert!(src.contains("class User\n{\n    use HasPosts;"));
+    // Both declarations leave the old file.
+    let mut edits = vec![removal_edit(&doc, &class)];
+    edits.extend(traits.iter().map(|t| removal_edit(&doc, t)));
+    assert_eq!(apply(WITH_TRAIT, edits).trim_end(), "<?php\nnamespace App\\Models;");
+
+    // A trait another declaration also uses stays where it is.
+    let shared = "<?php\nnamespace App\\Models;\n\ntrait HasPosts {}\n\nclass User\n{\n    use HasPosts;\n}\n\nclass Author\n{\n    use HasPosts;\n}\n";
+    let doc = Document::parse(Path::new("/p/Both.php"), shared).unwrap();
+    let class = moving_class(&doc, at(shared, "class User", 7)).unwrap();
+    assert!(companions(&doc, &class).is_empty());
 }

@@ -716,11 +716,18 @@ impl Intel {
         Document::parse(path, source).and_then(|doc| php_analysis::moving_class(&doc, offset))
     }
 
-    /// The file a moved class is written to: header, needed imports and the declaration.
-    pub fn moved_class_source(&self, path: &Path, source: &str, class: &php_analysis::Moving, new_namespace: &str) -> Option<String> {
+    /// The file a moved class is written to: header, needed imports and the declarations.
+    pub fn moved_class_source(&self, path: &Path, source: &str, class: &php_analysis::Moving, companions: &[php_analysis::Moving], new_namespace: &str) -> Option<String> {
         self.with_doc(path, source, |doc, index| {
-            php_analysis::moved_source(doc, index, class, new_namespace)
+            php_analysis::moved_source(doc, index, class, companions, new_namespace)
         })
+    }
+
+    /// Declarations of the same file that move together with the class (its trait, interface…).
+    pub fn moved_companions(&self, path: &Path, source: &str, class: &php_analysis::Moving) -> Vec<php_analysis::Moving> {
+        Document::parse(path, source)
+            .map(|doc| php_analysis::companions(&doc, class))
+            .unwrap_or_default()
     }
 
     /// Edits that keep this file's references valid when `class` moves to `new_fqn`.
