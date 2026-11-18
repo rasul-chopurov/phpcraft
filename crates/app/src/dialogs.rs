@@ -1,5 +1,6 @@
 //! Modal dialogs: Laravel Make (code generation) and Artisan command runner.
 
+mod confirm;
 mod find_files;
 mod git;
 mod git_prompt;
@@ -27,6 +28,7 @@ use laravel::artisan::{self, ArtisanCommand};
 use laravel::make::MakeKind;
 use laravel::routes::RouteInfo;
 
+pub use confirm::ConfirmPrompt;
 pub use find_files::FindInFilesDialog;
 pub use git::{BranchDialog, ConfirmDialog, GitCommand, LocalHistoryDialog};
 pub use git_prompt::{GitPrompt, GitPromptDialog};
@@ -98,6 +100,8 @@ pub enum DialogEvent {
     GenerateHelpers,
     ModelFromTable(String),
     CommandsLoaded(Arc<Vec<ArtisanCommand>>),
+    /// A [`ConfirmPrompt`] was answered; the id it was created with comes back.
+    Confirmed(String),
     /// Project switcher: choose a folder to open in a new window.
     PickProjectFolder,
     OpenProject(std::path::PathBuf, OpenMode),

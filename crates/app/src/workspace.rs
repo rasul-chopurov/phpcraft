@@ -137,6 +137,12 @@ pub struct Workspace {
     restoring_session: bool,
     /// File stamps of the open tabs, to notice edits made outside PhpCraft.
     disk: external::Disk,
+    /// Questions about files changed or deleted on disk, asked one at a time.
+    disk_asks: Vec<external::Ask>,
+    /// Paths already asked about, so a pending question is not queued twice.
+    disk_asked: std::collections::HashSet<std::path::PathBuf>,
+    /// The question on screen, put back if it is cancelled.
+    disk_current: Option<external::Ask>,
     _file_poll: Option<gpui::Task<()>>,
     /// When the index was last rebuilt after an external change.
     last_disk_scan: Option<std::time::Instant>,
@@ -219,6 +225,9 @@ impl Workspace {
             last_shift_tap: None,
             restoring_session: false,
             disk: Default::default(),
+            disk_asks: Vec::new(),
+            disk_asked: Default::default(),
+            disk_current: None,
             _file_poll: None,
             last_disk_scan: None,
             project,

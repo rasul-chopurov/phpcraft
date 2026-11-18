@@ -578,9 +578,18 @@ impl Workspace {
             self.apply_file_op(op, &name, window, cx);
             return;
         }
+        if let DialogEvent::Confirmed(id) = event {
+            let id = id.clone();
+            self.dismiss_modal(window, cx);
+            self.answer_disk(&id, window, cx);
+            return;
+        }
         match event {
-            DialogEvent::Run { .. } | DialogEvent::EditRunConfigurations | DialogEvent::FileOp { .. } | DialogEvent::DataSourceSaved { .. } => {}
-            DialogEvent::Dismiss => self.dismiss_modal(window, cx),
+            DialogEvent::Run { .. } | DialogEvent::EditRunConfigurations | DialogEvent::FileOp { .. } | DialogEvent::DataSourceSaved { .. } | DialogEvent::Confirmed(_) => {}
+            DialogEvent::Dismiss => {
+                self.dismiss_modal(window, cx);
+                self.cancel_disk_ask(window, cx);
+            }
             DialogEvent::CommandsLoaded(list) => self.artisan_commands = Some(list.clone()),
             DialogEvent::Created(paths) => {
                 self.dismiss_modal(window, cx);

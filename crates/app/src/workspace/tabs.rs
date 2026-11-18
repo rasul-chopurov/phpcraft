@@ -37,7 +37,7 @@ actions!(
 const CLOSED_HISTORY: usize = 30;
 
 impl Workspace {
-    fn tab_path(&self, ix: usize, cx: &gpui::App) -> Option<PathBuf> {
+    pub(super) fn tab_path(&self, ix: usize, cx: &gpui::App) -> Option<PathBuf> {
         self.tabs.get(ix).and_then(|t| t.read(cx).buffer.path().map(|p| p.to_path_buf()))
     }
 

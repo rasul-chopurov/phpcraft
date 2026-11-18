@@ -631,6 +631,11 @@
     "{} auto-merged": "автоматически слито: {}",
     "← / → use a side · ↑ / ↓ walk the conflicts · B both · A auto-merge · U clear · Esc cancel": "← / → выбрать сторону · ↑ / ↓ переход по конфликтам · B оба · A авто-слияние · U сбросить · Esc отмена",
     "Move Class": "Перемещение класса",
-    "{} → {}\\nFiles updated: {}\\n{}": "{} → {}\\nОбновлено файлов: {}\\n{}"
+    "{} → {}\\nFiles updated: {}\\n{}": "{} → {}\\nОбновлено файлов: {}\\n{}",
+    "File Changed on Disk": "Файл изменён на диске",
+    "{} was changed by another program and has unsaved edits. Reload it and lose those edits?": "{} изменён другой программой, а в редакторе есть несохранённые правки. Перезагрузить файл и потерять эти правки?",
+    "File Deleted on Disk": "Файл удалён с диска",
+    "{} is no longer on disk. Close its tab?": "{} больше нет на диске. Закрыть вкладку?",
+    "Reload": "Перезагрузить"
   }
 }
