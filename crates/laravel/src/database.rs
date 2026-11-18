@@ -247,7 +247,7 @@ $mode = $argv[1] ?? 'query';
 $name = config('database.default');
 $key = "database.connections.$name";
 $networked = in_array(config("$key.driver"), ['mysql', 'mariadb', 'pgsql', 'sqlsrv'], true);
-// Like PhpStorm's data sources: connect over TCP from this machine. With `localhost`,
+// Data sources connect over TCP from this machine. With `localhost`,
 // PDO MySQL would use a unix socket that doesn't exist when the server runs in Docker.
 if ($networked && config("$key.host") === 'localhost' && !config("$key.unix_socket")) {
     config(["$key.host" => '127.0.0.1']);

@@ -1,4 +1,4 @@
-//! The Git menu's actions beyond commit/push/pull (PhpStorm's Git menu): fetch, merge, rebase,
+//! The Git menu's actions beyond commit/push/pull: fetch, merge, rebase,
 //! branches and tags, reset, worktrees, stash, patches, remotes, GitHub / GitLab links, clone
 //! and the VCS Operations popup (⌃V).
 

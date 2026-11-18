@@ -1,4 +1,4 @@
-//! Local History: the last N versions of every file, independent of git (like PhpStorm).
+//! Local History: the last N versions of every file, independent of git.
 //!
 //! Layout under the store directory:
 //! - `objects/<hash>`: file contents, stored once per distinct content (deduplicated);

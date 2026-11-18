@@ -450,7 +450,7 @@ impl Workspace {
         self.output = Some(Output {
             title: "About".into(),
             text: format!(
-                "PhpCraft {} — a PHP & Laravel IDE in pure Rust.\nMade with ❤️ in Azerbaijan · https://path.az\nOpen source: https://github.com/rasul-chopurov/phpcraft\nNot affiliated with JetBrains or Laravel Idea.",
+                "PhpCraft {} — a PHP & Laravel IDE in pure Rust.\nMade with ❤️ in Azerbaijan · https://path.az\nOpen source: https://github.com/rasul-chopurov/phpcraft",
                 env!("CARGO_PKG_VERSION")
             ),
             running: false,
@@ -760,7 +760,7 @@ impl Workspace {
             self.project.reveal(path);
         }
         self.rows = self.project.rows();
-        // Open every generated file (like Laravel Idea), keeping the first one active.
+        // Open every generated file, keeping the first one active.
         const MAX_OPENED: usize = 15;
         for path in paths.iter().take(MAX_OPENED).skip(1) {
             self.open_file(path, window, cx);

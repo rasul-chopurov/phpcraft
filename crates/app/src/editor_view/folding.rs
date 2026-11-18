@@ -168,7 +168,7 @@ impl EditorView {
 
     pub(super) fn collapse_all(&mut self, _: &CollapseAll, _: &mut Window, cx: &mut Context<Self>) {
         let candidates = self.fold_candidates();
-        // Outermost regions only, like PhpStorm (class bodies stay open so methods fold).
+        // Outermost regions only (class bodies stay open so methods fold).
         let class_body = |b: &editor::Buffer, open: usize| b.line(b.char_to_line_col(open).0).contains("class ");
         for (open, close) in candidates {
             if !class_body(&self.buffer, open) {

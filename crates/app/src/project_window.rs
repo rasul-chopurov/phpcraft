@@ -1,4 +1,4 @@
-//! A window holding one or more projects as tabs (like macOS window tabs in PhpStorm).
+//! A window holding one or more projects as tabs (native macOS window tabs).
 //! Each tab is a whole workspace; the tab bar shows when two or more are open.
 
 use std::path::Path;

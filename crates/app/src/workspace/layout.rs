@@ -1,4 +1,4 @@
-//! Tool window layout like PhpStorm: icon stripes on the left and right edges (with
+//! Tool window layout: icon stripes on the left and right edges (with
 //! tooltips), side panels you can drag to the other edge, and resizable side and bottom
 //! panels. Saved in `<config dir>/layout.json`.
 

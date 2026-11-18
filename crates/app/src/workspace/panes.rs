@@ -84,7 +84,7 @@ impl Workspace {
         }
     }
 
-    /// Opens a file in the pane right of the focused one (PhpStorm's "Open in Right Split").
+    /// Opens a file in the pane right of the focused one ("Open in Right Split").
     pub(super) fn open_in_right_split(&mut self, path: &std::path::Path, window: &mut Window, cx: &mut Context<Self>) {
         if let Some((pane, tab)) = self.pane_with(path, cx) {
             self.focus_pane(pane, window, cx);

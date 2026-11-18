@@ -1005,7 +1005,7 @@ impl EntityInputHandler for EditorView {
             self.changed(cx);
             return;
         }
-        // Like PhpStorm's lookup char filter: punctuation accepts the selected completion
+        // Lookup char filter: punctuation accepts the selected completion
         // (with its auto-import) before being typed, so `TextInput` + `::` imports the class.
         if range.is_empty() && self.commit_completion_with(new_text, cx) {
             if new_text == "(" && self.buffer.slice(self.buffer.selection.head.saturating_sub(1)..self.buffer.selection.head + 1) == "()" {

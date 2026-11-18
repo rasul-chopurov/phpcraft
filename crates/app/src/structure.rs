@@ -1,4 +1,4 @@
-//! File structure (PhpStorm's Structure tool window) and the breadcrumb under the caret.
+//! File structure (Structure tool window) and the breadcrumb under the caret.
 
 use std::ops::Range;
 

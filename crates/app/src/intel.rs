@@ -74,7 +74,7 @@ impl Intel {
         let started = Instant::now();
         spell::warm_up();
         let mut index = Index::scan_cached(&self.root, Some(&index_cache_file(&self.root)));
-        // PHP's own classes and functions (phpstorm-stubs), unpacked once next to the caches.
+        // PHP's own classes and functions (the bundled stubs), unpacked once next to the caches.
         if let Some(stubs) = php_index::stubs::unpack(&crate::config::dir().join("stubs")) {
             index.add_dir(&stubs, Some(&crate::config::dir().join("index").join("stubs.bin")));
         }

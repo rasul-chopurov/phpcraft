@@ -1,5 +1,5 @@
 
-//! SFTP deployment (PhpStorm's Deployment): servers saved in `.phpcraft/deployment.json`,
+//! SFTP deployment: servers saved in `.phpcraft/deployment.json`,
 //! upload/download through the system OpenSSH `sftp` (key or password auth), optional
 //! upload on save. Passwords live in the PhpCraft config folder, not in the project.
 

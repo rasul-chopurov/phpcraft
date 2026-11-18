@@ -468,7 +468,7 @@ const PAGES: &[(SettingsPage, &str, &str, &str)] = &[
     (SettingsPage::VersionControl, "Version Control", "Git & Local History", "git history versions sync gist backup"),
     (SettingsPage::Laravel, "Languages & Frameworks", "Laravel", "laravel php artisan models"),
     (SettingsPage::Terminal, "Tools", "Terminal", "terminal shell zsh bash"),
-    (SettingsPage::Import, "Tools", "Import Settings", "import vscode phpstorm zed migrate"),
+    (SettingsPage::Import, "Tools", "Import Settings", "import vscode zed migrate"),
     (SettingsPage::AiProviders, "Tools", "AI Providers", "ai claude anthropic opencode gemini google antigravity codex agent api key acp"),
 ];
 
@@ -512,7 +512,7 @@ impl SettingsDialog {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let settings = Settings::load();
         let delay = field("1000", settings.auto_save_delay_ms.to_string(), cx);
-        let font = field("JetBrains Mono", settings.editor_font.clone(), cx);
+        let font = field("Menlo", settings.editor_font.clone(), cx);
         let font_size = field("13.5", settings.editor_font_size.to_string(), cx);
         let shell = field("Login shell", settings.terminal_shell.clone(), cx);
         let agent = crate::workspace::load_agent_config();

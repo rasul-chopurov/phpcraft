@@ -1,4 +1,4 @@
-//! Laravel Idea's "All Code Generations": every generator by name. Rich ones (model,
+//! "All Code Generations": every generator by name. Rich ones (model,
 //! controller, migration…) open the Make dialog; the rest create files from a name here.
 
 use std::path::{Path, PathBuf};
@@ -40,7 +40,7 @@ pub enum Simple {
     ViewComposer,
 }
 
-/// `(label, generator)` in Laravel Idea's order.
+/// `(label, generator)` in a stable order.
 pub fn all() -> Vec<(&'static str, Generator)> {
     use Generator::{Make, Simple as S};
     use Simple::*;

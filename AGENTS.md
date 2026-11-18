@@ -5,13 +5,14 @@ Guide for agents (and people) continuing work on this repository.
 ## Goal
 
 PhpCraft is a native, offline PHP / Laravel IDE written in Rust on **gpui** (Zed's UI
-framework): PhpStorm + Laravel Idea's feature set without the JVM. Open source (Apache-2.0),
-macOS / Windows / Linux. Author: Rasul Chopurov (path.az). The user speaks Russian — reply in
+framework): the feature set of a modern PHP / Laravel IDE without the JVM. Open source
+(Apache-2.0), macOS / Windows / Linux. Author: Rasul Chopurov (path.az). The user speaks Russian — reply in
 Russian.
 
-PhpStorm is used only as a **feature checklist**. Never copy JetBrains code, icons or texts;
-everything is written from scratch. (Exception: JetBrains phpstorm-stubs, Apache-2.0, bundled
-as data — see `crates/php-index/STUBS-LICENSE`.)
+Other IDEs are used only as a **feature checklist**. Never copy their code, icons or texts;
+everything is written from scratch. (Exception: the phpstorm-stubs package, Apache-2.0,
+bundled as data — its name appears only where that license requires attribution; see
+`crates/php-index/STUBS-LICENSE`.)
 
 ## Workspace layout (`crates/`)
 
@@ -20,7 +21,7 @@ as data — see `crates/php-index/STUBS-LICENSE`.)
 | `app` | The application (binary `phpcraft`): windows, editor view, workspace, dialogs, menus, keymap |
 | `editor` | Text buffer: rope, multi-caret selections, undo/redo groups, anchors, smart pairs, indentation, extend selection |
 | `php-syntax` | tree-sitter grammars + highlighting (PHP, HTML, JS/TS, CSS, JSON, YAML), hand-written highlighters (Blade overlay, Twig, SQL, Markdown, .env…), fold ranges, node ranges |
-| `php-index` | Project symbol index (classes, members, functions), binary cache, phpstorm-stubs (`stubs.bin.gz`, `stubs.rs`) |
+| `php-index` | Project symbol index (classes, members, functions), binary cache, bundled PHP stubs (`stubs.bin.gz`, `stubs.rs`, Apache-2.0) |
 | `js-analysis` | JS/TS intelligence: declarations, imports and re-exports, `@/`-alias resolution, Vue/Svelte `<script>` blocks (goto, usages, rename, completion) |
 | `php-analysis` | Code intelligence on one parsed `Document` + `Index`: completion, goto, usages, rename symbol, generate, docs/parameter info, hierarchy, refactorings, inspections, intentions |
 | `laravel` | Laravel awareness: string navigation (views, routes, config, lang, env), Blade (sections/stacks/props, extract), route refs from routes/*.php, generators, artisan, DB, Laravel intentions |
@@ -88,7 +89,7 @@ Editor (multi-caret, folding, soft wrap, smart pairs, bookmarks, extend selectio
 font zoom with ⌘+ / ⌘− / ⌘+scroll, draggable scrollbar with problem marks),
 PHP intelligence (completion with auto-import, goto, find usages, rename, move class, extract / introduce /
 inline / safe delete, generate, quick doc, parameter info, hierarchy, call hierarchy,
-inspections + PHPStan/Psalm/PHPCS, spell checking of comments and strings (`typo`, ⌥↵ suggestions / save to dictionary), intentions, phpstorm-stubs), Laravel (string navigation,
+inspections + PHPStan/Psalm/PHPCS, spell checking of comments and strings (`typo`, ⌥↵ suggestions / save to dictionary), intentions, bundled PHP stubs), Laravel (string navigation,
 Blade sections/stacks/props, routes in the gutter, generators incl. DTO / Nova, extract blade
 component/view, facade→DI / rules→array / scope→#[Scope] intentions), Twig, Git (commit, log
 with graph, branches, diff, blame, three-pane merge window, compare with revision / clipboard,
@@ -96,11 +97,11 @@ interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes
 Pull Requests (Git ▸ Pull Requests…: list, details, checkout, diff, comment via gh / glab),
 Xdebug debugger, Docker services, test runner with results and coverage, Composer menu, HTTP
 client (+ cURL / Postman / OpenAPI, history), database tools, SFTP deployment (auto upload),
-terminal, AI agents, settings sync and import (PhpStorm / VS Code / Zed).
+terminal, AI agents, settings sync and import (VS Code / Zed).
 
 ## State at the last handoff (2026-11-01)
 
-- Releases: **0.1.0-alpha**, **0.2.0-alpha**, **0.4.0-alpha** (all the PhpStorm-port waves,
+- Releases: **0.1.0-alpha**, **0.2.0-alpha**, **0.4.0-alpha** (the feature waves,
   Pull Requests UI, spell checker). A `v0.3.0-alpha` tag exists on GitHub without a release
   (its build was cancelled) — the user may delete it.
 - **0.4.1-alpha**: git status polled only while the window is active (Windows users saw cmd

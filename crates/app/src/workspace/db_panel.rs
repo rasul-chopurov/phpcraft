@@ -1,4 +1,4 @@
-//! Database tool window (like PhpStorm's): data sources (MySQL, MariaDB, PostgreSQL,
+//! Database tool window: data sources (MySQL, MariaDB, PostgreSQL,
 //! SQLite) with their tables and columns, a SQL console, and a result grid whose cells can
 //! be edited and submitted. Everything goes through PHP's PDO.
 
@@ -386,7 +386,7 @@ impl Workspace {
                     div().pl(px(32.)).pr_2().text_size(px(12.)).text_color(theme::error()).child(SharedString::from(err.chars().take(300).collect::<String>())).into_any_element(),
                 ),
                 Some(Ok(tables)) => {
-                    // PhpStorm's levels: data source › schema › "tables N" › tables.
+                    // Levels: data source › schema › "tables N" › tables.
                     let schema = match source.driver {
                         Driver::Sqlite => "main".to_string(),
                         Driver::Redis => format!("db{}", if source.database.is_empty() { "0" } else { &source.database }),
@@ -451,7 +451,7 @@ impl Workspace {
                                 .child(div().flex_1().text_color(theme::ui_text()).child(SharedString::from(table.clone())))
                                 .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
                                     if event.click_count() >= 2 {
-                                        // PhpStorm opens the table's data in an editor tab.
+                                        // The table's data opens in an editor tab.
                                         if let Some(source) = this.source(&open_id) {
                                             let password = load_password(this.project.root(), &source.id);
                                             this.open_table_tab(source, password, open_table.clone(), window, cx);

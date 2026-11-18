@@ -155,8 +155,8 @@ pub fn complete(
 
 use crate::matcher::{degree, matches};
 
-/// Where completion happens, for proximity ranking (like PhpStorm's PhpScopeWeigher,
-/// PhpNamespaceWeigher and PhpSameFileWeigher).
+/// Where completion happens, for proximity ranking: the same file wins over the
+/// namespace, which wins over everything else.
 struct Place<'a> {
     class: Option<String>,
     namespace: String,
@@ -190,7 +190,7 @@ impl Place<'_> {
     }
 }
 
-/// PhpStorm's order: priority (kind), prefix matching, then proximity; ties by length/name.
+/// Order: priority (kind), prefix matching, then proximity; ties by length/name.
 fn rank(mut items: Vec<CompletionItem>, typed: &str, place: Option<&Place>) -> Vec<CompletionItem> {
     items.sort_by_cached_key(|item| {
         let label = item.label.trim_start_matches('$');

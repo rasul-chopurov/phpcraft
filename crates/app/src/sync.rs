@@ -1,4 +1,4 @@
-//! Settings Sync through a secret GitHub Gist (like VS Code / JetBrains settings sync).
+//! Settings Sync through a secret GitHub Gist (like VS Code settings sync).
 //! Uses the GitHub CLI (`gh`), so no token is stored by PhpCraft: run `gh auth login` once.
 //!
 //! Synced: `settings.json`, `keymap.json` and user themes (`themes/*.json`, stored in the gist

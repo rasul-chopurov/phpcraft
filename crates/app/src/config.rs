@@ -78,7 +78,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: crate::theme::DEFAULT_THEME.into(),
-            editor_font: "JetBrains Mono".into(),
+            editor_font: "Menlo".into(),
             auto_save: AutoSave::AfterDelay,
             auto_save_delay_ms: 1000,
             open_on_single_click: true,

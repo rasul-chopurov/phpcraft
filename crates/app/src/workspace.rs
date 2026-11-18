@@ -118,7 +118,7 @@ pub struct Workspace {
     context_menu: Option<context_menu::ContextMenu>,
     /// Outline of the active file for (path, buffer version).
     structure: std::cell::RefCell<Option<(PathBuf, u64, std::rc::Rc<Vec<crate::structure::StructItem>>)>>,
-    /// The diff tab (one at a time, like PhpStorm's preview diff) and whether it is shown.
+    /// The diff tab (one at a time) and whether it is shown.
     diff: Option<Entity<crate::diff_view::DiffView>>,
     diff_active: bool,
     _diff_subscription: Option<gpui::Subscription>,
@@ -154,7 +154,7 @@ impl Workspace {
             this.update(cx, |this, cx| this.end_task(0, cx)).ok();
         })
         .detach();
-        // Save everything when the window loses focus (PhpStorm's "save on frame deactivation").
+        // Save everything when the window loses focus ("save on frame deactivation").
         cx.observe_window_activation(window, |this, window, cx| {
             this.window_active = window.is_window_active();
             // Git status is polled only while the window is active; catch up on return.

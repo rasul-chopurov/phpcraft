@@ -1,4 +1,4 @@
-//! Right-click menus for the project tree and editor tabs, like PhpStorm's.
+//! Right-click menus for the project tree and editor tabs.
 
 use std::path::{Path, PathBuf};
 

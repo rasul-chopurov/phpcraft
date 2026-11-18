@@ -1,5 +1,5 @@
 //! Restores the open tabs, split panes, pinned tabs and carets of a project on startup,
-//! like PhpStorm's session restore. Kept per project in `.phpcraft/session.json`.
+//! the way modern IDEs do. Kept per project in `.phpcraft/session.json`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

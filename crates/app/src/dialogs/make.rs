@@ -23,7 +23,7 @@ use crate::theme;
 
 // --- chooser ------------------------------------------------------------------
 
-/// Laravel Idea's action chooser (⇧⌘,): every code generation, searchable.
+/// The generator chooser (⇧⌘,): every code generation, searchable.
 pub struct MakeChooser {
     items: Vec<(&'static str, Generator)>,
     query: Entity<TextField>,

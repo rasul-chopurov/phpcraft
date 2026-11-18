@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-/// Directories hidden from the tree, like PhpStorm's default excludes.
+/// Directories hidden from the tree, like the default excludes of other IDEs.
 const HIDDEN_DIRS: &[&str] = &[".git", ".idea", ".phpcraft", "node_modules", "target"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,4 +1,4 @@
-//! HTTP Client (PhpStorm's `.http` files): requests separated by `###`, each a request line
+//! HTTP Client (`.http` files): requests separated by `###`, each a request line
 //! (`GET https://…`), headers and an optional body. `{{name}}` is replaced from `@name = value`
 //! lines in the file and from `http-client.env.json` / `http-client.private.env.json` next to
 //! it (the first environment, or the one chosen).

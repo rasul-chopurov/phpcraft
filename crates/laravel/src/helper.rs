@@ -496,7 +496,7 @@ pub fn model_helpers(index: &Index, root: &Path, settings: &HelperSettings) -> V
 }
 
 /// Removes `@property`, `@property-read`, `@property-write` and `@method` lines from model
-/// docblocks (Laravel Idea's "Remove Model PhpDocs"). Returns the new source if it changed.
+/// docblocks ("Remove Model PhpDocs"). Returns the new source if it changed.
 pub fn remove_model_phpdocs(source: &str) -> Option<String> {
     let class_at = source.find("\nclass ").or_else(|| source.find("\nfinal class ")).or_else(|| source.find("\nabstract class "))?;
     let doc_end = source[..class_at].rfind("*/")?;

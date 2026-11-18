@@ -460,7 +460,7 @@ impl EditorView {
         }
         let mut query = None;
         if let Some((_, name, candidates)) = self.unresolved_at_caret() {
-            // A single candidate needs no dialog: import it, like PhpStorm's quick-fix.
+            // A single candidate needs no dialog: import it, like a quick-fix.
             if let [fqn] = candidates.as_slice() {
                 self.import_class(fqn, cx);
                 return;
@@ -688,7 +688,7 @@ impl EditorView {
                             .child(item.icon),
                     )
                     .child({
-                        // Matched characters in bold, like PhpStorm's lookup.
+                        // Matched characters in bold, like a lookup popup.
                         let highlights = match &item.action {
                             MenuAction::Complete(completion) => {
                                 let start = self.buffer.byte_to_char(completion.replace.start);

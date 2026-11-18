@@ -1,4 +1,4 @@
-//! Database data sources like PhpStorm's: MySQL, MariaDB, PostgreSQL and SQLite connections
+//! Database data sources: MySQL, MariaDB, PostgreSQL and SQLite connections
 //! saved per project in `.phpcraft/datasources.json` (passwords are kept by the caller,
 //! outside the project). Every operation runs through PHP's PDO, so no native drivers.
 
@@ -129,7 +129,7 @@ impl DataSource {
         }
     }
 
-    /// The PDO DSN (like the JDBC URL shown in PhpStorm's dialog).
+    /// The PDO DSN (like the connection URL a database client shows).
     pub fn dsn(&self, root: &Path) -> String {
         if self.connection == ConnectionType::Url && !self.url.trim().is_empty() {
             return self.url.trim().to_string();
@@ -144,7 +144,7 @@ impl DataSource {
             Driver::Mysql | Driver::Mariadb => match self.connection {
                 ConnectionType::UnixSocket => format!("mysql:unix_socket={}{db};charset=utf8mb4", self.path),
                 _ => {
-                    // `localhost` would make PDO use a socket; PhpStorm talks TCP.
+                    // `localhost` would make PDO use a socket; data sources talk TCP.
                     let host = if self.host == "localhost" { "127.0.0.1" } else { &self.host };
                     format!("mysql:host={host};port={}{db};charset=utf8mb4", self.port)
                 }

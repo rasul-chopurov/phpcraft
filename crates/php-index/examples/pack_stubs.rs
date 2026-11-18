@@ -5,7 +5,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// The extensions of a typical PHP / Laravel install (like PhpStorm's default PHP Runtime).
+/// The extensions of a typical PHP / Laravel install (like the default PHP runtime).
 const EXTENSIONS: &[&str] = &[
     "Core", "standard", "SPL", "Reflection", "date", "json", "pcre", "random", "mbstring", "ctype", "iconv", "intl",
     "PDO", "pdo_mysql", "pdo_pgsql", "pdo_sqlite", "mysqli", "pgsql", "sqlite3", "redis", "memcached",

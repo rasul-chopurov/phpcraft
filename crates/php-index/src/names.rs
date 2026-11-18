@@ -30,7 +30,7 @@ const BUILTIN_TYPES: &[&str] = &[
 ];
 
 /// Classes and interfaces built into PHP itself (not present in vendor/).
-/// A fallback for files checked before the bundled phpstorm-stubs (see `stubs`) are indexed.
+/// A fallback for files checked before the bundled stubs (see `stubs`) are indexed.
 const BUILTIN_CLASSES: &[&str] = &[
     "stdclass", "closure", "generator", "throwable", "exception", "error", "errorexception",
     "typeerror", "valueerror", "argumentcounterror", "arithmeticerror", "divisionbyzeroerror",

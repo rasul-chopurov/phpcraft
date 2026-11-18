@@ -66,7 +66,7 @@ pub enum DialogEvent {
     Dismiss,
     /// The chooser picked a generator; open its dialog.
     OpenMakeKind(MakeKind),
-    /// A generator that only needs a name (Laravel Idea's simple Create… actions).
+    /// A generator that only needs a name (the simple Create… actions).
     OpenGenerator(laravel::generators::Simple),
     Created(Vec<std::path::PathBuf>),
     RunArtisan(String),

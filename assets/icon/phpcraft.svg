@@ -17,8 +17,8 @@
   <!-- Dark tile -->
   <rect x="212" y="212" width="600" height="600" rx="28" fill="#0b0b10"/>
   <!-- Name in two lines -->
-  <text x="268" y="430" font-family="JetBrains Mono, SF Mono, Menlo, monospace" font-weight="800" font-size="170" fill="#ffffff" letter-spacing="-4">Php</text>
-  <text x="268" y="610" font-family="JetBrains Mono, SF Mono, Menlo, monospace" font-weight="800" font-size="170" fill="#ffffff" letter-spacing="-4">Craft</text>
+  <text x="268" y="430" font-family="SF Mono, Menlo, monospace" font-weight="800" font-size="170" fill="#ffffff" letter-spacing="-4">Php</text>
+  <text x="268" y="610" font-family="SF Mono, Menlo, monospace" font-weight="800" font-size="170" fill="#ffffff" letter-spacing="-4">Craft</text>
   <!-- Underscore cursor -->
   <rect x="280" y="680" width="220" height="40" fill="#ffffff"/>
 </svg>

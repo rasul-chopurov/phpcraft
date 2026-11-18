@@ -1,4 +1,4 @@
-//! Project-wide index of PHP declarations (the PhpCraft analogue of PhpStorm's stub index).
+//! Project-wide index of PHP declarations, including the bundled stubs.
 
 mod cache;
 pub mod extract;
@@ -35,7 +35,7 @@ pub struct Index {
     extra_mixins: HashMap<String, Vec<String>>,
     /// Classes as parsed, before `augment` added members.
     unaugmented: HashMap<String, Arc<ClassInfo>>,
-    /// Classes from generated IDE helper files (Laravel Idea's `vendor/_laravel_idea`,
+    /// Classes from generated IDE helper files (`vendor/_laravel_idea`,
     /// barryvdh's `_ide_helper*.php`). They only contribute phpdoc members: navigation goes
     /// to the real class when there is one.
     stubs: HashMap<String, Arc<ClassInfo>>,

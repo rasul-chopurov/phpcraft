@@ -1,4 +1,4 @@
-//! Data Source dialog (PhpStorm's "Data Sources and Drivers"): name, driver, connection
+//! Data Source dialog ("Data Sources and Drivers"): name, driver, connection
 //! type, host/port, user/password, database or SQLite file, DSN preview, Test Connection.
 
 use std::path::PathBuf;

@@ -56,7 +56,7 @@ impl FindBar {
 
 impl EditorView {
     fn open_find(&mut self, replace: bool, window: &mut Window, cx: &mut Context<Self>) {
-        // Seed with a single-line selection, as PhpStorm does.
+        // Seed with a single-line selection, as most editors do.
         let selected = self.buffer.selected_text();
         let seed = (!selected.is_empty() && !selected.contains('\n')).then_some(selected);
         if self.find.is_none() {

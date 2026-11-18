@@ -1,4 +1,4 @@
-//! Data for the Laravel tool window (like Laravel Idea's): environment facts, project
+//! Data for the Laravel tool window: environment facts, project
 //! issues with their artisan fixes, and errors grouped from `storage/logs/laravel.log`.
 
 use std::path::{Path, PathBuf};
@@ -31,7 +31,7 @@ pub struct Issue {
     pub fix: &'static [&'static str],
 }
 
-/// Problems Laravel Idea's dashboard reports: missing .env/APP_KEY, cached config/routes.
+/// Problems the dashboard reports: missing .env/APP_KEY, cached config/routes.
 pub fn issues(root: &Path) -> Vec<Issue> {
     let mut out = Vec::new();
     let env = env_values(root);

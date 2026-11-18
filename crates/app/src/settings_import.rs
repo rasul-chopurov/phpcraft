@@ -1,4 +1,4 @@
-//! Import settings and keybindings from VS Code (and Cursor/VSCodium), PhpStorm and Zed.
+//! Import settings and keybindings from VS Code (and Cursor/VSCodium) and Zed.
 
 use std::path::{Path, PathBuf};
 
@@ -9,17 +9,15 @@ use crate::config::{AutoSave, Settings};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
     VsCode,
-    PhpStorm,
     Zed,
 }
 
 impl Source {
-    pub const ALL: [Source; 3] = [Source::PhpStorm, Source::VsCode, Source::Zed];
+    pub const ALL: [Source; 2] = [Source::VsCode, Source::Zed];
 
     pub fn name(self) -> &'static str {
         match self {
             Source::VsCode => "VS Code",
-            Source::PhpStorm => "PhpStorm",
             Source::Zed => "Zed",
         }
     }
@@ -32,25 +30,12 @@ impl Source {
                 .iter()
                 .map(|app| config.join(app).join("User"))
                 .find(|p| p.join("settings.json").exists() || p.join("keybindings.json").exists()),
-            Source::PhpStorm => newest_jetbrains(&config.join("JetBrains"), "PhpStorm"),
             Source::Zed => {
                 let candidates = [dirs::home_dir().map(|h| h.join(".config/zed")), Some(config.join("Zed")), Some(config.join("zed"))];
                 candidates.into_iter().flatten().find(|p| p.join("settings.json").exists() || p.join("keymap.json").exists())
             }
         }
     }
-}
-
-/// `PhpStorm2026.2` over `PhpStorm2025.3`.
-fn newest_jetbrains(dir: &Path, product: &str) -> Option<PathBuf> {
-    let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_dir() && p.file_name().is_some_and(|n| n.to_string_lossy().starts_with(product)))
-        .collect();
-    found.sort();
-    found.pop()
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -129,9 +114,7 @@ fn read_jsonc(path: &Path) -> Option<Value> {
 
 fn theme_for(name: &str) -> &'static str {
     let lower = name.to_ascii_lowercase();
-    if lower.contains("darcula") {
-        "Darcula"
-    } else if lower.contains("light") || lower.contains("day") || lower.contains("latte") {
+    if lower.contains("light") || lower.contains("day") || lower.contains("latte") {
         "PhpCraft Light"
     } else {
         crate::theme::DEFAULT_THEME
@@ -176,47 +159,6 @@ const VSCODE_ACTIONS: &[(&str, &str)] = &[
     ("workbench.action.files.save", "editor::Save"),
 ];
 
-const PHPSTORM_ACTIONS: &[(&str, &str)] = &[
-    ("GotoFile", "workspace::GoToFile"),
-    ("GotoClass", "workspace::GoToClass"),
-    ("GotoSymbol", "workspace::GoToSymbol"),
-    ("SearchEverywhere", "workspace::SearchEverywhere"),
-    ("FindInPath", "workspace::FindInFiles"),
-    ("ReplaceInPath", "workspace::ReplaceInFiles"),
-    ("GotoLine", "workspace::GoToLine"),
-    ("RecentFiles", "workspace::RecentFiles"),
-    ("CloseContent", "workspace::CloseTab"),
-    ("NextTab", "workspace::NextTab"),
-    ("PreviousTab", "workspace::PrevTab"),
-    ("ShowSettings", "workspace::OpenSettings"),
-    ("ActivateTerminalToolWindow", "workspace::ToggleTerminal"),
-    ("ActivateCommitToolWindow", "workspace::ShowCommit"),
-    ("ActivateProjectToolWindow", "workspace::ShowProject"),
-    ("ActivateVersionControlToolWindow", "workspace::ToggleGitLog"),
-    ("CheckinProject", "workspace::CommitChanges"),
-    ("Vcs.UpdateProject", "workspace::GitPull"),
-    ("Vcs.Push", "workspace::GitPush"),
-    ("LocalHistory.ShowHistory", "workspace::ShowLocalHistory"),
-    ("Back", "workspace::NavigateBack"),
-    ("Run", "workspace::RunLast"),
-    ("ChooseRunConfiguration", "workspace::RunPopup"),
-    ("RunClass", "workspace::RunContext"),
-    ("Stop", "workspace::StopRun"),
-    ("Find", "editor::ShowFind"),
-    ("Replace", "editor::ShowReplace"),
-    ("GotoDeclaration", "editor::GoToDeclaration"),
-    ("CommentByLineComment", "editor::ToggleComment"),
-    ("EditorDuplicate", "editor::DuplicateLine"),
-    ("EditorDeleteLine", "editor::DeleteLine"),
-    ("MoveLineUp", "editor::MoveLineUp"),
-    ("MoveLineDown", "editor::MoveLineDown"),
-    ("CodeCompletion", "editor::ShowCompletions"),
-    ("ShowIntentionActions", "editor::ShowIntentions"),
-    ("OptimizeImports", "editor::OptimizeImports"),
-    ("SaveAll", "workspace::SaveAll"),
-    ("Annotate", "editor::ToggleBlame"),
-];
-
 const ZED_ACTIONS: &[(&str, &str)] = &[
     ("file_finder::Toggle", "workspace::GoToFile"),
     ("project_symbols::Toggle", "workspace::GoToSymbol"),
@@ -253,58 +195,6 @@ const ZED_ACTIONS: &[(&str, &str)] = &[
 
 fn map_action(table: &[(&str, &str)], action: &str) -> Option<String> {
     table.iter().find(|(from, _)| *from == action).map(|(_, to)| to.to_string())
-}
-
-/// PhpStorm keystroke `meta shift O` -> `cmd-shift-o`.
-fn jetbrains_stroke(stroke: &str) -> Option<String> {
-    let mut parts = Vec::new();
-    for word in stroke.split_whitespace() {
-        let part = match word {
-            "meta" => if cfg!(target_os = "macos") { "cmd" } else { "super" }.to_string(),
-            "control" | "ctrl" => "ctrl".into(),
-            "alt" => "alt".into(),
-            "shift" => "shift".into(),
-            "altGraph" => return None,
-            key => match key {
-                "ENTER" => "enter".into(),
-                "BACK_SPACE" => "backspace".into(),
-                "DELETE" => "delete".into(),
-                "ESCAPE" => "escape".into(),
-                "TAB" => "tab".into(),
-                "SPACE" => "space".into(),
-                "UP" | "DOWN" | "LEFT" | "RIGHT" | "HOME" | "END" => key.to_ascii_lowercase(),
-                "PAGE_UP" => "pageup".into(),
-                "PAGE_DOWN" => "pagedown".into(),
-                "SLASH" | "DIVIDE" => "/".into(),
-                "BACK_SLASH" => "\\".into(),
-                "OPEN_BRACKET" => "[".into(),
-                "CLOSE_BRACKET" => "]".into(),
-                "COMMA" => ",".into(),
-                "PERIOD" => ".".into(),
-                "MINUS" | "SUBTRACT" => "-".into(),
-                "EQUALS" | "ADD" => "=".into(),
-                "SEMICOLON" => ";".into(),
-                "QUOTE" => "'".into(),
-                "BACK_QUOTE" => "`".into(),
-                k if k.len() == 1 || (k.starts_with('F') && k[1..].parse::<u8>().is_ok()) => k.to_ascii_lowercase(),
-                _ => return None,
-            },
-        };
-        parts.push(part);
-    }
-    (!parts.is_empty()).then(|| parts.join("-"))
-}
-
-/// Attribute `name="…"` from one XML tag.
-fn attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
-    let at = tag.find(&format!("{name}=\""))? + name.len() + 2;
-    let end = tag[at..].find('"')?;
-    Some(&tag[at..at + end])
-}
-
-/// `<option name="X" value="Y"/>` values in an XML file.
-fn xml_option(text: &str, name: &str) -> Option<String> {
-    text.split('<').find(|tag| tag.starts_with("option") && attr(tag, "name") == Some(name)).and_then(|tag| attr(tag, "value")).map(str::to_string)
 }
 
 /// Reads settings from `source` at `dir` into `settings`; returns what changed and the
@@ -360,64 +250,6 @@ pub fn read(source: Source, dir: &Path, settings: &mut Settings) -> Report {
                         report.bindings.push((vscode_keys(key), action));
                     }
                 }
-            }
-        }
-        Source::PhpStorm => {
-            let options = dir.join("options");
-            if let Ok(text) = std::fs::read_to_string(options.join("editor-font.xml")) {
-                if let Some(font) = xml_option(&text, "FONT_FAMILY") {
-                    note(format!("Editor font: {font}"));
-                    settings.editor_font = font;
-                }
-                if let Some(size) = xml_option(&text, "FONT_SIZE_2D").or_else(|| xml_option(&text, "FONT_SIZE")).and_then(|s| s.parse::<f32>().ok()) {
-                    settings.editor_font_size = size;
-                    note(format!("Font size: {size}"));
-                }
-            }
-            let scheme = std::fs::read_to_string(options.join("colors.scheme.xml"))
-                .ok()
-                .and_then(|t| t.split('<').find(|tag| tag.starts_with("global_color_scheme")).and_then(|tag| attr(tag, "name")).map(str::to_string))
-                .or_else(|| std::fs::read_to_string(options.join("laf.xml")).ok().and_then(|t| t.split('<').find_map(|tag| attr(tag, "themeId").map(str::to_string))));
-            if let Some(scheme) = scheme {
-                settings.theme = theme_for(&scheme).into();
-                note(format!("Theme: {scheme} → {}", settings.theme));
-            }
-            if let Ok(text) = std::fs::read_to_string(options.join("general.xml")) {
-                if xml_option(&text, "autoSaveIfInactive").as_deref() == Some("true") {
-                    settings.auto_save = AutoSave::AfterDelay;
-                    if let Some(secs) = xml_option(&text, "inactiveTimeout").and_then(|s| s.parse::<u64>().ok()) {
-                        settings.auto_save_delay_ms = secs * 1000;
-                    }
-                    note("Auto save: when idle".into());
-                }
-            }
-            // The active custom keymap holds the user's changes to its parent keymap.
-            let active = std::fs::read_to_string(options.join("keymap.xml"))
-                .ok()
-                .and_then(|t| t.split('<').find(|tag| tag.starts_with("active_keymap")).and_then(|tag| attr(tag, "name")).map(str::to_string));
-            if let Some(name) = active
-                && let Ok(text) = std::fs::read_to_string(dir.join("keymaps").join(format!("{name}.xml")))
-            {
-                let mut action: Option<String> = None;
-                for tag in text.split('<') {
-                    if tag.starts_with("action ") {
-                        action = attr(tag, "id").and_then(|id| map_action(PHPSTORM_ACTIONS, id));
-                    } else if tag.starts_with("keyboard-shortcut")
-                        && let Some(action) = &action
-                    {
-                        let first = attr(tag, "first-keystroke").and_then(jetbrains_stroke);
-                        let second = attr(tag, "second-keystroke").map(jetbrains_stroke);
-                        if let Some(first) = first {
-                            let keys = match second {
-                                Some(Some(second)) => format!("{first} {second}"),
-                                Some(None) => continue,
-                                None => first,
-                            };
-                            report.bindings.push((keys, action.clone()));
-                        }
-                    }
-                }
-                note(format!("Keymap: {name}"));
             }
         }
         Source::Zed => {
@@ -534,33 +366,6 @@ mod tests {
         assert_eq!(
             report.bindings,
             [("cmd-shift-o".to_string(), "workspace::GoToFile".to_string()), ("ctrl-k ctrl-c".to_string(), "editor::ToggleComment".to_string())]
-        );
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn phpstorm() {
-        let dir = temp(
-            "phpstorm",
-            &[
-                ("options/editor-font.xml", r#"<application><component name="DefaultFont"><option name="FONT_SIZE" value="14" /><option name="FONT_FAMILY" value="JetBrains Mono" /></component></application>"#),
-                ("options/colors.scheme.xml", r#"<application><component name="EditorColorsManagerImpl"><global_color_scheme name="Darcula" /></component></application>"#),
-                ("options/keymap.xml", r#"<application><component name="KeymapManager"><active_keymap name="macOS copy" /></component></application>"#),
-                ("keymaps/macOS copy.xml", r#"<keymap version="1" name="macOS copy" parent="Mac OS X 10.5+"><action id="GotoFile"><keyboard-shortcut first-keystroke="meta shift O" /></action><action id="CommentByLineComment"><keyboard-shortcut first-keystroke="meta K" second-keystroke="meta SLASH" /></action></keymap>"#),
-            ],
-        );
-        let mut settings = Settings::default();
-        let report = read(Source::PhpStorm, &dir, &mut settings);
-        assert_eq!(settings.editor_font, "JetBrains Mono");
-        assert_eq!(settings.editor_font_size, 14.);
-        assert_eq!(settings.theme, "Darcula");
-        let cmd = if cfg!(target_os = "macos") { "cmd" } else { "super" };
-        assert_eq!(
-            report.bindings,
-            [
-                (format!("{cmd}-shift-o"), "workspace::GoToFile".to_string()),
-                (format!("{cmd}-k {cmd}-/"), "editor::ToggleComment".to_string())
-            ]
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

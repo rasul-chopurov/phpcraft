@@ -1,4 +1,4 @@
-//! Table editor tab (PhpStorm's data editor): a database table's rows with WHERE / ORDER BY
+//! Table editor tab (data editor): a database table's rows with WHERE / ORDER BY
 //! filters, paging, cell editing, added and deleted rows, and Submit in one transaction.
 //! In console mode the tab is a SQL console: a query editor above the result grid.
 

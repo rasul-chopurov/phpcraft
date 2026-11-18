@@ -1,4 +1,4 @@
-//! Laravel tool window (like Laravel Idea's): Dashboard with environment facts, databases
+//! Laravel tool window: Dashboard with environment facts, databases
 //! and issues with fixes; Errors grouped from the log with clickable stack traces;
 //! Processes started from the IDE.
 

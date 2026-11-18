@@ -1,4 +1,4 @@
-//! Keyboard navigation and speed search in the project tree (PhpStorm's): with the tree
+//! Keyboard navigation and speed search in the project tree: with the tree
 //! focused, ↑/↓ move, ←/→ collapse and expand, Enter opens, and typing (or ⌘F) opens a search
 //! bar that jumps between matching rows among the expanded ones.
 

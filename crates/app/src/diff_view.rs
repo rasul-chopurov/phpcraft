@@ -1,4 +1,4 @@
-//! Side-by-side diff shown as an editor tab (like PhpStorm's "Commit: File.php" tab), with
+//! Side-by-side diff shown as an editor tab (like a "Commit: File.php" tab), with
 //! navigation between changes and between the files of a commit or change list.
 
 use std::path::PathBuf;
@@ -127,7 +127,7 @@ impl DiffView {
                     let (old, new) = load();
                     let rows = git::side_by_side(&old, &new);
                     // Syntax colours for both versions, plus the changed characters of
-                    // modified lines (like PhpStorm's word-level diff).
+                    // modified lines (word-level diff).
                     let old_spans = spans_by_line(&old, &php_syntax::highlight_path(&name, &old));
                     let new_spans = spans_by_line(&new, &php_syntax::highlight_path(&name, &new));
                     let styles = rows
@@ -254,7 +254,7 @@ fn side(line: &Option<(usize, String)>, bg: Option<gpui::Hsla>, style: Option<&S
 
 impl Render for DiffView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // PhpStorm-like: deleted lines red, inserted green, modified blue with the changed
+        // Deleted lines red, inserted green, modified blue with the changed
         // characters marked stronger.
         let added = theme::success().opacity(0.22);
         let removed = theme::error().opacity(0.22);

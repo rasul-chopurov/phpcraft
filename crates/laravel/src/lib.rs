@@ -1,5 +1,5 @@
 //! Laravel support: navigation and completion for routes, views, config, translations,
-//! env keys, Inertia pages and Blade components — the Laravel Idea feature set.
+//! env keys, Inertia pages and Blade components — the feature set of Laravel tooling.
 
 mod array_keys;
 pub mod blade;
@@ -341,7 +341,7 @@ impl Laravel {
                 }
             }
         }
-        // Default locale first, like PhpStorm shows the primary translation.
+        // Default locale first — the primary translation.
         let locale = format!("/{}", self.locale);
         out.sort_by_key(|l| {
             let path = l.path.to_string_lossy();

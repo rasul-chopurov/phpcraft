@@ -1,4 +1,4 @@
-//! Key bindings: a default table (macOS and Windows/Linux variants, PhpStorm-style) plus the
+//! Key bindings: a default table (macOS and Windows/Linux variants) plus the
 //! user's `keymap.json` in the config directory, Zed-style:
 //!
 //! ```json
@@ -206,7 +206,7 @@ const DEFAULTS: &[Default] = &[
     both("secondary-shift-a", "workspace::SearchEverywhere", None),
     both("secondary-w", "workspace::CloseTab", None),
     // Zoom: ⌘+ / ⌘− resize the editor font (⇧ is implicit when the layout needs it for "+"),
-    // ⇧⌘0 restores the default — PhpStorm keeps ⌘0 for the Commit tool window.
+    // ⇧⌘0 restores the default — ⌘0 stays free for the Commit tool window.
     per("cmd-=", "ctrl-=", "workspace::IncreaseFontSize", None),
     per("cmd-shift-=", "ctrl-shift-=", "workspace::IncreaseFontSize", None),
     per("cmd--", "ctrl--", "workspace::DecreaseFontSize", None),
@@ -219,7 +219,7 @@ const DEFAULTS: &[Default] = &[
     both("secondary-shift-.", "workspace::GenerateHelperCode", None),
     both("ctrl-shift-r", "workspace::OpenRouteSearch", None),
     both("ctrl-shift-x", "workspace::OpenArtisan", None),
-    // Git (PhpStorm: ⌘0 Commit, ⌘9 Git log, ⌘T update, ⇧⌘K push).
+    // Git (⌘0 Commit, ⌘9 Git log, ⌘T update, ⇧⌘K push).
     per("cmd-0", "alt-0", "workspace::ShowCommit", None),
     per("cmd-1", "alt-1", "workspace::ShowProject", None),
     per("cmd-9", "alt-9", "workspace::ToggleGitLog", None),

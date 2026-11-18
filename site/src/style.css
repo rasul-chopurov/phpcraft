@@ -2,7 +2,7 @@
   --bg:#0b0b10; --bg2:#111019; --panel:#16141f; --line:#23212e; --line2:#2f2c3d;
   --text:#ecebf3; --muted:#9592a8; --dim:#625f75;
   --violet:#8b5cf6; --indigo:#6a5cff; --cyan:#22d3ee; --green:#34d399; --blue:#3b82f6; --heart:#ef4444;
-  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --mono:"Roboto Mono",ui-monospace,Menlo,monospace;
   --sans:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
 }
 *{box-sizing:border-box}

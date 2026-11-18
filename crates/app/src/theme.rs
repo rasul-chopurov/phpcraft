@@ -13,7 +13,7 @@ use crate::config;
 const BUILTIN: &[&str] = &[
     include_str!("../assets/themes/phpcraft-dark.json"),
     include_str!("../assets/themes/phpcraft-light.json"),
-    include_str!("../assets/themes/darcula.json"),
+    include_str!("../assets/themes/phpcraft-midnight.json"),
 ];
 
 pub const DEFAULT_THEME: &str = "PhpCraft Dark";
@@ -116,6 +116,11 @@ pub fn available() -> Vec<ThemeFile> {
 
 /// Activates a theme by name (unknown names fall back to the default) and remembers it.
 pub fn set(name: &str, cx: &mut App) {
+    // Themes renamed after 0.4.3 keep working from an old settings.json.
+    let name = match name {
+        "Darcula" => "PhpCraft Midnight",
+        other => other,
+    };
     let files = available();
     let default = files
         .iter()
@@ -153,7 +158,6 @@ pub fn init(cx: &mut App) {
         cx,
         &[
             &settings.editor_font,
-            "JetBrains Mono",
             "Menlo",
             "SF Mono",
             "Consolas",

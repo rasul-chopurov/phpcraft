@@ -18,7 +18,7 @@ pub(super) struct GitState {
     pub status: Vec<git::FileStatus>,
     pub branch: Option<String>,
     pub ahead_behind: Option<(usize, usize)>,
-    /// Files excluded from the next commit (PhpStorm-style checkboxes; included by default).
+    /// Files excluded from the next commit (checkboxes; included by default).
     pub excluded: HashSet<String>,
     pub message: Entity<crate::editor_view::EditorView>,
     /// Collapsed groups in the Commit window ("changes", "unversioned").
@@ -130,7 +130,7 @@ impl Workspace {
                 .await;
             this.update(cx, |this, cx| {
                 let changed = this.git.status != status || this.git.branch != branch || this.git.ahead_behind != ahead;
-                // Like PhpStorm, new unversioned files start out of the commit.
+                // New unversioned files start out of the commit.
                 for file in status.iter().filter(|f| f.change == git::Change::Untracked) {
                     if !this.git.status.iter().any(|old| old.path == file.path) {
                         this.git.excluded.insert(file.path.clone());
@@ -511,7 +511,7 @@ impl Workspace {
                     }))
                     .into_any_element()
         };
-        // PhpStorm groups: tracked changes, then unversioned files.
+        // Groups: tracked changes, then unversioned files.
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         for (group, title) in [("changes", "Changes"), ("unversioned", "Unversioned Files")] {
             let files: Vec<(usize, &git::FileStatus)> = self
@@ -647,7 +647,7 @@ impl Workspace {
                             .text_size(px(12.))
                             .child(crate::dialogs::checkbox("amend", "Amend", self.git.amend).on_click(cx.listener(|this, _, _, cx| {
                                 this.git.amend ^= true;
-                                // Like PhpStorm: amending starts from the last commit message.
+                                // Amending starts from the last commit message.
                                 if this.git.amend && this.git.message.read(cx).buffer.text().is_empty()
                                     && let Some(last) = this.intel.repo().and_then(|r| r.last_commit_message())
                                 {

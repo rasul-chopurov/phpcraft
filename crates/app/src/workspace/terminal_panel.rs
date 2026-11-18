@@ -219,7 +219,7 @@ impl Workspace {
         self.select_terminal(ix, window, cx);
     }
 
-    /// Right-click on a terminal tab (PhpStorm's menu).
+    /// Right-click on a terminal tab.
     pub(super) fn open_terminal_menu(&mut self, ix: usize, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
         use super::context_menu::MenuCommand as M;
         use super::layout::{Side, ToolWindow};

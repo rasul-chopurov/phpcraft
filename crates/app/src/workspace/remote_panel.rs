@@ -1,4 +1,4 @@
-//! Remote Hosts tool window (PhpStorm's Deployment ▸ Browse Remote Host): SFTP servers from
+//! Remote Hosts tool window: SFTP servers from
 //! `.phpcraft/deployment.json`, a remote file browser, upload/download of project files and an
 //! SSH session in the terminal. Transfers go through the system OpenSSH `sftp`.
 

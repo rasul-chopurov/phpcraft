@@ -139,7 +139,7 @@ pub fn file_items(root: &Path, files: &[PathBuf]) -> Vec<NavItem> {
 
 pub struct NavigateDialog {
     root: std::path::PathBuf,
-    /// Also search vendor/ (PhpStorm's "Include non-project items").
+    /// Also search vendor/ ("Include non-project items").
     include_vendor: bool,
     /// Full-text matches for the Text tab, for the query they were computed for.
     text_results: (String, Arc<Vec<NavItem>>),
@@ -617,7 +617,7 @@ impl Render for NavigateDialog {
                     .children(elements),
             )
             .when_some(preview, |d, (path, current, lines)| {
-                // Code around the selected result, like PhpStorm's preview.
+                // Code around the selected result, like a preview.
                 d.child(
                     div()
                         .border_t_1()

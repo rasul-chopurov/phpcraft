@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
 
-/// Highlight category, roughly matching PhpStorm's Darcula token groups.
+/// Highlight category names shared by the classic dark themes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Highlight {
     Keyword,

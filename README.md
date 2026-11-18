@@ -51,8 +51,8 @@ PHP on `PATH` enables Artisan and database features.
 
 ## Disclaimer
 
-PhpCraft is an independent project, **not affiliated with JetBrains s.r.o.** (PhpStorm) or the
-authors of Laravel Idea. No proprietary code is used. Concerns: **rasulchopurov@gmail.com**.
+PhpCraft is an independent open-source project. No proprietary code is used.
+Concerns: **rasulchopurov@gmail.com**.
 
 ## License
 
