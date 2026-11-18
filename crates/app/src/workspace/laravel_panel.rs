@@ -10,6 +10,7 @@ use laravel::dashboard::{self, Issue, LogGroup};
 use super::Workspace;
 use crate::run_configs::{Kind, RunConfig};
 use crate::theme;
+use crate::i18n::tr;
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum LaravelTab {
@@ -95,7 +96,7 @@ impl Workspace {
             .px_2()
             .h(px(30.))
             .bg(theme::panel_bg())
-            .child(div().pr_2().text_color(theme::ui_text()).child("Laravel"))
+            .child(div().pr_2().text_color(theme::ui_text()).child(tr("Laravel")))
             .child(tab("lv-dash", "Dashboard", LaravelTab::Dashboard, current).on_click(cx.listener(|this, _, _, cx| {
                 this.laravel.tab = LaravelTab::Dashboard;
                 cx.notify();
@@ -154,7 +155,7 @@ impl Workspace {
                             .child(fact("Environment", value("APP_ENV")))
                             .child(fact("Application URL", value("APP_URL")))
                             .child(fact("PHP", crate::project_info::php_version().unwrap_or_else(|| "—".into())))
-                            .child(div().pt_2().text_color(theme::muted()).child("Databases"))
+                            .child(div().pt_2().text_color(theme::muted()).child(tr("Databases")))
                             .children(databases.into_iter().filter(|d| !d.trim().is_empty() && d.trim() != ":").enumerate().map(|(ix, db)| {
                                 div()
                                     .flex()
@@ -165,7 +166,7 @@ impl Workspace {
                                             .id(("lv-open-db", ix))
                                             .cursor_pointer()
                                             .text_color(theme::accent())
-                                            .child("Open in the Database tab")
+                                            .child(tr("Open in the Database tab"))
                                             .on_click(cx.listener(|this, _, window, cx| {
                                                 this.layout.show(super::layout::ToolWindow::Database);
                                                 this.ensure_db(cx);
@@ -182,7 +183,7 @@ impl Workspace {
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .when(issues.is_empty(), |d| d.child(div().text_color(theme::success()).child("✓ No issues detected")))
+                            .when(issues.is_empty(), |d| d.child(div().text_color(theme::success()).child(tr("✓ No issues detected"))))
                             .children(issues.into_iter().enumerate().map(|(ix, issue)| {
                                 let fix = issue.fix;
                                 div()
@@ -219,8 +220,8 @@ impl Workspace {
                     .into_any_element()
             }
             LaravelTab::Errors => match &self.laravel.errors {
-                None => div().p_3().text_color(theme::muted()).child("Reading storage/logs…").into_any_element(),
-                Some(groups) if groups.is_empty() => div().p_3().text_color(theme::success()).child("✓ No errors in storage/logs").into_any_element(),
+                None => div().p_3().text_color(theme::muted()).child(tr("Reading storage/logs…")).into_any_element(),
+                Some(groups) if groups.is_empty() => div().p_3().text_color(theme::success()).child(tr("✓ No errors in storage/logs")).into_any_element(),
                 Some(groups) => div()
                     .flex()
                     .flex_col()
@@ -288,7 +289,7 @@ impl Workspace {
                     .flex_col()
                     .p_2()
                     .gap_1()
-                    .when(processes.is_empty(), |d| d.child(div().text_color(theme::muted()).child("Nothing is running. Start Server or Run Artisan Command starts one.")))
+                    .when(processes.is_empty(), |d| d.child(div().text_color(theme::muted()).child(tr("Nothing is running. Start Server or Run Artisan Command starts one."))))
                     .children(processes.into_iter().map(|(ix, name, exit)| {
                         let (status, color) = match exit {
                             None => ("● running", theme::success()),
@@ -301,9 +302,9 @@ impl Workspace {
                             .gap_3()
                             .child(div().w(px(90.)).text_size(px(12.)).text_color(color).child(status))
                             .child(div().flex_1().text_color(theme::ui_text()).child(SharedString::from(name)))
-                            .child(div().id(("lv-show", ix)).px_2().cursor_pointer().text_color(theme::accent()).child("Show").on_click(cx.listener(move |this, _, window, cx| this.show_terminal_tab(ix, window, cx))))
+                            .child(div().id(("lv-show", ix)).px_2().cursor_pointer().text_color(theme::accent()).child(tr("Show")).on_click(cx.listener(move |this, _, window, cx| this.show_terminal_tab(ix, window, cx))))
                             .when(exit.is_none(), |d| {
-                                d.child(div().id(("lv-stop", ix)).px_2().cursor_pointer().text_color(theme::error()).child("Stop").on_click(cx.listener(move |this, _, _, cx| this.stop_terminal_tab(ix, cx))))
+                                d.child(div().id(("lv-stop", ix)).px_2().cursor_pointer().text_color(theme::error()).child(tr("Stop")).on_click(cx.listener(move |this, _, _, cx| this.stop_terminal_tab(ix, cx))))
                             })
                     }))
                     .into_any_element()

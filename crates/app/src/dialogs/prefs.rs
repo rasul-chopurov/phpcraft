@@ -29,7 +29,7 @@ impl EventEmitter<DialogEvent> for KeymapDialog {}
 
 impl KeymapDialog {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let query = cx.new(|cx| TextField::new("Search actions or shortcuts", cx));
+        let query = cx.new(|cx| TextField::new(tr("Search actions or shortcuts"), cx));
         let field_sub = cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
             this.selected = 0;
             cx.notify();
@@ -197,7 +197,7 @@ impl Render for KeymapDialog {
                 let is_selected = ix == selected;
                 let namespace = entry.action.split("::").next().unwrap_or("").to_string();
                 let keys = if is_selected && self.recording {
-                    "Press a shortcut…".to_string()
+                    tr("Press a shortcut…").to_string()
                 } else if let (true, Some(captured)) = (is_selected, &self.captured) {
                     keymap::display(captured)
                 } else {
@@ -245,7 +245,7 @@ impl Render for KeymapDialog {
                             div()
                                 .text_size(px(11.))
                                 .text_color(theme::accent())
-                                .child("custom"),
+                                .child(tr("custom")),
                         )
                     })
                     .on_click(cx.listener(move |this, event: &gpui::ClickEvent, _, cx| {
@@ -259,11 +259,11 @@ impl Render for KeymapDialog {
             })
             .collect();
         let hint = if self.recording {
-            "Press the new shortcut, or Esc to cancel."
+            tr("Press the new shortcut, or Esc to cancel.").to_string()
         } else if self.captured.is_some() {
-            "↵ save · Esc discard"
+            tr("↵ save · Esc discard").to_string()
         } else {
-            "↵ or double-click to change · Saved to keymap.json in the config folder"
+            tr("↵ or double-click to change · Saved to keymap.json in the config folder").to_string()
         };
         card(820.)
             .key_context("ListDialog KeymapDialog")
@@ -278,7 +278,7 @@ impl Render for KeymapDialog {
                     .py_2()
                     .border_b_1()
                     .border_color(theme::border())
-                    .child("Keymap"),
+                    .child(tr("Keymap")),
             )
             .child(div().p_2().child(self.query.clone()))
             .child(
@@ -425,7 +425,7 @@ impl Render for ThemeDialog {
                     .py_2()
                     .border_b_1()
                     .border_color(theme::border())
-                    .child("Select Theme"),
+                    .child(tr("Select Theme")),
             )
             .child(div().py_1().children(rows))
             .child(
@@ -436,7 +436,7 @@ impl Render for ThemeDialog {
                     .border_color(theme::border())
                     .text_size(px(11.))
                     .text_color(theme::muted())
-                    .child(format!("Add your own JSON themes to {}", folder.display())),
+                    .child(trf("Add your own JSON themes to {}", &[&folder.display().to_string()])),
             )
     }
 }
@@ -444,6 +444,7 @@ impl Render for ThemeDialog {
 // --- Settings ----------------------------------------------------------------------------
 
 use crate::config::{OpenProjectIn, AutoSave, Settings};
+use crate::i18n::{tr, trf};
 
 /// Workspace settings: auto save, project tree behaviour, theme and editor font.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -518,7 +519,7 @@ impl SettingsDialog {
         let agent = crate::workspace::load_agent_config();
         let api_key = secret_field("sk-ant-… (or ANTHROPIC_API_KEY)", agent.api_key.clone(), cx);
         let model = field(agent::DEFAULT_MODEL, agent.model.clone(), cx);
-        let search = cx.new(|cx| TextField::new("Search settings", cx));
+        let search = cx.new(|cx| TextField::new(tr("Search settings"), cx));
         let subscription = cx.subscribe(&search, |this: &mut Self, _, _: &FieldEvent, cx| {
             if let Some(first) = this.visible_pages(cx).first() {
                 this.page = first.0;
@@ -571,7 +572,7 @@ impl SettingsDialog {
         theme::init(cx);
         // The menu bar is built once with translated labels, so rebuild it for a new language.
         crate::menus::set(cx);
-        self.status = Some("Applied".into());
+        self.status = Some(tr("Applied").to_string());
         cx.notify();
     }
 
@@ -588,9 +589,9 @@ impl SettingsDialog {
 
     fn render_page(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let s = &self.settings;
-        let row = |label: &'static str| div().flex().items_center().gap_3().child(div().w(px(150.)).flex_none().text_color(theme::muted()).child(label));
+        let row = |label: &str| div().flex().items_center().gap_3().child(div().w(px(150.)).flex_none().text_color(theme::muted()).child(tr(label)));
         let toggle = |id: &'static str, text: &'static str, on: bool, f: fn(&mut Settings)| {
-            super::checkbox(id, text, on).on_click(cx.listener(move |this, _, _, cx| {
+            super::checkbox(id, tr(text), on).on_click(cx.listener(move |this, _, _, cx| {
                 f(&mut this.settings);
                 cx.notify();
             }))
@@ -666,7 +667,7 @@ impl SettingsDialog {
                                 .child(toggle("phpstan", "PHPStan", s.phpstan, |s| s.phpstan ^= true))
                                 .child(toggle("psalm", "Psalm", s.psalm, |s| s.psalm ^= true))
                                 .child(toggle("phpcs", "PHP_CodeSniffer", s.phpcs, |s| s.phpcs ^= true))
-                                .child(div().text_size(px(12.)).text_color(theme::muted()).child("Run on saved files when installed in the project's vendor/bin.")),
+                                .child(div().text_size(px(12.)).text_color(theme::muted()).child(tr("Run on saved files when installed in the project's vendor/bin."))),
                         ),
                     )
                     .when(s.auto_save == AutoSave::AfterDelay, |d| d.child(row("Delay (ms)").child(div().w(px(120.)).child(self.delay.clone()))))
@@ -685,14 +686,14 @@ impl SettingsDialog {
             SettingsPage::Editor => body
                 .child(row("Font").child(div().flex_1().child(self.font.clone())))
                 .child(row("Size").child(div().w(px(90.)).child(self.font_size.clone())))
-                .child(div().text_size(px(12.)).text_color(theme::muted()).child("Used by the editor and the terminal."))
+                .child(div().text_size(px(12.)).text_color(theme::muted()).child(tr("Used by the editor and the terminal.")))
                 .child(row("AI completion").child(toggle(
                     "ai-inline",
                     "Suggest code inline as you type (Tab accepts, Esc dismisses)",
                     s.ai_inline_completion,
                     |s| s.ai_inline_completion ^= true,
                 )))
-                .child(div().text_size(px(12.)).text_color(theme::muted()).child("Uses the Anthropic API key from the AI Assistant panel; the model is completion_model in agent.json."))
+                .child(div().text_size(px(12.)).text_color(theme::muted()).child(tr("Uses the Anthropic API key from the AI Assistant panel; the model is completion_model in agent.json.")))
                 .into_any_element(),
             SettingsPage::Keymap => body
                 .child(div().text_color(theme::muted()).child(format!("Custom shortcuts are stored in {}", keymap::user_path().display())))
@@ -713,8 +714,8 @@ impl SettingsDialog {
                 .child(
                     row("Settings Sync")
                         .child(div().flex_1().text_size(px(12.)).text_color(theme::muted()).child(match crate::sync::gist_id() {
-                            Some(id) => format!("GitHub gist {id}"),
-                            None => "Secret GitHub gist via the gh CLI".to_string(),
+                            Some(id) => trf("GitHub gist {}", &[&id]),
+                            None => tr("Secret GitHub gist via the gh CLI").to_string(),
                         }))
                         .child(button("sync-pull", "Pull", false).on_click(cx.listener(|_, _, window, cx| {
                             window.dispatch_action(Box::new(crate::workspace::SyncPull), cx);
@@ -728,10 +729,10 @@ impl SettingsDialog {
                 .into_any_element(),
             SettingsPage::Terminal => body
                 .child(row("Shell path").child(div().flex_1().child(self.shell.clone())))
-                .child(div().text_size(px(12.)).text_color(theme::muted()).child("Empty starts your login shell. Arguments may follow the path, e.g. /bin/zsh -l"))
+                .child(div().text_size(px(12.)).text_color(theme::muted()).child(tr("Empty starts your login shell. Arguments may follow the path, e.g. /bin/zsh -l")))
                 .into_any_element(),
             SettingsPage::Laravel => body
-                .child(div().text_color(theme::muted()).child("Laravel options are stored per project in .phpcraft/laravel.json."))
+                .child(div().text_color(theme::muted()).child(tr("Laravel options are stored per project in .phpcraft/laravel.json.")))
                 .child(div().flex().child(button("settings-laravel", "Laravel Settings…", false).on_click(cx.listener(|_, _, window, cx| {
                     cx.emit(DialogEvent::Dismiss);
                     window.dispatch_action(Box::new(crate::workspace::OpenLaravelSettings), cx);
@@ -755,7 +756,7 @@ impl SettingsDialog {
                                 .items_center()
                                 .gap_2()
                                 .child(div().text_color(theme::ui_text()).child(title))
-                                .child(div().text_size(px(11.)).text_color(if installed { theme::success() } else { theme::muted() }).child(if installed { "✓ available" } else { "not installed" }))
+                                .child(div().text_size(px(11.)).text_color(if installed { theme::success() } else { theme::muted() }).child(if installed { tr("✓ available") } else { tr("not installed") }))
                                 .child(div().flex_1())
                                 .when(installed && !active, |d| {
                                     d.child(option_chip(SharedString::from(format!("ai-use-{id}")), "Use by default", false).on_click(cx.listener(move |this, _, _, cx| {
@@ -763,21 +764,21 @@ impl SettingsDialog {
                                         cx.notify();
                                     })))
                                 })
-                                .when(active, |d| d.child(div().text_size(px(12.)).text_color(theme::accent()).child("Default")))
+                                .when(active, |d| d.child(div().text_size(px(12.)).text_color(theme::accent()).child(tr("Default"))))
                                 .when_some(login.filter(|_| installed), |d, login| {
                                     d.child(option_chip(SharedString::from(format!("ai-login-{id}")), "Sign in…", false).on_click(cx.listener(move |_, _, _, cx| {
                                         cx.emit(DialogEvent::RunInTerminal(login.clone()));
                                     })))
                                 }),
                         )
-                        .child(div().text_size(px(12.)).text_color(theme::muted()).child(detail))
+                        .child(div().text_size(px(12.)).text_color(theme::muted()).child(tr(&detail)))
                         .when(!installed && !install.is_empty(), |d| {
-                            d.child(div().text_size(px(12.)).font_family(theme::editor_font()).text_color(theme::muted()).child(format!("Install: {install}")))
+                            d.child(div().text_size(px(12.)).font_family(theme::editor_font()).text_color(theme::muted()).child(trf("Install: {}", &[install])))
                         })
                 };
                 let installed = |program: &str| agent::acp::which(program).is_some();
                 let key_set = !self.api_key.read(cx).text().trim().is_empty() || std::env::var("ANTHROPIC_API_KEY").is_ok_and(|k| !k.is_empty());
-                body.child(div().text_color(theme::muted()).child("Agents for the AI Assistant (⌘⌥I). ACP agents sign in with their own account; Claude API uses your key."))
+                body.child(div().text_color(theme::muted()).child(tr("Agents for the AI Assistant (⌘⌥I). ACP agents sign in with their own account; Claude API uses your key.")))
                     .child(
                         provider_row("anthropic", "Claude API", "Anthropic Messages API with your key. Also used for inline AI completion.".into(), key_set, "", None)
                             .child(row("API key").child(div().flex_1().child(self.api_key.clone())))
@@ -802,7 +803,7 @@ impl SettingsDialog {
                                 .flex_1()
                                 .text_size(px(12.))
                                 .text_color(theme::muted())
-                                .child(location.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "Not found".into())),
+                                .child(location.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| tr("Not found").to_string())),
                         )
                         .when(location.is_some(), |d| {
                             d.child(button(source.name(), "Import", false).on_click(cx.listener(move |this, _, _, cx| {
@@ -824,7 +825,7 @@ impl SettingsDialog {
                             })))
                         })
                 });
-                body.child(div().text_color(theme::muted()).child("Fonts, theme, auto save, terminal shell and keyboard shortcuts."))
+                body.child(div().text_color(theme::muted()).child(tr("Fonts, theme, auto save, terminal shell and keyboard shortcuts.")))
                     .children(sources)
                     .into_any_element()
             }
@@ -849,7 +850,7 @@ fn option_chip(id: SharedString, label: &str, active: bool) -> gpui::Stateful<gp
         .border_color(if active { theme::accent() } else { theme::border_strong() })
         .when(active, |d| d.bg(theme::active_row()))
         .hover(|d| d.bg(theme::hover()))
-        .child(label.to_string())
+        .child(tr(label))
 }
 
 impl Render for SettingsDialog {
@@ -858,7 +859,7 @@ impl Render for SettingsDialog {
         let mut last_group = "";
         for (page, group, title) in self.visible_pages(cx) {
             if group != last_group && !group.is_empty() {
-                tree.push(div().px_2().pt_2().pb_1().text_size(px(12.)).text_color(theme::muted()).child(group).into_any_element());
+                tree.push(div().px_2().pt_2().pb_1().text_size(px(12.)).text_color(theme::muted()).child(tr(group)).into_any_element());
             }
             last_group = group;
             let active = page == self.page;
@@ -875,7 +876,7 @@ impl Render for SettingsDialog {
                     .text_color(theme::ui_text())
                     .when(active, |d| d.bg(theme::selection()))
                     .when(!active, |d| d.hover(|d| d.bg(theme::hover())))
-                    .child(title)
+                    .child(tr(title))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.page = page;
                         cx.notify();
@@ -917,7 +918,7 @@ impl Render for SettingsDialog {
                                     .pb_3()
                                     .text_size(px(15.))
                                     .text_color(theme::ui_text())
-                                    .child(if group.is_empty() { title.to_string() } else { format!("{group}  ›  {title}") }),
+                                    .child(if group.is_empty() { tr(title).to_string() } else { trf("{}  ›  {}", &[tr(group).as_ref(), tr(title).as_ref()]) }),
                             )
                             .child(page),
                     ),
@@ -931,7 +932,7 @@ impl Render for SettingsDialog {
                     .border_t_1()
                     .border_color(theme::border())
                     .child(div().flex_1().text_size(px(12.)).text_color(theme::muted()).child(self.status.clone().unwrap_or_else(|| {
-                        format!("Saved to {}", crate::config::dir().join("settings.json").display())
+                        trf("Saved to {}", &[&crate::config::dir().join("settings.json").display().to_string()])
                     })))
                     .child(button("settings-cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.cancel(&Cancel, window, cx))))
                     .child(button("settings-apply", "Apply", false).on_click(cx.listener(|this, _, _, cx| this.apply(cx))))

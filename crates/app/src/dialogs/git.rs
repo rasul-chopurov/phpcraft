@@ -147,7 +147,7 @@ impl BranchDialog {
     pub fn new(repo: &git::Repo, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (local, remote) = repo.branches().unwrap_or_default();
         let upstreams = local.iter().take(80).filter_map(|b| Some((b.clone(), repo.upstream(b)?))).collect();
-        let query = cx.new(|cx| TextField::new("Search for branches and actions", cx));
+        let query = cx.new(|cx| TextField::new(crate::i18n::tr("Search for branches and actions"), cx));
         let subscription = cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
             this.selected = this.first_selectable(cx);
             cx.notify();
@@ -275,7 +275,7 @@ impl BranchDialog {
         self.mode = mode;
         self.query.update(cx, |q, cx| {
             q.set_text("", cx);
-            q.set_placeholder(placeholder, cx);
+            q.set_placeholder(crate::i18n::tr(placeholder), cx);
         });
         window.focus(&self.query.focus_handle(cx));
         self.selected = self.first_selectable(cx);
@@ -393,17 +393,17 @@ impl Render for BranchDialog {
                         .hover(|d| d.bg(theme::hover()))
                         .child(div().w(px(16.)).text_color(theme::muted()).child(icon))
                         .child(div().flex_1().overflow_hidden().whitespace_nowrap().child(label))
-                        .child(div().text_size(px(12.)).text_color(theme::muted()).child(hint))
+                        .child(div().text_size(px(12.)).text_color(theme::muted()).child(crate::i18n::tr(hint)))
                 };
                 let element = match row {
-                    BranchRow::Pull => item("↙", "Update Project…".into(), "⌘T"),
-                    BranchRow::Fetch => item("⟳", "Fetch".into(), ""),
-                    BranchRow::Commit => item("⊸", "Commit…".into(), "⌘0"),
-                    BranchRow::Push => item("↗", "Push…".into(), "⇧⌘K"),
-                    BranchRow::NewBranch => item("+", "New Branch…".into(), "⌥⌘N"),
-                    BranchRow::Revision => item("", "Checkout Tag or Revision…".into(), ""),
+                    BranchRow::Pull => item("↙", crate::i18n::tr("Update Project…").to_string(), "⌘T"),
+                    BranchRow::Fetch => item("⟳", crate::i18n::tr("Fetch").to_string(), ""),
+                    BranchRow::Commit => item("⊸", crate::i18n::tr("Commit…").to_string(), "⌘0"),
+                    BranchRow::Push => item("↗", crate::i18n::tr("Push…").to_string(), "⇧⌘K"),
+                    BranchRow::NewBranch => item("+", crate::i18n::tr("New Branch…").to_string(), "⌥⌘N"),
+                    BranchRow::Revision => item("", crate::i18n::tr("Checkout Tag or Revision…").to_string(), ""),
                     BranchRow::Header(title) => {
-                        return div().mt_1().px_3().pt_1p5().pb_1().border_t_1().border_color(theme::border()).text_size(px(12.)).text_color(theme::muted()).child(title).into_any_element();
+                        return div().mt_1().px_3().pt_1p5().pb_1().border_t_1().border_color(theme::border()).text_size(px(12.)).text_color(theme::muted()).child(crate::i18n::tr(title)).into_any_element();
                     }
                     BranchRow::Folder { name, depth, collapsed, .. } => item(if collapsed { "▸" } else { "▾" }, format!("{}📁 {name}", "  ".repeat(depth.saturating_sub(1))), ""),
                     BranchRow::Branch { name, label, depth, upstream } => {
@@ -417,15 +417,15 @@ impl Render for BranchDialog {
                     BranchRow::Action { branch, action, depth } => {
                         let cur = current.clone().unwrap_or_default();
                         let label = match action {
-                            BranchAction::Checkout => format!("Checkout '{branch}'"),
-                            BranchAction::NewFrom => format!("New Branch from '{branch}'…"),
-                            BranchAction::Merge => format!("Merge '{branch}' into '{cur}'"),
-                            BranchAction::Rename => "Rename…".to_string(),
-                            BranchAction::Delete => "Delete".to_string(),
+                            BranchAction::Checkout => crate::i18n::trf("Checkout '{}'", &[&branch]),
+                            BranchAction::NewFrom => crate::i18n::trf("New Branch from '{}'…", &[&branch]),
+                            BranchAction::Merge => crate::i18n::trf("Merge '{}' into '{}'", &[&branch, &cur]),
+                            BranchAction::Rename => crate::i18n::tr("Rename…").to_string(),
+                            BranchAction::Delete => crate::i18n::tr("Delete").to_string(),
                         };
                         item("", format!("{}{label}", "  ".repeat(depth)), "")
                     }
-                    BranchRow::Input(text) => item("↵", if text.is_empty() { "Type a name…".into() } else { text }, "Enter"),
+                    BranchRow::Input(text) => item("↵", if text.is_empty() { crate::i18n::tr("Type a name…").to_string() } else { text }, "Enter"),
                     BranchRow::Tag(tag) => item("🏷", tag, ""),
                 };
                 element.on_click(cx.listener(move |this, _, window, cx| {
@@ -486,7 +486,7 @@ impl Render for ConfirmDialog {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::cancel))
-            .child(div().p_3().child(SharedString::from(self.message.clone())))
+            .child(div().p_3().child(crate::i18n::tr(&self.message)))
             .child(
                 div()
                     .flex()
@@ -618,7 +618,7 @@ impl Render for LocalHistoryDialog {
                     .py_2()
                     .border_b_1()
                     .border_color(theme::border())
-                    .child(format!("Local History · {name}"))
+                    .child(crate::i18n::trf("Local History · {}", &[&name]))
                     .child(div().flex_1())
                     .when(!self.versions.is_empty(), |d| {
                         d.child(button("history-revert", "Revert", true).on_click(cx.listener(|this, _, _, cx| this.revert(cx))))
@@ -638,7 +638,7 @@ impl Render for LocalHistoryDialog {
                             .border_r_1()
                             .border_color(theme::border())
                             .text_size(px(13.))
-                            .when(list.is_empty(), |d| d.child(div().p_3().text_color(theme::muted()).child("No versions yet. They are recorded on open and save.")))
+                            .when(list.is_empty(), |d| d.child(div().p_3().text_color(theme::muted()).child(crate::i18n::tr("No versions yet. They are recorded on open and save."))))
                             .children(list),
                     )
                     .child(
@@ -654,8 +654,8 @@ impl Render for LocalHistoryDialog {
                                     .text_color(theme::muted())
                                     .border_b_1()
                                     .border_color(theme::border())
-                                    .child(div().flex_1().px_3().py_1().child("Selected version"))
-                                    .child(div().flex_1().px_3().py_1().child("Current")),
+                                    .child(div().flex_1().px_3().py_1().child(crate::i18n::tr("Selected version")))
+                                    .child(div().flex_1().px_3().py_1().child(crate::i18n::tr("Current"))),
                             )
                             .child(div().id("history-diff").flex_1().overflow_y_scroll().font_family(theme::editor_font()).text_size(px(12.)).children(rows)),
                     ),

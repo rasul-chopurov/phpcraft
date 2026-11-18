@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use gpui::{App, Context, Entity, EventEmitter, FocusHandle, Focusable, Hsla, SharedString, Window, div, prelude::*, px};
 
 use super::{Cancel, Confirm, DialogEvent, SelectNext, SelectPrev, button, card};
+use crate::i18n::tr;
 use crate::text_field::TextField;
 use crate::theme;
 
@@ -100,7 +101,7 @@ impl ProjectDialog {
                 let parent = dirs::home_dir().map(|h| h.join("Projects")).unwrap_or_default().display().to_string();
                 let url = cx.new(|cx| TextField::new("https://github.com/owner/repo.git", cx));
                 let dir = cx.new(|cx| {
-                    let mut f = TextField::new("Directory", cx);
+                    let mut f = TextField::new(tr("Directory"), cx);
                     f.set_text(parent, cx);
                     f
                 });
@@ -165,7 +166,7 @@ impl Render for ProjectDialog {
                 .track_focus(&self.focus_handle)
                 .on_action(cx.listener(Self::confirm))
                 .on_action(cx.listener(Self::cancel))
-                .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child("Clone Repository"))
+                .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(tr("Clone Repository")))
                 .child(
                     div()
                         .flex()
@@ -173,7 +174,7 @@ impl Render for ProjectDialog {
                         .gap_2()
                         .p_3()
                         .child(div().flex().items_center().gap_2().child(div().w(px(80.)).text_color(theme::muted()).child("URL")).child(div().flex_1().child(url.clone())))
-                        .child(div().flex().items_center().gap_2().child(div().w(px(80.)).text_color(theme::muted()).child("Directory")).child(div().flex_1().child(dir.clone()))),
+                        .child(div().flex().items_center().gap_2().child(div().w(px(80.)).text_color(theme::muted()).child(tr("Directory"))).child(div().flex_1().child(dir.clone()))),
                 )
                 .child(
                     div()
@@ -206,8 +207,8 @@ impl Render for ProjectDialog {
                         this.activate(ix, window, cx);
                     }));
                 match row {
-                    Row::Open => base.h(px(28.)).child("▢").child("Open…").into_any_element(),
-                    Row::Clone => base.h(px(28.)).child("⎇").child("Clone Repository…").into_any_element(),
+                    Row::Open => base.h(px(28.)).child("▢").child(tr("Open…")).into_any_element(),
+                    Row::Clone => base.h(px(28.)).child("⎇").child(tr("Clone Repository…")).into_any_element(),
                     Row::Header(title) => div()
                         .px_3()
                         .pt_2()
@@ -217,7 +218,7 @@ impl Render for ProjectDialog {
                         .border_color(theme::border())
                         .text_size(px(12.))
                         .text_color(theme::muted())
-                        .child(title)
+                        .child(tr(title))
                         .into_any_element(),
                     Row::Project(path, current) => {
                         let name = project_name(&path);
@@ -244,7 +245,7 @@ impl Render for ProjectDialog {
                                         .text_color(theme::muted())
                                         .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
                                         .child("↗")
-                                        .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip("Open in New Window".into())).into())
+                                        .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip(tr("Open in New Window"))).into())
                                         .on_click(cx.listener(move |_, _, _, cx| {
                                             cx.stop_propagation();
                                             cx.emit(DialogEvent::OpenProject(new_window.clone(), super::OpenMode::NewWindow));
@@ -261,7 +262,7 @@ impl Render for ProjectDialog {
                                         .text_color(theme::muted())
                                         .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
                                         .child("⊞")
-                                        .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip("Open in New Tab".into())).into())
+                                        .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip(tr("Open in New Tab"))).into())
                                         .on_click(cx.listener(move |_, _, _, cx| {
                                             cx.stop_propagation();
                                             cx.emit(DialogEvent::OpenProject(new_tab.clone(), super::OpenMode::NewTab));

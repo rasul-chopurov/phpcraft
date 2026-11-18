@@ -13,6 +13,7 @@ use super::layout::ToolWindow;
 use crate::debugger::{Command, Controller, Event};
 use crate::text_field::TextField;
 use crate::theme;
+use crate::i18n::tr;
 
 actions!(
     workspace,
@@ -57,7 +58,7 @@ impl Workspace {
                 }
             }
         });
-        let eval = cx.new(|cx| TextField::new("Evaluate expression (Enter)", cx));
+        let eval = cx.new(|cx| TextField::new(tr("Evaluate expression (Enter)"), cx));
         self.debug = Some(DebugState {
             controller,
             listening: None,
@@ -263,9 +264,9 @@ impl Workspace {
                 .justify_center()
                 .gap_2()
                 .text_color(theme::muted())
-                .child("Not listening for Xdebug.")
+                .child(tr("Not listening for Xdebug."))
                 .child(button("debug-listen", "Start Listening (Run ▸ Start Listening for PHP Debug Connections)", true, |this, window, cx| this.start_debugger(window, cx)))
-                .child(div().text_size(px(12.)).child("Run ▸ Debug (⌃D) runs the current file or test with Xdebug. Path mappings: .phpcraft/debug.json"))
+                .child(div().text_size(px(12.)).child(tr("Run ▸ Debug (⌃D) runs the current file or test with Xdebug. Path mappings: .phpcraft/debug.json")))
                 .into_any_element();
         };
         let paused = debug.paused.is_some();

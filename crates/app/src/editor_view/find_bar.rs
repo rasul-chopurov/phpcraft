@@ -9,6 +9,7 @@ use gpui::{
 use search::TextQuery;
 
 use super::EditorView;
+use crate::i18n::{tr, trf};
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
 
@@ -60,8 +61,8 @@ impl EditorView {
         let selected = self.buffer.selected_text();
         let seed = (!selected.is_empty() && !selected.contains('\n')).then_some(selected);
         if self.find.is_none() {
-            let query = cx.new(|cx| TextField::new("Search", cx));
-            let replace_field = cx.new(|cx| TextField::new("Replace", cx));
+            let query = cx.new(|cx| TextField::new(tr("Search"), cx));
+            let replace_field = cx.new(|cx| TextField::new(tr("Replace"), cx));
             let subscriptions =
                 vec![
                     cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
@@ -298,11 +299,11 @@ impl EditorView {
                 .tooltip(move |_, cx| cx.new(|_| Tip(tip)).into())
         };
         let status: SharedString = match (&find.error, find.matches.len(), find.current) {
-            (Some(_), _, _) => "Bad regex".into(),
+            (Some(_), _, _) => tr("Bad regex"),
             (None, 0, _) if find.query.read(cx).text().is_empty() => "".into(),
-            (None, 0, _) => "0 results".into(),
+            (None, 0, _) => tr("0 results"),
             (None, n, Some(i)) => format!("{}/{n}", i + 1).into(),
-            (None, n, None) => format!("{n} results").into(),
+            (None, n, None) => trf("{} results", &[&n.to_string()]).into(),
         };
         let no_results = find.matches.is_empty() && !find.query.read(cx).text().is_empty();
         let nav = |id: &'static str, label: &'static str| {
@@ -312,7 +313,7 @@ impl EditorView {
                 .cursor_pointer()
                 .text_color(theme::ui_text())
                 .hover(|d| d.bg(theme::hover()))
-                .child(label)
+                .child(tr(label))
         };
         let text_button = |id: &'static str, label: &'static str| {
             div()
@@ -326,7 +327,7 @@ impl EditorView {
                 .border_color(theme::border_strong())
                 .cursor_pointer()
                 .hover(|d| d.bg(theme::hover()))
-                .child(label)
+                .child(tr(label))
         };
         Some(
             div()
@@ -435,6 +436,6 @@ impl Render for Tip {
             .rounded_sm()
             .text_size(px(12.))
             .text_color(theme::ui_text())
-            .child(self.0)
+            .child(tr(self.0))
     }
 }

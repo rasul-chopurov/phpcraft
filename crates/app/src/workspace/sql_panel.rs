@@ -6,6 +6,7 @@ use gpui::{Context, SharedString, Window, actions, div, prelude::*, px};
 use super::Workspace;
 use crate::icons::{Icon, icon};
 use crate::theme;
+use crate::i18n::tr;
 
 actions!(workspace, [RunSqlFile]);
 
@@ -104,11 +105,11 @@ impl Workspace {
                         .child(format!("Run  {}", crate::keymap::display("secondary-enter")))
                         .on_click(cx.listener(|this, _, window, cx| this.run_sql_file(&RunSqlFile, window, cx))),
                 )
-                .child(div().text_color(theme::muted()).child("selection or statement at the caret"))
+                .child(div().text_color(theme::muted()).child(tr("selection or statement at the caret")))
                 .child(div().flex_1())
                 .child(icon(Icon::database, 13., theme::muted()))
                 .children(chips)
-                .when(empty, |d| d.child(div().text_color(theme::muted()).child("no data sources — add one in the Database window"))),
+                .when(empty, |d| d.child(div().text_color(theme::muted()).child(tr("no data sources — add one in the Database window")))),
         )
     }
 }

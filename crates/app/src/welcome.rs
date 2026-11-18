@@ -87,7 +87,7 @@ pub fn open(cx: &mut App) {
     let options = gpui::WindowOptions {
         window_bounds: Some(gpui::WindowBounds::Windowed(bounds)),
         window_min_size: Some(crate::window_state::min_size()),
-        titlebar: Some(gpui::TitlebarOptions { title: Some("Welcome to PhpCraft".into()), ..Default::default() }),
+        titlebar: Some(gpui::TitlebarOptions { title: Some(crate::i18n::tr("Welcome to PhpCraft")), ..Default::default() }),
         ..Default::default()
     };
     let _ = cx.open_window(options, |window, cx| cx.new(|cx| Welcome::new(window, cx)));
@@ -95,7 +95,7 @@ pub fn open(cx: &mut App) {
 
 impl Welcome {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let query = cx.new(|cx| TextField::new("Search projects", cx));
+        let query = cx.new(|cx| TextField::new(crate::i18n::tr("Search projects"), cx));
         let subscription = cx.subscribe(&query, |_, _, _: &FieldEvent, cx| cx.notify());
         let focus_handle = cx.focus_handle();
         window.focus(&query.focus_handle(cx));
@@ -154,7 +154,7 @@ impl Welcome {
         match crate::open_project_window(path, cx) {
             Ok(()) => window.remove_window(),
             Err(err) => {
-                self.message = Some(format!("Cannot open {}: {err}", path.display()));
+                self.message = Some(crate::i18n::trf("Cannot open {}: {}", &[&path.display().to_string(), &err.to_string()]));
                 cx.notify();
             }
         }
@@ -210,7 +210,7 @@ impl Welcome {
         }
         let target = location.join(&name);
         if target.exists() && std::fs::read_dir(&target).is_ok_and(|mut d| d.next().is_some()) {
-            self.message = Some(format!("{} already exists and isn't empty", target.display()));
+            self.message = Some(crate::i18n::trf("{} already exists and isn't empty", &[&target.display().to_string()]));
             cx.notify();
             return;
         }
@@ -255,7 +255,7 @@ impl Welcome {
 
     /// Runs a project-creating command in a terminal; opens the project when it succeeds.
     fn run_creation(&mut self, command: terminal::Command, cwd: &Path, target: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        match TerminalView::spawn(cwd, Some(command), "Create".into(), Default::default(), cx) {
+        match TerminalView::spawn(cwd, Some(command), crate::i18n::tr("Create").to_string(), Default::default(), cx) {
             Ok(view) => {
                 let path = target.clone();
                 let subscription = cx.subscribe_in(&view, window, move |this, view, event: &TerminalViewEvent, window, cx| {
@@ -278,11 +278,9 @@ impl Welcome {
             Ok(report) => {
                 theme::init(cx);
                 crate::keymap::apply(cx);
-                format!(
+                crate::i18n::trf(
                     "Imported from {}: {}{} keybinding(s).",
-                    source.name(),
-                    report.settings.iter().map(|s| format!("{s}; ")).collect::<String>(),
-                    report.bindings.len()
+                    &[source.name(), &report.settings.iter().map(|s| format!("{s}; ")).collect::<String>(), &report.bindings.len().to_string()],
                 )
             }
             Err(err) => err,
@@ -308,7 +306,7 @@ impl Welcome {
     }
 
     fn start_new_group(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let field = cx.new(|cx| TextField::new("Group name, e.g. Clients", cx));
+        let field = cx.new(|cx| TextField::new(crate::i18n::tr("Group name, e.g. Clients"), cx));
         window.focus(&field.focus_handle(cx));
         self.new_group = Some(field);
         cx.notify();
@@ -343,7 +341,7 @@ impl Welcome {
                 .rounded_sm()
                 .hover(|d| d.bg(theme::hover()))
                 .child(crate::icons::icon(glyph, 14., theme::muted()))
-                .tooltip(move |_, cx| cx.new(|_| crate::dialogs::TextTooltip(tip.into())).into())
+                .tooltip(move |_, cx| cx.new(|_| crate::dialogs::TextTooltip(crate::i18n::tr(tip))).into())
         };
         let row = div()
             .id(("welcome-project", ix))
@@ -396,9 +394,9 @@ impl Welcome {
         let path = path.to_path_buf();
         let in_group = self.groups.iter().any(|g| g.projects.contains(&path));
         let chip = |id: SharedString, label: String| {
-            div().id(id).px_2().py_0p5().rounded_md().cursor_pointer().border_1().border_color(theme::border()).text_size(px(12.)).hover(|d| d.bg(theme::hover())).child(label)
+            div().id(id).px_2().py_0p5().rounded_md().cursor_pointer().border_1().border_color(theme::border()).text_size(px(12.)).hover(|d| d.bg(theme::hover())).child(crate::i18n::tr(&label))
         };
-        let mut menu = div().flex().flex_wrap().items_center().gap_1().ml_12().mb_2().child(div().text_size(px(12.)).text_color(theme::muted()).child("Move to:"));
+        let mut menu = div().flex().flex_wrap().items_center().gap_1().ml_12().mb_2().child(div().text_size(px(12.)).text_color(theme::muted()).child(crate::i18n::tr("Move to:")));
         for (gix, group) in self.groups.iter().enumerate() {
             let p = path.clone();
             menu = menu.child(chip(SharedString::from(format!("move-{ix}-{gix}")), group.name.clone()).on_click(cx.listener(move |this, _, _, cx| this.move_to_group(&p, Some(gix), cx))));
@@ -470,7 +468,7 @@ impl Welcome {
                             .rounded_sm()
                             .hover(|d| d.bg(theme::hover()))
                             .child(crate::icons::icon(crate::icons::Icon::close, 13., theme::muted()))
-                            .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip("Delete group (its projects stay in Recent)".into())).into())
+                            .tooltip(|_, cx| cx.new(|_| crate::dialogs::TextTooltip(crate::i18n::tr("Delete group (its projects stay in Recent)"))).into())
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
                                 this.groups.remove(gix);
@@ -495,7 +493,7 @@ impl Welcome {
         let grouped: std::collections::HashSet<&PathBuf> = self.groups.iter().flat_map(|g| g.projects.iter()).collect();
         let loose: Vec<(PathBuf, Option<String>)> = self.projects.iter().filter(|(p, _)| !grouped.contains(p) && matches(p)).cloned().collect();
         if !self.groups.is_empty() && !loose.is_empty() {
-            children.push(div().px_3().pt_3().pb_1().text_size(px(11.)).text_color(theme::muted()).child("RECENT").into_any_element());
+            children.push(div().px_3().pt_3().pb_1().text_size(px(11.)).text_color(theme::muted()).child(crate::i18n::tr("RECENT")).into_any_element());
         }
         let empty = self.projects.is_empty();
         for (path, branch) in &loose {
@@ -508,12 +506,12 @@ impl Welcome {
             .overflow_y_scroll()
             .px_2()
             .children(children)
-            .when(empty, |d| d.child(div().p_6().text_color(theme::muted()).child("No recent projects. Open a folder or clone a repository.")))
+            .when(empty, |d| d.child(div().p_6().text_color(theme::muted()).child(crate::i18n::tr("No recent projects. Open a folder or clone a repository."))))
     }
 
     fn render_customize(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let settings = Settings::load();
-        let label = |text: &'static str| div().w(px(150.)).flex_none().text_color(theme::muted()).child(text);
+        let label = |text: &'static str| div().w(px(150.)).flex_none().text_color(theme::muted()).child(crate::i18n::tr(text));
         let chip = |id: SharedString, text: String, active: bool| {
             div()
                 .id(id)
@@ -525,7 +523,7 @@ impl Welcome {
                 .border_color(if active { theme::accent() } else { theme::border_strong() })
                 .when(active, |d| d.bg(theme::active_row()))
                 .hover(|d| d.bg(theme::hover()))
-                .child(text)
+                .child(crate::i18n::tr(&text))
         };
         let themes = theme::available().into_iter().map(|t| {
             let name = t.name.clone();
@@ -560,7 +558,7 @@ impl Welcome {
             .gap_4()
             .p_6()
             .text_size(px(13.))
-            .child(div().text_size(px(18.)).text_color(theme::ui_text()).child("Customize"))
+            .child(div().text_size(px(18.)).text_color(theme::ui_text()).child(crate::i18n::tr("Customize")))
             .child(div().flex().items_start().gap_2().child(label("Color theme")).child(div().flex().flex_wrap().gap_1().children(themes)))
             .child(div().flex().items_center().gap_2().child(label("Editor font size")).child(div().flex().gap_1().children(sizes)))
             .child(
@@ -609,7 +607,7 @@ impl Render for Welcome {
                 .text_color(theme::ui_text())
                 .when(page == current, |d| d.bg(theme::selection()))
                 .when(page != current, |d| d.hover(|d| d.bg(theme::hover())))
-                .child(label)
+                .child(crate::i18n::tr(label))
         };
         let page = self.page;
         let main: gpui::AnyElement = if let Some((view, target, _)) = &self.creating {
@@ -624,7 +622,7 @@ impl Render for Welcome {
                         .items_center()
                         .gap_2()
                         .p_3()
-                        .child(div().flex_1().text_color(theme::ui_text()).child(format!("Creating {}", tilde(target))))
+                        .child(div().flex_1().text_color(theme::ui_text()).child(crate::i18n::trf("Creating {}", &[&tilde(target)])))
                         .when(!running, |d| {
                             d.child(button("w-back", "Back", false).on_click(cx.listener(|this, _, _, cx| {
                                 this.creating = None;
@@ -657,7 +655,7 @@ impl Render for Welcome {
                     .when(active, |d| d.bg(theme::selection()))
                     .when(!active, |d| d.hover(|d| d.bg(theme::hover())))
                     .child(div().w(px(18.)).text_color(theme::syntax(php_syntax::Highlight::Keyword)).child(icon))
-                    .child(label)
+                    .child(crate::i18n::tr(label))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(new) = this.new_project.as_mut() {
                             new.kind = kind;
@@ -665,7 +663,7 @@ impl Render for Welcome {
                         cx.notify();
                     }))
             });
-            let field_row = |label: &'static str| div().flex().items_center().gap_2().child(div().w(px(90.)).text_color(theme::muted()).child(label));
+            let field_row = |label: &'static str| div().flex().items_center().gap_2().child(div().w(px(90.)).text_color(theme::muted()).child(crate::i18n::tr(label)));
             let (title, hint) = match new.kind {
                 ProjectKind::Empty => ("PHP Empty Project", "A folder for your code."),
                 ProjectKind::Laravel => ("Laravel", "Runs composer create-project laravel/laravel <name>."),
@@ -683,7 +681,7 @@ impl Render for Welcome {
                     .cursor_pointer()
                     .border_color(if active { theme::accent() } else { theme::border_strong() })
                     .when(active, |d| d.bg(theme::active_row()))
-                    .child(label)
+                    .child(crate::i18n::tr(label))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if let Some(new) = this.new_project.as_mut() {
                             new.kit = kit;
@@ -704,19 +702,19 @@ impl Render for Welcome {
                         .flex_col()
                         .gap_3()
                         .p_6()
-                        .child(div().text_size(px(18.)).text_color(theme::ui_text()).child(title))
+                        .child(div().text_size(px(18.)).text_color(theme::ui_text()).child(crate::i18n::tr(title)))
                         .child(field_row("Name").child(div().flex_1().child(new.name.clone())))
                         .child(field_row("Location").child(div().flex_1().child(new.location.clone())))
                         .when(new.kind == ProjectKind::StarterKit, |d| d.child(field_row("Stack").child(div().flex().gap_1().children(kits))))
                         .when(new.kind == ProjectKind::Empty, |d| {
-                            d.child(crate::dialogs::checkbox("np-composer", "Add 'composer.json'", composer_json).on_click(cx.listener(|this, _, _, cx| {
+                            d.child(crate::dialogs::checkbox("np-composer", crate::i18n::tr("Add 'composer.json'"), composer_json).on_click(cx.listener(|this, _, _, cx| {
                                 if let Some(new) = this.new_project.as_mut() {
                                     new.composer_json = !new.composer_json;
                                 }
                                 cx.notify();
                             })))
                         })
-                        .child(div().text_size(px(12.)).text_color(theme::muted()).child(hint))
+                        .child(div().text_size(px(12.)).text_color(theme::muted()).child(crate::i18n::tr(hint)))
                         .child(div().flex_1())
                         .child(
                             div()
@@ -787,8 +785,8 @@ impl Render for Welcome {
                     .rounded_md()
                     .cursor_pointer()
                     .hover(|d| d.bg(theme::selection()))
-                    .child(label)
-                    .child(div().text_color(theme::muted()).child(hint))
+                    .child(crate::i18n::tr(label))
+                    .child(div().text_color(theme::muted()).child(crate::i18n::tr(hint)))
             };
             div()
                 .absolute()
@@ -815,7 +813,7 @@ impl Render for Welcome {
                     cx.notify();
                 })))
                 .child(item("g-about", "About", "").on_click(cx.listener(|this, _, _, cx| {
-                    this.message = Some(format!("PhpCraft {} · Made with ❤️ in Azerbaijan · path.az", env!("CARGO_PKG_VERSION")));
+                    this.message = Some(crate::i18n::trf("PhpCraft {} · Made with ❤️ in Azerbaijan · path.az", &[env!("CARGO_PKG_VERSION")]));
                     this.gear_open = false;
                     cx.notify();
                 })))

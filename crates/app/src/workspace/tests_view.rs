@@ -6,6 +6,7 @@ use gpui::{Context, Window, actions};
 use super::Workspace;
 use super::tools::Output;
 use crate::dialogs::{NavItem, NavMode, NavTarget};
+use crate::i18n::{tr, trf};
 use crate::run_configs::{self, Kind, RunConfig};
 use crate::test_results::{Outcome, TestCase};
 
@@ -23,16 +24,19 @@ impl Workspace {
         let count = |o: Outcome| cases.iter().filter(|c| c.outcome == o).count();
         let failed = count(Outcome::Failed) + count(Outcome::Error);
         let seconds: f64 = cases.iter().map(|c| c.seconds).sum();
-        let mut text = format!("{} passed, {failed} failed, {} skipped in {seconds:.2}s", count(Outcome::Passed), count(Outcome::Skipped));
+        let passed = count(Outcome::Passed);
+        let skipped = count(Outcome::Skipped);
+        let mut text = trf("{} passed, {} failed, {} skipped in {:.2}s", &[&passed.to_string(), &failed.to_string(), &skipped.to_string(), &format!("{seconds:.2}")]);
         for case in cases.iter().filter(|c| matches!(c.outcome, Outcome::Failed | Outcome::Error)) {
             text.push_str(&format!("\n\n✗ {}::{}\n{}", short(&case.class), case.name, case.message));
         }
         if let Ok(xml) = std::fs::read_to_string(root.join(run_configs::CLOVER_REPORT)) {
             let coverage = crate::test_results::parse_clover(&xml);
-            text = format!("{text}\nLine coverage: {:.1}% (shown in the editor gutter)", crate::test_results::percent(&coverage));
+            let percent = format!("{:.1}", crate::test_results::percent(&coverage));
+            text = format!("{text}\n{}", trf("Line coverage: {}% (shown in the editor gutter)", &[&percent]));
             crate::test_results::set_coverage(Some(coverage));
         }
-        self.output = Some(Output { title: "Tests".into(), text, running: false, ok: failed == 0 });
+        self.output = Some(Output { title: tr("Tests").to_string(), text, running: false, ok: failed == 0 });
         self.test_results = cases;
         cx.notify();
     }
@@ -82,7 +86,7 @@ impl Workspace {
             return;
         }
         let config = RunConfig {
-            name: "Failed tests".into(),
+            name: tr("Failed tests").to_string(),
             kind: Kind::Test { runner, path: String::new(), filter: failed.join("|") },
             env: Default::default(),
         };
@@ -101,9 +105,9 @@ impl Workspace {
         let config = self
             .context_run_config(cx)
             .filter(|c| matches!(c.kind, Kind::Test { .. }))
-            .or_else(|| run_configs::test_runner(&root).map(|runner| RunConfig { name: "All tests".into(), kind: Kind::Test { runner, path: String::new(), filter: String::new() }, env: Default::default() }));
+            .or_else(|| run_configs::test_runner(&root).map(|runner| RunConfig { name: tr("All tests").to_string(), kind: Kind::Test { runner, path: String::new(), filter: String::new() }, env: Default::default() }));
         let Some(mut config) = config else { return };
-        config.name = format!("{} with Coverage", config.name);
+        config.name = trf("{} with Coverage", &[&config.name]);
         config.env.insert("XDEBUG_MODE".into(), "coverage".into());
         self.start_run(config, false, cx);
     }

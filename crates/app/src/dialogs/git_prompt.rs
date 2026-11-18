@@ -4,6 +4,7 @@
 use gpui::{App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, Window, div, prelude::*, px};
 
 use super::{Cancel, Confirm, DialogEvent, GitCommand, button, card};
+use crate::i18n::tr;
 use crate::text_field::TextField;
 use crate::theme;
 
@@ -134,9 +135,9 @@ impl Render for GitPromptDialog {
             .flex()
             .flex_col()
             .gap_3()
-            .child(div().text_color(theme::ui_text()).child(self.kind.title()))
+            .child(div().text_color(theme::ui_text()).child(tr(self.kind.title())))
             .child(div().flex().child(self.field.clone()))
-            .children(self.error.clone().map(|e| div().text_size(px(12.)).text_color(theme::error()).child(e)))
+            .children(self.error.clone().map(|e| div().text_size(px(12.)).text_color(theme::error()).child(tr(&e))))
             .child(
                 div()
                     .flex()

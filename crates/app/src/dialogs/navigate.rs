@@ -170,7 +170,7 @@ impl NavigateDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let query = cx.new(|cx| TextField::new("Type to search", cx));
+        let query = cx.new(|cx| TextField::new(crate::i18n::tr("Type to search"), cx));
         let subscription = cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
             this.selected = 0;
             if this.mode == NavMode::Text {
@@ -593,7 +593,7 @@ impl Render for NavigateDialog {
                     .child(div().flex_1())
                     .when(!self.mode.is_single(), |d| {
                         let include = self.include_vendor;
-                        d.child(super::checkbox("nav-vendor", "Include non-project items", include).on_click(cx.listener(move |this, _, _, cx| {
+                        d.child(super::checkbox("nav-vendor", crate::i18n::tr("Include non-project items"), include).on_click(cx.listener(move |this, _, _, cx| {
                             this.set_include_vendor(!include, cx);
                         })))
                     }),
@@ -605,7 +605,7 @@ impl Render for NavigateDialog {
                         .px_3()
                         .text_size(px(12.))
                         .text_color(theme::muted())
-                        .child("Indexing files…"),
+                        .child(crate::i18n::tr("Indexing files…")),
                 )
             })
             .child(
@@ -652,7 +652,7 @@ impl Render for NavigateDialog {
                                 .id("nav-split")
                                 .cursor_pointer()
                                 .text_color(theme::accent())
-                                .child("Open In Right Split ⇧↵")
+                                .child(crate::i18n::tr("Open In Right Split ⇧↵"))
                                 .on_click(cx.listener(|this, _, _, cx| this.open_in_split(cx))),
                         ),
                 )
@@ -710,7 +710,7 @@ impl Render for GoToLineDialog {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::cancel))
-            .child(div().px_3().pt_2().child("Go to Line:Column"))
+            .child(div().px_3().pt_2().child(crate::i18n::tr("Go to Line:Column")))
             .child(div().p_3().child(self.field.clone()))
     }
 }

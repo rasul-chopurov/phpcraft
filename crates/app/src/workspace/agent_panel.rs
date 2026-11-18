@@ -13,6 +13,7 @@ use super::Workspace;
 use crate::editor_view::EditorView;
 use crate::text_field::TextField;
 use crate::theme;
+use crate::i18n::tr;
 
 actions!(workspace, [ToggleAgent, SendAgentMessage, NewAgentChat]);
 
@@ -433,7 +434,7 @@ impl Workspace {
             .border_b_1()
             .border_color(theme::border())
             .bg(theme::panel_bg())
-            .child(div().flex_1().text_color(theme::ui_text()).child("AI Assistant"))
+            .child(div().flex_1().text_color(theme::ui_text()).child(tr("AI Assistant")))
             .child(small_button("agent-new".into(), "New").on_click(cx.listener(|this, _, window, cx| this.new_agent_chat(&NewAgentChat, window, cx))));
         // Anthropic plus the ACP agents installed on this machine.
         let providers = std::iter::once(("anthropic", "Claude API"))
@@ -495,8 +496,8 @@ impl Workspace {
                 .rounded_md()
                 .border_1()
                 .border_color(theme::border_strong())
-                .child(div().text_color(theme::ui_text()).child("Anthropic API key"))
-                .child(div().text_size(px(12.)).text_color(theme::muted()).child("Stored in your PhpCraft config folder (readable only by you). ANTHROPIC_API_KEY also works."))
+                .child(div().text_color(theme::ui_text()).child(tr("Anthropic API key")))
+                .child(div().text_size(px(12.)).text_color(theme::muted()).child(tr("Stored in your PhpCraft config folder (readable only by you). ANTHROPIC_API_KEY also works.")))
                 .child(field)
                 .child(div().flex().child(small_button("agent-key-save".into(), "Save").on_click(cx.listener(|this, _, _, cx| this.save_agent_key(cx)))))
         });
@@ -525,12 +526,12 @@ impl Workspace {
                         .flex_col()
                         .gap_3()
                         .when(empty, |d| {
-                            d.child(div().text_color(theme::muted()).child(
+                            d.child(div().text_color(theme::muted()).child(tr(
                                 "Ask about the project, or ask for a change: “add a slug column to posts”, “why does this test fail?”. The open file and selection are sent as context.",
-                            ))
+                            )))
                         })
                         .children(items)
-                        .when(running, |d| d.child(div().text_size(px(12.)).text_color(theme::muted()).child("Working…"))),
+                        .when(running, |d| d.child(div().text_size(px(12.)).text_color(theme::muted()).child(tr("Working…")))),
                 )
                 .child(
                     div()

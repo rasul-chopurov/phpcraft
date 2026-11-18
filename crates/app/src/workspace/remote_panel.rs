@@ -12,6 +12,7 @@ use crate::icons::{Icon, icon};
 use crate::run_configs::{Kind, RunConfig};
 use crate::text_field::TextField;
 use crate::theme;
+use crate::i18n::tr;
 
 actions!(workspace, [UploadToServer, DownloadFromServer, ToggleAutoUpload]);
 
@@ -465,7 +466,7 @@ impl Workspace {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(div().w(px(76.)).flex_none().text_color(theme::muted()).child("Auth"))
+                    .child(div().w(px(76.)).flex_none().text_color(theme::muted()).child(tr("Auth")))
                     .child(div().flex().flex_wrap().gap_1().children(chips)),
             )
             .when(auth == Auth::Key, |d| {
@@ -474,7 +475,7 @@ impl Workspace {
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(div().w(px(76.)).flex_none().text_color(theme::muted()).child("Key file"))
+                        .child(div().w(px(76.)).flex_none().text_color(theme::muted()).child(tr("Key file")))
                         .child(div().flex_1().flex().child(form.key.clone()))
                         .child(crate::dialogs::button("remote-browse-key", "Browse…", false).on_click(cx.listener(|this, _, _, cx| this.browse_key(cx)))),
                 )
@@ -482,7 +483,7 @@ impl Workspace {
             })
             .when(auth == Auth::Password, |d| d.child(row("Password", &form.password)))
             .when(auth == Auth::Agent, |d| {
-                d.child(div().pl(px(84.)).text_size(px(11.)).text_color(theme::muted()).child("Uses ssh-agent and ~/.ssh/config, like `ssh user@host` in a terminal."))
+                d.child(div().pl(px(84.)).text_size(px(11.)).text_color(theme::muted()).child(tr("Uses ssh-agent and ~/.ssh/config, like `ssh user@host` in a terminal.")))
             })
             .child(
                 div()
@@ -570,8 +571,8 @@ impl Workspace {
                 .p_6()
                 .text_color(theme::muted())
                 .child(icon(Icon::globe, 32., theme::muted()))
-                .child("No remote hosts yet")
-                .child(div().text_size(px(12.)).child("Add an SFTP server to browse, upload and open an SSH session."))
+                .child(tr("No remote hosts yet"))
+                .child(div().text_size(px(12.)).child(tr("Add an SFTP server to browse, upload and open an SSH session.")))
                 .child(crate::dialogs::button("remote-first", "Add SFTP server", true).on_click(cx.listener(|this, _, _, cx| this.edit_server(None, cx))))
                 .into_any_element()
         } else {
@@ -596,7 +597,7 @@ impl Workspace {
                 );
             }
             match &self.remote.entries {
-                None if self.remote.busy => list = list.child(div().px_3().py_2().text_color(theme::muted()).child("Loading…")),
+                None if self.remote.busy => list = list.child(div().px_3().py_2().text_color(theme::muted()).child(tr("Loading…"))),
                 None => {}
                 Some(Err(err)) => list = list.child(div().px_3().py_2().text_color(theme::error()).child(err.clone())),
                 Some(Ok(entries)) => {
@@ -685,7 +686,7 @@ impl Workspace {
                     .py_1()
                     .text_size(px(11.))
                     .text_color(theme::muted())
-                    .child("Double-click a file to download and open it"),
+                    .child(tr("Double-click a file to download and open it")),
             )
     }
 }

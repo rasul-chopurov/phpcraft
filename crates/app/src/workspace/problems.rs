@@ -6,6 +6,7 @@ use gpui::{Context, Window, actions};
 
 use super::Workspace;
 use crate::dialogs::{NavItem, NavMode, NavTarget};
+use crate::i18n::tr;
 
 actions!(workspace, [ShowProblems, InspectCode, ShowTodo]);
 
@@ -53,7 +54,7 @@ impl Workspace {
     pub(super) fn inspect_code(&mut self, _: &InspectCode, window: &mut Window, cx: &mut Context<Self>) {
         let intel = self.intel.clone();
         let root = self.project.root().to_path_buf();
-        let task = self.begin_task("Inspecting code…", cx);
+        let task = self.begin_task(tr("Inspecting code…"), cx);
         cx.spawn_in(window, async move |this, cx| {
             let found = cx
                 .background_executor()

@@ -13,6 +13,7 @@ use crate::dialogs::DataSourceDialog;
 use crate::text_field::{FieldEvent, TextField};
 use crate::icons::{Icon, icon};
 use crate::theme;
+use crate::i18n::tr;
 
 actions!(workspace, [RunSql]);
 
@@ -87,7 +88,7 @@ impl Workspace {
             return;
         }
         self.db.loaded = true;
-        let filter = cx.new(|cx| TextField::new("Filter tables", cx));
+        let filter = cx.new(|cx| TextField::new(tr("Filter tables"), cx));
         self.db._subscription = Some(cx.subscribe(&filter, |_, _, _: &FieldEvent, cx| cx.notify()));
         self.db.filter = Some(filter);
         self.db.sources = datasource::load(self.project.root());
@@ -381,7 +382,7 @@ impl Workspace {
                 continue;
             }
             match self.db.tables.get(&id) {
-                None => tree.push(div().pl(px(32.)).text_size(px(12.)).text_color(theme::muted()).child("Connecting…").into_any_element()),
+                None => tree.push(div().pl(px(32.)).text_size(px(12.)).text_color(theme::muted()).child(tr("Connecting…")).into_any_element()),
                 Some(Err(err)) => tree.push(
                     div().pl(px(32.)).pr_2().text_size(px(12.)).text_color(theme::error()).child(SharedString::from(err.chars().take(300).collect::<String>())).into_any_element(),
                 ),
@@ -463,7 +464,7 @@ impl Workspace {
                                 .into_any_element(),
                         );
                         match expanded {
-                            Some(None) => tree.push(div().pl(px(88.)).text_size(px(12.)).text_color(theme::muted()).child("Loading…").into_any_element()),
+                            Some(None) => tree.push(div().pl(px(88.)).text_size(px(12.)).text_color(theme::muted()).child(tr("Loading…")).into_any_element()),
                             Some(Some(columns)) => {
                                 for (column, pk) in columns {
                                     tree.push(
@@ -533,7 +534,7 @@ impl Workspace {
                     .border_color(theme::border())
                     .text_size(px(11.))
                     .text_color(theme::muted())
-                    .child("Double-click a table to open it · ▶ opens a console"),
+                    .child(tr("Double-click a table to open it · ▶ opens a console")),
             )
     }
 }

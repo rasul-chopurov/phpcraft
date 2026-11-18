@@ -10,6 +10,7 @@ use gpui::{AppContext, Context, Window, actions};
 use super::Workspace;
 use crate::diff_view::DiffSource;
 use crate::dialogs::{FileOp, InputDialog, NavItem, NavMode, NavTarget};
+use crate::i18n::{tr, trf};
 
 actions!(workspace, [CompareWithRevision, CompareWithClipboard, ResolveConflicts, MarkResolved]);
 
@@ -29,14 +30,14 @@ impl Workspace {
 
     /// Opens the diff of the active file against `revision` (a branch, tag or commit).
     pub(super) fn compare_file_with(&mut self, path: &std::path::Path, revision: &str, window: &mut Window, cx: &mut Context<Self>) -> Result<Option<PathBuf>, String> {
-        let repo = self.intel.repo().cloned().ok_or("Not a Git repository")?;
-        let rel = repo.relative(path).ok_or("The file is outside the repository")?;
+        let repo = self.intel.repo().cloned().ok_or_else(|| tr("Not a Git repository").to_string())?;
+        let rel = repo.relative(path).ok_or_else(|| tr("The file is outside the repository").to_string())?;
         let revision = revision.trim().to_string();
         if revision.is_empty() || revision.starts_with('-') {
-            return Err("Enter a branch, tag or commit".into());
+            return Err(tr("Enter a branch, tag or commit").to_string());
         }
         if repo.show(&revision, &rel).is_none() {
-            return Err(format!("{rel} doesn't exist in {revision}"));
+            return Err(trf("{} doesn't exist in {}", &[&rel, &revision]));
         }
         let current = self.active_file_and_text(cx).map(|(_, text, _)| text).unwrap_or_default();
         let title = rel.rsplit('/').next().unwrap_or(&rel).to_string();
@@ -46,10 +47,10 @@ impl Workspace {
             subtitle: format!("{revision} · {rel}"),
             load: Arc::new(move || (repo2.show(&rev2, &rel2).unwrap_or_default(), current.clone())),
             left_label: revision,
-            right_label: "Your version".into(),
+            right_label: tr("Your version").to_string(),
             open_path: Some(path.to_path_buf()),
         };
-        self.open_diff_tab("Compare", vec![source], 0, window, cx);
+        self.open_diff_tab(tr("Compare").as_str(), vec![source], 0, window, cx);
         Ok(None)
     }
 
@@ -60,13 +61,13 @@ impl Workspace {
         let title = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let source = DiffSource {
             title,
-            subtitle: "Clipboard ↔ editor".into(),
+            subtitle: tr("Clipboard ↔ editor").to_string(),
             load: Arc::new(move || (clipboard.clone(), mine.clone())),
-            left_label: "Clipboard".into(),
-            right_label: "Editor".into(),
+            left_label: tr("Clipboard").to_string(),
+            right_label: tr("Editor").to_string(),
             open_path: Some(path),
         };
-        self.open_diff_tab("Clipboard", vec![source], 0, window, cx);
+        self.open_diff_tab(tr("Clipboard").as_str(), vec![source], 0, window, cx);
     }
 
     pub(super) fn resolve_conflicts(&mut self, _: &ResolveConflicts, window: &mut Window, cx: &mut Context<Self>) {
@@ -83,14 +84,14 @@ impl Workspace {
                 let at = found.first().map_or(0, |c| c.whole.start);
                 NavItem {
                     label: s.path.clone(),
-                    detail: format!("{} conflict(s) — ⌥↵ to merge", found.len()),
+                    detail: trf("{} conflict(s) — ⌥↵ to merge", &[&found.len().to_string()]),
                     icon: "⇆",
                     target: NavTarget::Location(php_index::Location { path, range: at..at }),
                 }
             })
             .collect();
         if items.is_empty() {
-            self.output = Some(super::tools::Output { title: "Merge".into(), text: "No conflicted files.".into(), running: false, ok: true });
+            self.output = Some(super::tools::Output { title: tr("Merge").to_string(), text: tr("No conflicted files.").to_string(), running: false, ok: true });
             cx.notify();
             return;
         }
@@ -100,7 +101,7 @@ impl Workspace {
     /// The three-pane merge window for a file whose text still has `<<<<<<<` blocks.
     pub(crate) fn open_merge(&mut self, path: &std::path::Path, text: String, window: &mut Window, cx: &mut Context<Self>) {
         if git::conflicts(&text).is_empty() {
-            self.output = Some(super::tools::Output { title: "Merge".into(), text: "No merge conflicts in this file.".into(), running: false, ok: true });
+            self.output = Some(super::tools::Output { title: tr("Merge").to_string(), text: tr("No merge conflicts in this file.").to_string(), running: false, ok: true });
             cx.notify();
             return;
         }
@@ -117,11 +118,11 @@ impl Workspace {
             self.intel.update_file(&path, &text);
         }
         let message = if remaining == 0 {
-            format!("{} resolved", path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().to_string()))
+            trf("{} resolved", &[&path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().to_string())])
         } else {
-            format!("{remaining} conflict(s) left in {}", path.display())
+            trf("{} conflict(s) left in {}", &[&remaining.to_string(), &path.display().to_string()])
         };
-        self.output = Some(super::tools::Output { title: "Merge".into(), text: message, running: false, ok: true });
+        self.output = Some(super::tools::Output { title: tr("Merge").to_string(), text: message, running: false, ok: true });
         self.refresh_git(cx);
         cx.notify();
     }
@@ -131,16 +132,16 @@ impl Workspace {
         let Some(repo) = self.intel.repo().cloned() else { return };
         let Some((path, text, _)) = self.active_file_and_text(cx) else { return };
         let message = if !git::conflicts(&text).is_empty() {
-            "Resolve the remaining conflicts first (⌥↵ on each)".to_string()
+            tr("Resolve the remaining conflicts first (⌥↵ on each)").to_string()
         } else {
             self.save_all(cx);
             match repo.relative(&path).map(|rel| repo.stage(&[rel.clone()]).map(|_| rel)) {
-                Some(Ok(rel)) => format!("{rel} marked as resolved"),
+                Some(Ok(rel)) => trf("{} marked as resolved", &[&rel]),
                 Some(Err(e)) => e,
-                None => "The file is outside the repository".into(),
+                None => tr("The file is outside the repository").to_string(),
             }
         };
-        self.output = Some(super::tools::Output { title: "Merge".into(), text: message, running: false, ok: true });
+        self.output = Some(super::tools::Output { title: tr("Merge").to_string(), text: message, running: false, ok: true });
         self.refresh_git(cx);
         cx.notify();
     }

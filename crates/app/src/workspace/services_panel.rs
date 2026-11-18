@@ -6,6 +6,7 @@ use gpui::{Context, div, prelude::*, px};
 
 use super::Workspace;
 use crate::docker::{self, Container, Image};
+use crate::i18n::tr;
 use crate::run_configs::{Kind, RunConfig};
 use crate::theme;
 
@@ -82,7 +83,7 @@ impl Workspace {
         let has_sail = root.join("vendor/bin/sail").is_file();
         let s = &self.services;
         let link = |id: gpui::SharedString, label: &'static str| {
-            div().id(id).px_1p5().rounded_sm().text_color(theme::accent()).cursor_pointer().hover(|d| d.bg(theme::hover())).child(label)
+            div().id(id).px_1p5().rounded_sm().text_color(theme::accent()).cursor_pointer().hover(|d| d.bg(theme::hover())).child(tr(label))
         };
         let tab = |id: &'static str, label: &'static str, t: ServicesTab| {
             div()
@@ -93,7 +94,7 @@ impl Workspace {
                 .cursor_pointer()
                 .when(s.tab == t, |d| d.bg(theme::selection()))
                 .hover(|d| d.bg(theme::hover()))
-                .child(label)
+                .child(tr(label))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.services.tab = t;
                     cx.notify();

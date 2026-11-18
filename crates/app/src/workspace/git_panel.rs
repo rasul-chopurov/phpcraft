@@ -11,6 +11,7 @@ use super::tools::Output;
 use crate::dialogs::{BranchDialog, ConfirmDialog, GitCommand};
 use crate::text_field::TextField;
 use crate::theme;
+use crate::i18n::{tr, trf};
 
 actions!(workspace, [ShowProject, ShowCommit, ToggleGitLog, OpenBranches, CommitChanges, CommitAndPush, GitPull, GitPush]);
 
@@ -64,11 +65,11 @@ impl GitState {
             log_selected: None,
             log_files: Vec::new(),
             log_details: None,
-            filter_text: cx.new(|cx| TextField::new("Text or hash", cx)),
-            filter_user: cx.new(|cx| TextField::new("User", cx)),
-            filter_path: cx.new(|cx| TextField::new("Path", cx)),
+            filter_text: cx.new(|cx| TextField::new(tr("Text or hash"), cx)),
+            filter_user: cx.new(|cx| TextField::new(tr("User"), cx)),
+            filter_path: cx.new(|cx| TextField::new(tr("Path"), cx)),
             filter_branch: String::new(),
-            tree_query: cx.new(|cx| TextField::new("Branch or tag", cx)),
+            tree_query: cx.new(|cx| TextField::new(tr("Branch or tag"), cx)),
             tree_collapsed: HashSet::new(),
             branches: (Vec::new(), Vec::new()),
             tab: GitTab::Log,
@@ -557,7 +558,7 @@ impl Workspace {
                             })),
                     )
                     .child(div().text_color(theme::ui_text()).child(title))
-                    .child(div().text_color(theme::muted()).child(format!("{} files", files.len())))
+                    .child(div().text_color(theme::muted()).child(trf("{} files", &[&files.len().to_string()])))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if !this.git.groups_collapsed.remove(group) {
                             this.git.groups_collapsed.insert(group);
@@ -575,7 +576,7 @@ impl Workspace {
         let included = self.included_paths().len();
         let all_included = self.git.excluded.is_empty();
         let small = |id: &'static str, label: &'static str| {
-            div().id(id).px_1p5().h(px(20.)).flex().items_center().rounded_md().cursor_pointer().text_color(theme::muted()).hover(|d| d.bg(theme::hover()).text_color(theme::ui_text())).child(label)
+            div().id(id).px_1p5().h(px(20.)).flex().items_center().rounded_md().cursor_pointer().text_color(theme::muted()).hover(|d| d.bg(theme::hover()).text_color(theme::ui_text())).child(tr(label))
         };
         div()
             .flex()
@@ -603,7 +604,7 @@ impl Workspace {
                                 cx.notify();
                             })),
                     )
-                    .child(div().flex_1().text_color(theme::muted()).child(format!("Changes {included}/{}", self.git.status.len())))
+                    .child(div().flex_1().text_color(theme::muted()).child(trf("Changes {}/{}", &[&included.to_string(), &self.git.status.len().to_string()])))
                     .child(small("git-refresh", "⟳").on_click(cx.listener(|this, _, _, cx| this.refresh_git(cx))))
                     .child(small("git-diff-all", "⇄ Diff").on_click(cx.listener(|this, _, window, cx| {
                         // All changes in one diff tab; ←/→ walks the files.
@@ -619,7 +620,7 @@ impl Workspace {
                     .flex_1()
                     .overflow_y_scroll()
                     .text_size(px(13.))
-                    .when(rows.is_empty(), |d| d.child(div().px_3().py_2().text_color(theme::muted()).child("No changes")))
+                    .when(rows.is_empty(), |d| d.child(div().px_3().py_2().text_color(theme::muted()).child(tr("No changes"))))
                     .children(rows),
             )
             .child(
@@ -645,7 +646,7 @@ impl Workspace {
                             .items_center()
                             .gap_2()
                             .text_size(px(12.))
-                            .child(crate::dialogs::checkbox("amend", "Amend", self.git.amend).on_click(cx.listener(|this, _, _, cx| {
+                            .child(crate::dialogs::checkbox("amend", tr("Amend"), self.git.amend).on_click(cx.listener(|this, _, _, cx| {
                                 this.git.amend ^= true;
                                 // Amending starts from the last commit message.
                                 if this.git.amend && this.git.message.read(cx).buffer.text().is_empty()

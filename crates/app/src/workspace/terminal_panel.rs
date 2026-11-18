@@ -10,6 +10,7 @@ use crate::dialogs::{DialogEvent, RunDialog};
 use crate::run_configs::{self, RunConfig};
 use crate::terminal_view::{TerminalView, TerminalViewEvent};
 use crate::theme;
+use crate::i18n::tr;
 
 actions!(workspace, [ToggleTerminal, NewTerminal, CloseTerminal, RunPopup, RunLast, RunContext, StopRun, EditRunConfigurations]);
 
@@ -195,7 +196,7 @@ impl Workspace {
         let Some(tab) = self.terminals.tabs.get(ix) else { return };
         let title = tab.view.read(cx).title.clone();
         let field = cx.new(|cx| {
-            let mut f = crate::text_field::TextField::new("Session name", cx);
+            let mut f = crate::text_field::TextField::new(tr("Session name"), cx);
             f.set_text(title, cx);
             f
         });

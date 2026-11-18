@@ -8,6 +8,7 @@ use gpui::{AnyElement, App, Context, EventEmitter, FocusHandle, Focusable, Hsla,
 use php_syntax::Highlight;
 
 use super::{Cancel, Confirm, DialogEvent, button, card};
+use crate::i18n::{tr, trf};
 use crate::theme;
 
 /// How one conflict is resolved: a side alone, both (local first or remote first).
@@ -122,9 +123,9 @@ impl MergeDialog {
         1 + self.text.as_bytes()[..offset].iter().filter(|b| **b == b'\n').count()
     }
 
-    fn pane_body(&self, text: &str, empty: &'static str, first: usize, color: Hsla) -> Vec<AnyElement> {
+    fn pane_body(&self, text: &str, empty: &str, first: usize, color: Hsla) -> Vec<AnyElement> {
         if text.trim().is_empty() {
-            return vec![div().p_2().text_color(theme::muted()).child(empty).into_any_element()];
+            return vec![div().p_2().text_color(theme::muted()).child(tr(empty)).into_any_element()];
         }
         text.lines()
             .enumerate()
@@ -214,12 +215,12 @@ impl Render for MergeDialog {
                     .py_2()
                     .border_b_1()
                     .border_color(theme::border())
-                    .child(div().flex_1().child(format!("Merge {name}")))
+                    .child(div().flex_1().child(trf("Merge {}", &[&name])))
                     .child(
                         div()
                             .text_size(px(12.))
                             .text_color(theme::muted())
-                            .child(if total == 0 { "No conflicts".to_string() } else { format!("Conflict {} of {total}", self.selected + 1) }),
+                            .child(if total == 0 { tr("No conflicts").to_string() } else { trf("Conflict {} of {}", &[&(self.selected + 1).to_string(), &total.to_string()]) }),
                     )
                     .child(
                         div()
@@ -249,7 +250,7 @@ impl Render for MergeDialog {
                     .p_3()
                     .child(div().id("merge-rail").w(px(150.)).flex_none().overflow_y_scroll().children(rail))
                     .child(
-                        Self::pane(format!("LOCAL · {ours_label}"), theme::success())
+                        Self::pane(trf("LOCAL · {}", &[&ours_label]), theme::success())
                             .h(px(400.))
                             .child(
                                 div()
@@ -269,7 +270,7 @@ impl Render for MergeDialog {
                             ),
                     )
                     .child(
-                        Self::pane("RESULT".into(), theme::accent())
+                        Self::pane(tr("RESULT").to_string(), theme::accent())
                             .h(px(400.))
                             .child(
                                 div()
@@ -282,7 +283,7 @@ impl Render for MergeDialog {
                                     .children(if solved {
                                         self.pane_body(&result, "(removed)", ours_line, theme::ui_text())
                                     } else {
-                                        vec![div().p_2().text_color(theme::muted()).child("Choose Local, Both or Remote").into_any_element()]
+                                        vec![div().p_2().text_color(theme::muted()).child(tr("Choose Local, Both or Remote")).into_any_element()]
                                     }),
                             )
                             .child(
@@ -303,7 +304,7 @@ impl Render for MergeDialog {
                             ),
                     )
                     .child(
-                        Self::pane(format!("REMOTE · {theirs_label}"), theme::syntax(Highlight::Warning))
+                        Self::pane(trf("REMOTE · {}", &[&theirs_label]), theme::syntax(Highlight::Warning))
                             .h(px(400.))
                             .child(
                                 div()
@@ -332,16 +333,16 @@ impl Render for MergeDialog {
                     .pb_2()
                     .text_size(px(12.))
                     .text_color(theme::muted())
-                    .child("← / → use a side · ↑ / ↓ walk the conflicts · B both · Esc cancel")
+                    .child(tr("← / → use a side · ↑ / ↓ walk the conflicts · B both · Esc cancel"))
                     .child(
                         div()
                             .flex_1()
                             .text_right()
                             .when(unresolved > 0, |d| d.text_color(theme::syntax(Highlight::Warning)))
                             .child(if unresolved == 0 {
-                                "Every conflict has a decision".to_string()
+                                tr("Every conflict has a decision").to_string()
                             } else {
-                                format!("{unresolved} conflict(s) keep their markers")
+                                trf("{} conflict(s) keep their markers", &[&unresolved.to_string()])
                             }),
                     ),
             )

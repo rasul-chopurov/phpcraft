@@ -5,6 +5,7 @@ use git::{RebaseAction, RebaseStep};
 use gpui::{App, Context, Entity, EventEmitter, FocusHandle, Focusable, Window, div, prelude::*, px};
 
 use super::{Cancel, Confirm, DialogEvent, GitCommand, button, card};
+use crate::i18n::{tr, trf};
 use crate::text_field::TextField;
 use crate::theme;
 
@@ -25,7 +26,7 @@ impl RebaseDialog {
             .into_iter()
             .map(|(hash, subject)| RebaseStep { action: RebaseAction::Pick, message: subject.clone(), hash, subject })
             .collect();
-        let message = cx.new(|cx| TextField::new("New commit message", cx));
+        let message = cx.new(|cx| TextField::new(tr("New commit message"), cx));
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle);
         Self { base, steps, selected: 0, message, focus_handle, error: None }
@@ -142,11 +143,11 @@ impl Render for RebaseDialog {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::cancel))
-            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(format!("Interactive Rebase onto {}", &self.base[..self.base.len().min(12)])))
-            .child(div().px_3().pt_2().text_size(px(12.)).text_color(theme::muted()).child("Oldest first. Click an action to change it; ↑ / ↓ move a commit."))
+            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(trf("Interactive Rebase onto {}", &[&self.base[..self.base.len().min(12)]])))
+            .child(div().px_3().pt_2().text_size(px(12.)).text_color(theme::muted()).child(tr("Oldest first. Click an action to change it; ↑ / ↓ move a commit.")))
             .child(div().id("rebase-list").max_h(px(420.)).overflow_y_scroll().py_1().children(rows))
             .when(reword, |d| d.child(div().px_3().py_1().child(self.message.clone())))
-            .children(self.error.clone().map(|e| div().px_3().text_color(theme::error()).child(e)))
+            .children(self.error.clone().map(|e| div().px_3().text_color(theme::error()).child(tr(&e))))
             .child(
                 div()
                     .flex()

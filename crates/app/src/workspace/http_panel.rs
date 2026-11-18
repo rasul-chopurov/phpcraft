@@ -8,6 +8,7 @@ use super::tools::Output;
 use crate::{http_client, http_convert};
 use crate::icons::{Icon, icon};
 use crate::theme;
+use crate::i18n::tr;
 
 actions!(workspace, [RunHttpRequest, NewHttpRequest, ConvertCurlToHttp, CopyAsCurl, ImportPostman, ImportOpenApi, ShowHttpHistory]);
 
@@ -218,9 +219,9 @@ impl Workspace {
                 )
                 .child(div().text_color(theme::muted()).child(format!("{count} request{}", if count == 1 { "" } else { "s" })))
                 .child(div().flex_1())
-                .child(div().text_color(theme::muted()).child("Environment"))
+                .child(div().text_color(theme::muted()).child(tr("Environment")))
                 .children(chips)
-                .when(current.is_none(), |d| d.child(div().text_color(theme::muted()).child("none (add http-client.env.json)"))),
+                .when(current.is_none(), |d| d.child(div().text_color(theme::muted()).child(tr("none (add http-client.env.json)")))),
         )
     }
 }

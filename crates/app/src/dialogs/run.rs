@@ -3,6 +3,7 @@
 use gpui::{App, Context, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Window, div, prelude::*, px};
 
 use super::{Cancel, Confirm, DialogEvent, SelectNext, SelectPrev, card};
+use crate::i18n::tr;
 use crate::run_configs::{Kind, RunConfig};
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
@@ -38,7 +39,7 @@ fn icon(config: &RunConfig) -> &'static str {
 
 impl RunDialog {
     pub fn new(context: Option<RunConfig>, saved: Vec<RunConfig>, detected: Vec<RunConfig>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let query = cx.new(|cx| TextField::new("Run configuration", cx));
+        let query = cx.new(|cx| TextField::new(tr("Run configuration"), cx));
         let subscription = cx.subscribe(&query, |this: &mut Self, _, _: &FieldEvent, cx| {
             this.selected = this.rows(cx).iter().position(|r| !matches!(r, Row::Header(_))).unwrap_or(0);
             cx.notify();
@@ -129,17 +130,17 @@ impl Render for RunDialog {
                         .pb_1()
                         .text_size(px(12.))
                         .text_color(theme::muted())
-                        .child(title)
+                        .child(tr(title))
                         .into_any_element(),
                     Row::Config(config, saved) => item
                         .child(div().w(px(16.)).text_color(theme::success()).child(icon(&config)))
                         .child(div().flex_1().overflow_hidden().whitespace_nowrap().child(config.name.clone()))
-                        .when(!saved, |d| d.child(div().text_size(px(11.)).text_color(theme::muted()).child("⇧↵ save")))
+                        .when(!saved, |d| d.child(div().text_size(px(11.)).text_color(theme::muted()).child(tr("⇧↵ save"))))
                         .into_any_element(),
                     Row::Edit => item
                         .mt_1()
                         .child(div().w(px(16.)).text_color(theme::muted()).child("✎"))
-                        .child("Edit Configurations…")
+                        .child(tr("Edit Configurations…"))
                         .into_any_element(),
                 }
             })
@@ -157,7 +158,7 @@ impl Render for RunDialog {
                     cx.stop_propagation();
                 }
             }))
-            .child(div().px_3().pt_2().text_size(px(12.)).text_color(theme::muted()).child("Run"))
+            .child(div().px_3().pt_2().text_size(px(12.)).text_color(theme::muted()).child(tr("Run")))
             .child(div().p_2().child(self.query.clone()))
             .child(div().id("run-list").max_h(px(460.)).overflow_y_scroll().pb_1().text_size(px(13.)).children(rows))
     }

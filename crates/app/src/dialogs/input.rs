@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use gpui::{App, Context, Entity, EventEmitter, FocusHandle, Focusable, Window, div, prelude::*, px};
 
 use super::{Cancel, Confirm, DialogEvent, button, card};
+use crate::i18n::{tr, trf};
 use crate::text_field::TextField;
 use crate::theme;
 
@@ -57,7 +58,7 @@ impl InputDialog {
         let focus_handle = cx.focus_handle();
         let field = initial.map(|text| {
             cx.new(|cx| {
-                let mut f = TextField::new("Name", cx);
+                let mut f = TextField::new(tr("Name"), cx);
                 f.set_text(text, cx);
                 f
             })
@@ -92,19 +93,25 @@ impl Render for InputDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let name = |p: &PathBuf| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let (title, ok) = match &self.op {
-            FileOp::NewFile(dir) => (format!("New File in {}", name(dir)), "Create"),
-            FileOp::NewDirectory(dir) => (format!("New Directory in {}", name(dir)), "Create"),
-            FileOp::Rename(path) => (format!("Rename {}", name(path)), "Rename"),
-            FileOp::Delete(path) => (format!("Move {} to the Trash?", name(path)), "Delete"),
-            FileOp::FromTemplate(dir, template) => (format!("New {} in {}", template.label(), name(dir)), "Create"),
-            FileOp::RenameSymbol(symbol) => (format!("Rename '{}' and its usages to", symbol.name), "Refactor"),
-            FileOp::MoveClass(class) => (format!("Move '{}' to namespace (empty for the global namespace)", class.name), "Move"),
-            FileOp::ComposerRequire => ("Require package (vendor/package, optionally a version)".to_string(), "Require"),
-            FileOp::ComposerRemove => ("Remove package (vendor/package)".to_string(), "Remove"),
-            FileOp::PhpInterpreter(_) => ("PHP interpreter for runs, tests and Artisan".to_string(), "Save"),
-            FileOp::ExtractBlade { component: true, .. } => ("Extract Blade Component — name (e.g. user-card or cards.user)".to_string(), "Extract"),
-            FileOp::ExtractBlade { component: false, .. } => ("Extract View — name (e.g. partials.header)".to_string(), "Extract"),
-            FileOp::CompareRevision(path) => (format!("Compare {} with branch, tag or commit", name(path)), "Compare"),
+            FileOp::NewFile(dir) => (trf("New File in {}", &[&name(dir)]), "Create"),
+            FileOp::NewDirectory(dir) => (trf("New Directory in {}", &[&name(dir)]), "Create"),
+            FileOp::Rename(path) => (trf("Rename {}", &[&name(path)]), "Rename"),
+            FileOp::Delete(path) => (trf("Move {} to the Trash?", &[&name(path)]), "Delete"),
+            FileOp::FromTemplate(dir, template) => (trf("New {} in {}", &[template.label(), &name(dir)]), "Create"),
+            FileOp::RenameSymbol(symbol) => (trf("Rename '{}' and its usages to", &[&symbol.name]), "Refactor"),
+            FileOp::MoveClass(class) => {
+                (trf("Move '{}' to namespace (empty for the global namespace)", &[&class.name]), "Move")
+            }
+            FileOp::ComposerRequire => (tr("Require package (vendor/package, optionally a version)").to_string(), "Require"),
+            FileOp::ComposerRemove => (tr("Remove package (vendor/package)").to_string(), "Remove"),
+            FileOp::PhpInterpreter(_) => (tr("PHP interpreter for runs, tests and Artisan").to_string(), "Save"),
+            FileOp::ExtractBlade { component: true, .. } => {
+                (tr("Extract Blade Component — name (e.g. user-card or cards.user)").to_string(), "Extract")
+            }
+            FileOp::ExtractBlade { component: false, .. } => {
+                (tr("Extract View — name (e.g. partials.header)").to_string(), "Extract")
+            }
+            FileOp::CompareRevision(path) => (trf("Compare {} with branch, tag or commit", &[&name(path)]), "Compare"),
         };
         card(420.)
             .key_context("Dialog")
@@ -117,7 +124,7 @@ impl Render for InputDialog {
                 d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child("php or a path · docker:<container>[:<workdir>] · sail · ssh:<host>[:<workdir>]"))
             })
             .when(matches!(self.op, FileOp::NewFile(_)), |d| {
-                d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child("Use / to create folders too, e.g. Http/Controllers/HomeController.php"))
+                d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child(tr("Use / to create folders too, e.g. Http/Controllers/HomeController.php")))
             })
             .child(
                 div()

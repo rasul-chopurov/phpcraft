@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use gpui::{App, Context, Entity, EventEmitter, FocusHandle, Focusable, Window, div, prelude::*, px};
 
 use super::{Cancel, Confirm, DialogEvent, button, card, checkbox};
+use crate::i18n::tr;
 use crate::text_field::TextField;
 use crate::theme;
 
@@ -28,8 +29,8 @@ impl EventEmitter<DialogEvent> for ShelfDialog {}
 impl ShelfDialog {
     pub fn new(mode: ShelfMode, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let name = cx.new(|cx| {
-            let mut f = TextField::new("Shelf name", cx);
-            f.set_text("Work in progress", cx);
+            let mut f = TextField::new(tr("Shelf name"), cx);
+            f.set_text(tr("Work in progress"), cx);
             f
         });
         let chosen = match &mode {
@@ -50,7 +51,7 @@ impl ShelfDialog {
                 let files: Vec<String> = self.chosen.iter().filter_map(|i| files.get(*i).cloned()).collect();
                 let name = self.name.read(cx).text().trim().to_string();
                 if !files.is_empty() {
-                    cx.emit(DialogEvent::Shelve { name: if name.is_empty() { "Shelved changes".into() } else { name }, files });
+                    cx.emit(DialogEvent::Shelve { name: if name.is_empty() { tr("Shelved changes").to_string() } else { name }, files });
                 }
             }
             ShelfMode::Browse(shelves) => {
@@ -119,7 +120,7 @@ impl Render for ShelfDialog {
                                     .id(("shelf-delete", ix))
                                     .text_color(theme::muted())
                                     .hover(|d| d.text_color(theme::error()))
-                                    .child("Delete")
+                                    .child(tr("Delete"))
                                     .on_click(cx.listener(move |_, _, _, cx| cx.emit(DialogEvent::Unshelve { id: id.clone(), delete_only: true }))),
                             ))
                             .child(div().text_size(px(11.5)).text_color(theme::muted()).child(shelf.files.join(", ")))
@@ -134,10 +135,10 @@ impl Render for ShelfDialog {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::cancel))
-            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(title))
+            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(tr(title)))
             .when(matches!(self.mode, ShelfMode::Shelve(_)), |d| d.child(div().p_3().child(self.name.clone())))
             .child(div().id("shelf-list").max_h(px(360.)).overflow_y_scroll().py_1().children(body))
-            .when(empty, |d| d.child(div().px_3().py_2().text_color(theme::muted()).child("Nothing here.")))
+            .when(empty, |d| d.child(div().px_3().py_2().text_color(theme::muted()).child(tr("Nothing here."))))
             .child(
                 div()
                     .flex()

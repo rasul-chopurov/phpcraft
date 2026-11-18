@@ -119,7 +119,7 @@ impl Render for MakeChooser {
                 .when(ix == selected, |d| d.bg(theme::selection()))
                 .hover(|d| d.bg(theme::hover()))
                 .child(div().w(px(16.)).text_color(theme::syntax(php_syntax::Highlight::Keyword)).child(if filament { "◆" } else { "◈" }))
-                .child(label)
+                .child(crate::i18n::tr(&label))
                 .on_click(cx.listener(move |_, _, _, cx| Self::choose(generator, cx)))
         });
         card(420.)
@@ -129,7 +129,7 @@ impl Render for MakeChooser {
             .on_action(cx.listener(Self::cancel))
             .on_action(cx.listener(Self::select_prev))
             .on_action(cx.listener(Self::select_next))
-            .child(div().px_3().pt_2().text_size(px(12.)).text_color(theme::muted()).child("Laravel · All Code Generations"))
+            .child(div().px_3().pt_2().text_size(px(12.)).text_color(theme::muted()).child(crate::i18n::tr("Laravel · All Code Generations")))
             .child(div().p_2().border_b_1().border_color(theme::border()).child(self.query.clone()))
             .child(div().id("make-kinds").max_h(px(520.)).overflow_y_scroll().py_1().children(rows))
     }
@@ -151,7 +151,7 @@ impl EventEmitter<DialogEvent> for GeneratorDialog {}
 
 impl GeneratorDialog {
     pub fn new(root: &Path, kind: Simple, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let name = cx.new(|cx| TextField::new("Name, e.g. Billing/InvoiceService", cx));
+        let name = cx.new(|cx| TextField::new(crate::i18n::tr("Name, e.g. Billing/InvoiceService"), cx));
         let subscription = cx.subscribe(&name, |this: &mut Self, _, _: &FieldEvent, cx| {
             this.error = None;
             cx.notify();
@@ -183,7 +183,7 @@ impl GeneratorDialog {
             return;
         }
         if let Some((path, _)) = files.iter().find(|(p, _)| p.exists()) {
-            self.error = Some(format!("{} already exists", path.strip_prefix(&self.root).unwrap_or(path).display()));
+            self.error = Some(crate::i18n::trf("{} already exists", &[&path.strip_prefix(&self.root).unwrap_or(path).display().to_string()]));
             cx.notify();
             return;
         }
@@ -231,7 +231,7 @@ impl Render for GeneratorDialog {
                 .cursor_pointer()
                 .border_color(if active { theme::accent() } else { theme::border_strong() })
                 .when(active, |d| d.bg(theme::active_row()))
-                .child(label)
+                .child(crate::i18n::tr(&label))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.module = module.clone();
                     cx.notify();
@@ -427,7 +427,7 @@ impl MakeDialog {
     }
 
     fn new_field(&mut self, placeholder: &str, cx: &mut Context<Self>) -> Entity<TextField> {
-        let placeholder = placeholder.to_string();
+        let placeholder = crate::i18n::tr(placeholder);
         let field = cx.new(|cx| TextField::new(placeholder, cx));
         self.watch(&field, cx);
         field
@@ -708,7 +708,7 @@ impl MakeDialog {
             .collect();
         self.maker.settings.model = draft;
         if let Err(err) = self.maker.settings.save(&self.root) {
-            self.error = Some(format!("Failed to save settings: {err}"));
+            self.error = Some(crate::i18n::trf("Failed to save settings: {}", &[&err.to_string()]));
         }
         self.id_type = self.maker.settings.model.id_type;
         self.sync_placeholders(cx);
@@ -797,7 +797,7 @@ impl MakeDialog {
 
     fn render_settings(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let d = &self.draft;
-        let label = |text: &'static str| div().w(px(260.)).flex_none().child(text);
+        let label = |text: &'static str| div().w(px(260.)).flex_none().child(crate::i18n::tr(text));
         let ids: Vec<SharedString> = IdType::ALL
             .iter()
             .map(|i| SharedString::from(i.label()))
@@ -826,7 +826,7 @@ impl MakeDialog {
             cx,
         );
         let toggle = |id: &'static str, text: &'static str, on: bool, f: fn(&mut ModelSettings)| {
-            checkbox(id, text, on).on_click(cx.listener(move |this, _, _, cx| {
+            checkbox(id, crate::i18n::tr(text), on).on_click(cx.listener(move |this, _, _, cx| {
                 f(&mut this.draft);
                 cx.notify();
             }))
@@ -843,7 +843,7 @@ impl MakeDialog {
                 .cursor_pointer()
                 .when(extra == selected, |d| d.bg(theme::selection()))
                 .hover(|d| d.bg(theme::hover()))
-                .child(extra.label())
+                .child(crate::i18n::tr(&extra.label()))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.settings_extra = extra;
                     cx.notify();
@@ -936,7 +936,7 @@ impl MakeDialog {
                             .flex_col()
                             .gap_2()
                             .child(
-                                checkbox("set-enabled", "Enabled by default", enabled).on_click(
+                                checkbox("set-enabled", crate::i18n::tr("Enabled by default"), enabled).on_click(
                                     cx.listener(move |this, _, _, cx| {
                                         if !this.draft.enabled.contains(&selected) {
                                             this.draft.enabled.push(selected);
@@ -950,7 +950,7 @@ impl MakeDialog {
                             .child(
                                 div()
                                     .text_color(theme::muted())
-                                    .child("Class name template (${MODEL}, ${TABLE_NAME}):"),
+                                    .child(crate::i18n::tr("Class name template (${MODEL}, ${TABLE_NAME}):")),
                             )
                             .children(self.templates.get(&selected).cloned()),
                     ),
@@ -959,7 +959,7 @@ impl MakeDialog {
                 div()
                     .text_size(px(11.))
                     .text_color(theme::muted())
-                    .child("Saved to .phpcraft/laravel.json for this project."),
+                    .child(crate::i18n::tr("Saved to .phpcraft/laravel.json for this project.")),
             )
     }
 
@@ -981,7 +981,7 @@ impl MakeDialog {
                     .gap_2()
                     .child(div().flex_1().child(row.columns.clone()))
                     .child(
-                        checkbox(format!("idx-unique-{ix}"), "Unique", row.unique).on_click(
+                        checkbox(format!("idx-unique-{ix}"), crate::i18n::tr("Unique"), row.unique).on_click(
                             cx.listener(move |this, _, _, cx| {
                                 this.indexes[ix].unique ^= true;
                                 cx.notify();
@@ -1003,13 +1003,13 @@ impl MakeDialog {
             .flex_col()
             .gap_2()
             .p_3()
-            .child(div().text_color(theme::muted()).child(format!(
+            .child(div().text_color(theme::muted()).child(crate::i18n::trf(
                 "Composite indexes. Columns: {}",
-                if columns.is_empty() {
-                    "(none yet)".to_string()
+                &[&if columns.is_empty() {
+                    crate::i18n::tr("(none yet)").to_string()
                 } else {
                     columns.join(", ")
-                }
+                }],
             )))
             .children(rows)
             .child(
@@ -1030,15 +1030,15 @@ impl MakeDialog {
         let plan = self.plan(cx);
         if plan.is_empty() {
             self.error = Some(match self.kind {
-                MakeKind::PivotTable => "Enter two models, e.g. Post, Tag".into(),
-                _ => "Enter a class name".into(),
+                MakeKind::PivotTable => crate::i18n::tr("Enter two models, e.g. Post, Tag").to_string(),
+                _ => crate::i18n::tr("Enter a class name").to_string(),
             });
         } else if plan.iter().all(|f| f.exists) {
-            self.error = Some("All files already exist".into());
+            self.error = Some(crate::i18n::tr("All files already exist").to_string());
         } else {
             match laravel::make::write(&plan) {
                 Ok(written) => cx.emit(DialogEvent::Created(written)),
-                Err(err) => self.error = Some(format!("Failed to write files: {err}")),
+                Err(err) => self.error = Some(crate::i18n::trf("Failed to write files: {}", &[&err.to_string()])),
             }
         }
         cx.notify();
@@ -1163,7 +1163,7 @@ impl MakeDialog {
         if self.modules.is_empty() {
             return None;
         }
-        let mut options: Vec<SharedString> = vec!["(no module)".into()];
+        let mut options: Vec<SharedString> = vec![crate::i18n::tr("(no module)")];
         options.extend(self.modules.iter().map(|m| SharedString::from(m.clone())));
         let value = options[self.module.map_or(0, |m| m + 1)].clone();
         Some(
@@ -1171,7 +1171,7 @@ impl MakeDialog {
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(div().w(px(90.)).flex_none().child("Module:"))
+                .child(div().w(px(90.)).flex_none().child(crate::i18n::tr("Module:")))
                 .child(self.select("module".into(), value, None, Dropdown::Module, options, cx)),
         )
     }
@@ -1266,7 +1266,7 @@ impl MakeDialog {
                 })
                 .text_color(theme::muted())
                 .text_size(px(12.))
-                .child(text)
+                .child(crate::i18n::tr(text))
         };
         let types: Vec<SharedString> = COLUMN_TYPES
             .iter()
@@ -1453,7 +1453,7 @@ impl MakeDialog {
             cx,
         );
         let toggle = |id: &'static str, label: &'static str, on: bool, f: fn(&mut Self)| {
-            checkbox(id, label, on).on_click(cx.listener(move |this, _, _, cx| {
+            checkbox(id, crate::i18n::tr(label), on).on_click(cx.listener(move |this, _, _, cx| {
                 f(this);
                 cx.notify();
             }))
@@ -1482,14 +1482,14 @@ impl MakeDialog {
                 ),
             )
             .when(!self.indexes.is_empty(), |d| {
-                d.child(div().text_size(px(12.)).text_color(theme::muted()).child(format!("{} composite index(es)", self.indexes.len())))
+                d.child(div().text_size(px(12.)).text_color(theme::muted()).child(crate::i18n::trf("{} composite index(es)", &[&self.indexes.len().to_string()])))
             })
             .child(div().flex_1())
             .child(
                 div()
                     .text_size(px(11.))
                     .text_color(theme::muted())
-                    .child("Tab / Shift-Tab to move between fields, ↵ to create, Esc to cancel. Ctrl-[ / Ctrl-] move rows, Ctrl-Backspace deletes."),
+                    .child(crate::i18n::tr("Tab / Shift-Tab to move between fields, ↵ to create, Esc to cancel. Ctrl-[ / Ctrl-] move rows, Ctrl-Backspace deletes.")),
             )
     }
 
@@ -1542,7 +1542,7 @@ impl MakeDialog {
                     theme::success()
                 })
                 .child(if file.exists {
-                    format!("{rel}  (exists, skipped)")
+                    crate::i18n::trf("{}  (exists, skipped)", &[&rel])
                 } else {
                     rel
                 })
@@ -1559,7 +1559,7 @@ impl MakeDialog {
             .child(
                 div()
                     .text_color(theme::muted())
-                    .child(format!("{} file(s)", plan.len())),
+                    .child(crate::i18n::trf("{} file(s)", &[&plan.len().to_string()])),
             )
             .children(files)
     }
@@ -1588,10 +1588,10 @@ impl Render for MakeDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let is_model = self.kind == MakeKind::Model;
         let title: SharedString = match (is_model, self.view) {
-            (true, View::Settings) => "New Eloquent Model Settings".into(),
-            (true, View::Indexes) => "Index Editor".into(),
-            (true, View::Main) => "New Eloquent Model".into(),
-            _ => format!("New {}", self.kind.label()).into(),
+            (true, View::Settings) => crate::i18n::tr("New Eloquent Model Settings"),
+            (true, View::Indexes) => crate::i18n::tr("Index Editor"),
+            (true, View::Main) => crate::i18n::tr("New Eloquent Model"),
+            _ => crate::i18n::trf("New {}", &[self.kind.label()]).into(),
         };
         let name_label = match self.kind {
             MakeKind::Model => "Model name",
@@ -1605,10 +1605,10 @@ impl Render for MakeDialog {
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(div().w(px(90.)).flex_none().child(name_label))
+                .child(div().w(px(90.)).flex_none().child(crate::i18n::tr(name_label)))
                 .child(div().flex_1().child(self.name.clone()))
                 .when(is_model, |d| {
-                    d.child(div().ml_2().text_color(theme::muted()).child("Table name"))
+                    d.child(div().ml_2().text_color(theme::muted()).child(crate::i18n::tr("Table name")))
                         .child(div().w(px(260.)).flex_none().child(self.table.clone()))
                 }),
         );
@@ -1630,7 +1630,7 @@ impl Render for MakeDialog {
             let extras = self.maker.extras(self.kind).into_iter().map(|extra| {
                 checkbox(
                     format!("extra-{extra:?}"),
-                    extra.label(),
+                    crate::i18n::tr(&extra.label()),
                     self.extras.contains(&extra),
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {

@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use gpui::{App, Context, Entity, EventEmitter, FocusHandle, Focusable, Window, div, prelude::*, px};
 
 use super::{Cancel, DialogEvent, GitCommand, button, card};
+use crate::i18n::tr;
 use crate::pull_requests::{self as prs, Details, Host, PullRequest};
 use crate::text_field::TextField;
 use crate::theme;
@@ -25,11 +26,16 @@ pub struct PullRequestsDialog {
 
 impl EventEmitter<DialogEvent> for PullRequestsDialog {}
 
+/// The " · draft" tail of a request line.
+fn draft(draft: bool) -> String {
+    if draft { tr(" · draft").to_string() } else { String::new() }
+}
+
 impl PullRequestsDialog {
     pub fn new(root: PathBuf, host: Host, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus_handle = cx.focus_handle();
         window.focus(&focus_handle);
-        let comment = cx.new(|cx| TextField::new("Add a comment…", cx));
+        let comment = cx.new(|cx| TextField::new(tr("Add a comment…"), cx));
         let mut this = Self { root, host, list: None, selected: 0, details: HashMap::new(), comment, status: None, focus_handle };
         this.reload(cx);
         this
@@ -117,9 +123,9 @@ impl PullRequestsDialog {
 
     fn render_details(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let Some(pr) = self.current() else {
-            return div().p_3().text_color(theme::muted()).child("Nothing selected.").into_any_element();
+            return div().p_3().text_color(theme::muted()).child(tr("Nothing selected.")).into_any_element();
         };
-        let heading = |text: &'static str| div().mt_3().mb_1().text_size(px(11.5)).text_color(theme::muted()).child(text);
+        let heading = |text: &str| div().mt_3().mb_1().text_size(px(11.5)).text_color(theme::muted()).child(tr(text));
         let mut body = div()
             .id("pr-details")
             .flex_1()
@@ -127,13 +133,13 @@ impl PullRequestsDialog {
             .px_3()
             .py_2()
             .child(div().text_size(px(14.)).child(format!("#{} {}", pr.number, pr.title)))
-            .child(div().text_size(px(11.5)).text_color(theme::muted()).child(format!("{} wants to merge {} into {}{}", pr.author, pr.head, pr.base, if pr.draft { " · draft" } else { "" })));
+            .child(div().text_size(px(11.5)).text_color(theme::muted()).child(format!("{} wants to merge {} into {}{}", pr.author, pr.head, pr.base, draft(pr.draft))));
         match self.details.get(&pr.number) {
-            None => body = body.child(div().mt_3().text_color(theme::muted()).child("Loading…")),
-            Some(Err(err)) => body = body.child(div().mt_3().text_color(theme::error()).child(err.clone())),
+            None => body = body.child(div().mt_3().text_color(theme::muted()).child(tr("Loading…"))),
+            Some(Err(err)) => body = body.child(div().mt_3().text_color(theme::error()).child(tr(err))),
             Some(Ok(details)) => {
                 let text = details.body.trim();
-                body = body.child(heading("Description")).child(div().text_color(if text.is_empty() { theme::muted() } else { theme::ui_text() }).child(if text.is_empty() { "No description.".to_string() } else { text.to_string() }));
+                body = body.child(heading("Description")).child(div().text_color(if text.is_empty() { theme::muted() } else { theme::ui_text() }).child(if text.is_empty() { tr("No description.").to_string() } else { text.to_string() }));
                 if !details.files.is_empty() {
                     body = body.child(heading("Files")).children(details.files.iter().enumerate().map(|(ix, file)| {
                         let file2 = file.clone();
@@ -202,9 +208,9 @@ impl Render for PullRequestsDialog {
             Host::GitLab => "Merge Requests",
         };
         let list: gpui::AnyElement = match &self.list {
-            None => div().p_3().text_color(theme::muted()).child("Loading…").into_any_element(),
-            Some(Err(err)) => div().p_3().text_color(theme::error()).child(err.clone()).into_any_element(),
-            Some(Ok(items)) if items.is_empty() => div().p_3().text_color(theme::muted()).child("No open requests.").into_any_element(),
+            None => div().p_3().text_color(theme::muted()).child(tr("Loading…")).into_any_element(),
+            Some(Err(err)) => div().p_3().text_color(theme::error()).child(tr(err)).into_any_element(),
+            Some(Ok(items)) if items.is_empty() => div().p_3().text_color(theme::muted()).child(tr("No open requests.")).into_any_element(),
             Some(Ok(items)) => div()
                 .id("pr-list")
                 .size_full()
@@ -219,7 +225,7 @@ impl Render for PullRequestsDialog {
                         .when(ix == self.selected, |d| d.bg(theme::selection()))
                         .hover(|d| d.bg(theme::hover()))
                         .child(div().overflow_hidden().whitespace_nowrap().text_ellipsis().child(format!("#{} {}", pr.number, pr.title)))
-                        .child(div().text_size(px(11.5)).text_color(theme::muted()).child(format!("{} · {}{}", pr.author, pr.head, if pr.draft { " · draft" } else { "" })))
+                        .child(div().text_size(px(11.5)).text_color(theme::muted()).child(format!("{} · {}{}", pr.author, pr.head, draft(pr.draft))))
                         .on_click(cx.listener(move |this, _, _, cx| this.select(ix, cx)))
                 }))
                 .into_any_element(),
@@ -229,7 +235,7 @@ impl Render for PullRequestsDialog {
             .key_context("Dialog")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::cancel))
-            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(title))
+            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(tr(title)))
             .child(div().flex().h(px(460.)).child(div().w(px(320.)).flex_none().border_r_1().border_color(theme::border()).child(list)).child(details))
             .child(
                 div()

@@ -3,6 +3,7 @@
 use gpui::{App, Context, EventEmitter, FocusHandle, Focusable, Window, div, prelude::*, px};
 
 use super::{Cancel, DialogEvent, GitCommand, OpenMode, button, card};
+use crate::i18n::{tr, trf};
 use crate::theme;
 
 pub enum GitList {
@@ -41,7 +42,7 @@ fn raw(title: String, args: &[&str]) -> DialogEvent {
 
 impl Render for GitListDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let link = |id: gpui::SharedString, label: &'static str| div().id(id).px_1p5().rounded_sm().text_color(theme::accent()).cursor_pointer().hover(|d| d.bg(theme::hover())).child(label);
+        let link = |id: gpui::SharedString, label: &'static str| div().id(id).px_1p5().rounded_sm().text_color(theme::accent()).cursor_pointer().hover(|d| d.bg(theme::hover())).child(tr(label));
         let (title, add_label, add_action, rows): (&str, &'static str, &'static str, Vec<gpui::AnyElement>) = match &self.list {
             GitList::Worktrees(trees) => (
                 "Worktrees",
@@ -62,7 +63,7 @@ impl Render for GitListDialog {
                                 div()
                                     .flex_1()
                                     .overflow_hidden()
-                                    .child(div().text_color(theme::ui_text()).child(if t.branch.is_empty() { format!("(detached {})", t.head) } else { t.branch.clone() }))
+                                    .child(div().text_color(theme::ui_text()).child(if t.branch.is_empty() { trf("(detached {})", &[&t.head]) } else { t.branch.clone() }))
                                     .child(div().text_size(px(11.5)).text_color(theme::muted()).child(t.path.display().to_string())),
                             )
                             .child(link(format!("wt-open-{ix}").into(), "Open").on_click(cx.listener(move |_, _, _, cx| cx.emit(DialogEvent::OpenProject(open.clone(), OpenMode::NewWindow)))))
@@ -101,9 +102,9 @@ impl Render for GitListDialog {
             .key_context("Dialog")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::cancel))
-            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(title))
+            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(tr(title)))
             .child(div().id("git-list").max_h(px(380.)).overflow_y_scroll().py_1().children(rows))
-            .when(empty, |d| d.child(div().px_3().py_2().text_color(theme::muted()).child("None yet.")))
+            .when(empty, |d| d.child(div().px_3().py_2().text_color(theme::muted()).child(tr("None yet."))))
             .child(
                 div()
                     .flex()

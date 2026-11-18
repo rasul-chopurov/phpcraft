@@ -14,6 +14,7 @@ use super::{
     Cancel, Confirm, DialogEvent, FocusNext, FocusPrev, SelectNext, SelectPrev, button, card,
     checkbox,
 };
+use crate::i18n::{tr, trf};
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
 
@@ -49,9 +50,9 @@ impl FindInFilesDialog {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let query = cx.new(|cx| TextField::new("Text to find", cx));
-        let replace = replace.then(|| cx.new(|cx| TextField::new("Replace with", cx)));
-        let mask = cx.new(|cx| TextField::new("File mask, e.g. *.php, *.blade.php", cx));
+        let query = cx.new(|cx| TextField::new(tr("Text to find"), cx));
+        let replace = replace.then(|| cx.new(|cx| TextField::new(tr("Replace with"), cx)));
+        let mask = cx.new(|cx| TextField::new(tr("File mask, e.g. *.php, *.blade.php"), cx));
         let subscriptions = [&query, &mask]
             .into_iter()
             .map(|field| {
@@ -302,7 +303,7 @@ impl Render for FindInFilesDialog {
                 })
                 .when(!on, |d| d.text_color(theme::muted()))
                 .hover(|d| d.bg(theme::hover()))
-                .child(label)
+                .child(tr(label))
         };
         let files = {
             let mut paths: Vec<&PathBuf> = self.results.iter().map(|r| &r.path).collect();
@@ -311,17 +312,17 @@ impl Render for FindInFilesDialog {
         };
         let status: SharedString = match (&self.error, self.searching) {
             (Some(err), _) => err.clone().into(),
-            (None, true) => "Searching…".into(),
+            (None, true) => tr("Searching…"),
             (None, false) if self.query.read(cx).text().is_empty() => "".into(),
-            (None, false) => format!(
-                "{}{} matches in {files} files",
+            (None, false) => {
+                let count = self.results.len().to_string();
+                let files = files.to_string();
                 if self.results.len() >= MAX_RESULTS {
-                    "first "
+                    trf("first {} matches in {} files", &[&count, &files])
                 } else {
-                    ""
-                },
-                self.results.len()
-            )
+                    trf("{} matches in {} files", &[&count, &files])
+                }
+            }
             .into(),
         };
         let selected = self.selected.min(self.results.len().saturating_sub(1));
@@ -357,10 +358,10 @@ impl Render for FindInFilesDialog {
                     .py_2()
                     .border_b_1()
                     .border_color(theme::border())
-                    .child(title)
+                    .child(tr(title))
                     .child(div().flex_1())
                     .child(
-                        checkbox("include-vendor", "Include vendor", self.include_vendor)
+                        checkbox("include-vendor", tr("Include vendor"), self.include_vendor)
                             .text_size(px(12.))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.toggle(|d| d.include_vendor ^= true, cx)

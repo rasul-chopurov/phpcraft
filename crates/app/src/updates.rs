@@ -11,6 +11,7 @@ use gpui::{
 };
 
 use crate::config::Settings;
+use crate::i18n::{tr, trf};
 use crate::theme;
 
 actions!(phpcraft, [CheckForUpdates, ShowChangelog]);
@@ -129,7 +130,7 @@ fn open_window(mode: Mode, releases: Vec<Release>, error: Option<String>, cx: &m
         window_bounds: Some(WindowBounds::Windowed(crate::window_state::centered(680., 560., cx))),
         window_min_size: Some(crate::window_state::min_size()),
         titlebar: Some(TitlebarOptions {
-            title: Some(if mode == Mode::Update { "Update available" } else { "What's New in PhpCraft" }.into()),
+            title: Some(if mode == Mode::Update { tr("Update available") } else { tr("What's New in PhpCraft") }),
             ..Default::default()
         }),
         ..Default::default()
@@ -237,11 +238,11 @@ impl UpdateWindow {
         let done = progress.done.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1_048_576.;
         let total = progress.total.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1_048_576.;
         Some(if total > 0. && done >= total {
-            "Installing…".to_string()
+            tr("Installing…").to_string()
         } else if total > 0. {
-            format!("Downloading… {done:.1} of {total:.1} MB")
+            trf("Downloading… {} of {} MB", &[&format!("{done:.1}"), &format!("{total:.1}")])
         } else {
-            format!("Downloading… {done:.1} MB")
+            trf("Downloading… {} MB", &[&format!("{done:.1}")])
         })
     }
 }
@@ -253,10 +254,10 @@ impl Render for UpdateWindow {
         let latest = self.latest().cloned();
         let newer = latest.as_ref().is_some_and(|r| is_newer(&r.version, current));
         let header = match (self.mode, &latest) {
-            (Mode::Update, Some(latest)) if newer => format!("PhpCraft {} is available — you have {current}", latest.version),
-            _ if self.error.is_some() => "Couldn't reach GitHub".to_string(),
-            _ if newer => format!("What's New · {} is available", latest.as_ref().map(|r| r.version.as_str()).unwrap_or("")),
-            _ => format!("What's New · you're up to date ({current})"),
+            (Mode::Update, Some(latest)) if newer => trf("PhpCraft {} is available — you have {}", &[&latest.version, current]),
+            _ if self.error.is_some() => tr("Couldn't reach GitHub").to_string(),
+            _ if newer => trf("What's New · {} is available", &[latest.as_ref().map(|r| r.version.as_str()).unwrap_or("")]),
+            _ => trf("What's New · you're up to date ({})", &[current]),
         };
         let button = |id: &'static str, label: &'static str, primary: bool| crate::dialogs::button(id, label, primary);
         let in_place = crate::self_update::supported();
@@ -302,7 +303,7 @@ impl Render for UpdateWindow {
             });
         let entries = self.releases.iter().take(10).map(|release| {
             let is_current = release.version == current;
-            let notes = if release.notes.trim().is_empty() { "No notes for this release.".to_string() } else { release.notes.clone() };
+            let notes = if release.notes.trim().is_empty() { tr("No notes for this release.").to_string() } else { release.notes.clone() };
             div()
                 .w_full()
                 .flex()
@@ -345,7 +346,7 @@ impl Render for UpdateWindow {
                             .flex()
                             .flex_col()
                             .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(theme::ui_text()).child(SharedString::from(header)))
-                            .child(div().text_size(px(12.)).text_color(theme::muted()).child("Releases from github.com/rasul-chopurov/phpcraft")),
+                            .child(div().text_size(px(12.)).text_color(theme::muted()).child(tr("Releases from github.com/rasul-chopurov/phpcraft"))),
                     ),
             )
             .child(

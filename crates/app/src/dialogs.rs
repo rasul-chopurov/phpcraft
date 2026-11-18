@@ -208,6 +208,7 @@ pub(crate) fn checkbox(
         .child(label.into())
 }
 
+/// A dialog button. The label is translated here so call sites stay English and readable.
 pub(crate) fn button(id: &'static str, text: &'static str, primary: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
@@ -220,7 +221,7 @@ pub(crate) fn button(id: &'static str, text: &'static str, primary: bool) -> gpu
             d.border_1().border_color(theme::border_strong())
         })
         .hover(|d| d.opacity(0.85))
-        .child(text)
+        .child(crate::i18n::tr(text))
 }
 
 fn card(width: f32) -> gpui::Div {

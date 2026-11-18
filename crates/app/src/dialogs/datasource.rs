@@ -7,6 +7,7 @@ use gpui::{App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusabl
 use laravel::datasource::{ConnectionType, DataSource, Driver};
 
 use super::{Cancel, Confirm, DialogEvent, button, card};
+use crate::i18n::{tr, trf};
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
 
@@ -30,7 +31,7 @@ pub struct DataSourceDialog {
 impl EventEmitter<DialogEvent> for DataSourceDialog {}
 
 /// A password / key field: shown as dots.
-fn secret_field(placeholder: &'static str, text: String, cx: &mut Context<DataSourceDialog>) -> Entity<TextField> {
+fn secret_field(placeholder: impl Into<SharedString>, text: String, cx: &mut Context<DataSourceDialog>) -> Entity<TextField> {
     cx.new(|cx| {
         let mut f = TextField::new(placeholder, cx).masked();
         f.set_text(text, cx);
@@ -38,7 +39,7 @@ fn secret_field(placeholder: &'static str, text: String, cx: &mut Context<DataSo
     })
 }
 
-fn field(placeholder: &'static str, text: String, cx: &mut Context<DataSourceDialog>) -> Entity<TextField> {
+fn field(placeholder: impl Into<SharedString>, text: String, cx: &mut Context<DataSourceDialog>) -> Entity<TextField> {
     cx.new(|cx| {
         let mut f = TextField::new(placeholder, cx);
         f.set_text(text, cx);
@@ -48,12 +49,12 @@ fn field(placeholder: &'static str, text: String, cx: &mut Context<DataSourceDia
 
 impl DataSourceDialog {
     pub fn new(root: PathBuf, source: DataSource, password: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let name = field("Name", source.name.clone(), cx);
+        let name = field(tr("Name"), source.name.clone(), cx);
         let host = field("127.0.0.1", source.host.clone(), cx);
         let port = field("3306", source.port.to_string(), cx);
         let user = field("root", source.user.clone(), cx);
-        let password = secret_field("Password", password, cx);
-        let database = field("Database", source.database.clone(), cx);
+        let password = secret_field(tr("Password"), password, cx);
+        let database = field(tr("Database"), source.database.clone(), cx);
         let path = field(if source.driver == Driver::Sqlite { "database/database.sqlite" } else { "/tmp/mysql.sock" }, source.path.clone(), cx);
         let url = field("mysql:host=127.0.0.1;port=3306;dbname=app", source.url.clone(), cx);
         let subscriptions = [&host, &port, &user, &database, &path, &url]
@@ -127,7 +128,7 @@ impl Focusable for DataSourceDialog {
 impl Render for DataSourceDialog {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let s = &self.source;
-        let row = |label: &'static str| div().flex().items_center().gap_3().child(div().w(px(130.)).flex_none().text_color(theme::muted()).child(label));
+        let row = |label: &'static str| div().flex().items_center().gap_3().child(div().w(px(130.)).flex_none().text_color(theme::muted()).child(tr(label)));
         let chip = |id: SharedString, label: &'static str, active: bool| {
             div()
                 .id(id)
@@ -139,7 +140,7 @@ impl Render for DataSourceDialog {
                 .border_color(if active { theme::accent() } else { theme::border_strong() })
                 .when(active, |d| d.bg(theme::active_row()))
                 .hover(|d| d.bg(theme::hover()))
-                .child(label)
+                .child(tr(label))
         };
         let drivers = Driver::ALL.into_iter().map(|driver| {
             chip(SharedString::from(format!("ds-driver-{driver:?}")), driver.label(), s.driver == driver)
@@ -156,9 +157,9 @@ impl Render for DataSourceDialog {
         let (current, _) = self.current(cx);
         let dsn = current.dsn(&self.root);
         let status = match &self.status {
-            _ if self.testing => div().text_color(theme::muted()).child("Testing…"),
+            _ if self.testing => div().text_color(theme::muted()).child(tr("Testing…")),
             None => div(),
-            Some(Ok(version)) => div().text_color(theme::success()).child(format!("✓ Succeeded · {version}")),
+            Some(Ok(version)) => div().text_color(theme::success()).child(trf("✓ Succeeded · {}", &[version])),
             Some(Err(err)) => div().text_color(theme::error()).child(SharedString::from(err.chars().take(300).collect::<String>())),
         };
         card(640.)
@@ -166,7 +167,7 @@ impl Render for DataSourceDialog {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::confirm))
             .on_action(cx.listener(Self::cancel))
-            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child("Data Source"))
+            .child(div().px_3().py_2().border_b_1().border_color(theme::border()).child(tr("Data Source")))
             .child(
                 div()
                     .flex()
@@ -189,7 +190,7 @@ impl Render for DataSourceDialog {
                             .when(s.connection != ConnectionType::Url, |d| d.child(row("Database").child(div().flex_1().child(self.database.clone()))))
                     })
                     .child(row("DSN").child(div().flex_1().text_size(px(12.)).font_family(theme::editor_font()).text_color(theme::muted()).child(dsn)))
-                    .child(div().text_size(px(11.)).text_color(theme::muted()).child("Connects through PHP's PDO. The password is stored in your PhpCraft config folder, not in the project.")),
+                    .child(div().text_size(px(11.)).text_color(theme::muted()).child(tr("Connects through PHP's PDO. The password is stored in your PhpCraft config folder, not in the project."))),
             )
             .child(
                 div()
@@ -199,7 +200,7 @@ impl Render for DataSourceDialog {
                     .p_3()
                     .border_t_1()
                     .border_color(theme::border())
-                    .child(div().id("ds-test").cursor_pointer().text_color(theme::accent()).child("Test Connection").on_click(cx.listener(|this, _, _, cx| this.test(cx))))
+                    .child(div().id("ds-test").cursor_pointer().text_color(theme::accent()).child(tr("Test Connection")).on_click(cx.listener(|this, _, _, cx| this.test(cx))))
                     .child(div().flex_1().text_size(px(12.)).child(status))
                     .child(button("ds-cancel", "Cancel", false).on_click(cx.listener(|this, _, window, cx| this.cancel(&Cancel, window, cx))))
                     .child(button("ds-ok", "OK", true).on_click(cx.listener(|this, _, window, cx| this.confirm(&Confirm, window, cx)))),
