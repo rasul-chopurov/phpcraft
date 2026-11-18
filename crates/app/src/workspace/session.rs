@@ -21,6 +21,12 @@ struct Session {
     /// Caret (char offset) per file, so a reopened file lands where it was.
     #[serde(default)]
     carets: BTreeMap<String, usize>,
+    /// First visible visual row per file.
+    #[serde(default)]
+    scroll: BTreeMap<String, f32>,
+    /// Collapsed folds (opening char offsets) per file.
+    #[serde(default)]
+    folds: BTreeMap<String, Vec<usize>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -32,14 +38,19 @@ struct PaneSession {
 }
 
 impl PaneSession {
-    fn save(pane: &Pane, carets: &mut BTreeMap<String, usize>, cx: &App) -> Self {
+    fn save(pane: &Pane, session: &mut Session, cx: &App) -> Self {
         let mut saved = Self::default();
         for tab in &pane.tabs {
             let editor = tab.read(cx);
             let Some(path) = editor.buffer.path() else { continue };
             let key = path.display().to_string();
             if let Some(selection) = editor.buffer.selections().first() {
-                carets.insert(key.clone(), selection.head);
+                session.carets.insert(key.clone(), selection.head);
+            }
+            let (rows, folds) = editor.session_state();
+            session.scroll.insert(key.clone(), rows);
+            if !folds.is_empty() {
+                session.folds.insert(key.clone(), folds);
             }
             saved.tabs.push(key);
         }
@@ -76,7 +87,8 @@ impl Workspace {
         }
         let mut session = Session { focused: self.focused_pane, ..Default::default() };
         for ix in 0..self.panes.len() {
-            session.panes.push(PaneSession::save(&self.pane_at(ix), &mut session.carets, cx));
+            let pane = PaneSession::save(&self.pane_at(ix), &mut session, cx);
+            session.panes.push(pane);
         }
         session.pinned = self.pinned.iter().map(|p| p.display().to_string()).collect();
         let file = file(self.project.root());
@@ -127,8 +139,17 @@ impl Workspace {
             .collect();
         for tab in self.tabs.clone() {
             let Some(path) = tab.read(cx).buffer.path().map(|p| p.display().to_string()) else { continue };
-            let Some(&caret) = session.carets.get(&path) else { continue };
-            tab.update(cx, |editor, cx| editor.restore_caret(caret, cx));
+            let caret = session.carets.get(&path).copied();
+            let rows = session.scroll.get(&path).copied();
+            let folds = session.folds.get(&path).cloned().unwrap_or_default();
+            tab.update(cx, |editor, cx| {
+                if let Some(caret) = caret {
+                    editor.restore_caret(caret, cx);
+                }
+                if let Some(rows) = rows {
+                    editor.restore_session_state(rows, &folds, cx);
+                }
+            });
         }
         self.restoring_session = false;
         // Drops files deleted since the last run from the saved session.
@@ -152,6 +173,8 @@ mod tests {
             focused: 1,
             pinned: vec!["/p/a.php".into()],
             carets: [("/p/c.php".to_string(), 42)].into_iter().collect(),
+            scroll: [("/p/c.php".to_string(), 12.5)].into_iter().collect(),
+            folds: [("/p/c.php".to_string(), vec![100, 240])].into_iter().collect(),
         };
         let text = serde_json::to_string(&session).unwrap();
         let back: Session = serde_json::from_str(&text).unwrap();
@@ -160,6 +183,8 @@ mod tests {
         assert_eq!(back.panes[1].active, 1);
         assert_eq!(back.pinned, vec!["/p/a.php".to_string()]);
         assert_eq!(back.carets["/p/c.php"], 42);
+        assert_eq!(back.scroll["/p/c.php"], 12.5);
+        assert_eq!(back.folds["/p/c.php"], vec![100, 240]);
     }
 
     /// A session written by an older build (no pinned/carets) still opens.

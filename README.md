@@ -27,7 +27,7 @@
 - **Git**: Commit window, side-by-side diff, three-way merge window for conflicts (common ancestor, line-level auto-merge), log with graph, branches, blame
 - **Database**: MySQL, MariaDB, PostgreSQL, SQLite; tables open as editable tabs
 - **Workspace**: project tabs, split editors, Search Everywhere, terminal, run configurations, Artisan,
-  session restore (tabs, panes, carets), reload of files changed on disk (a changed buffer and a deleted file both ask first), font zoom (⌘+ / ⌘− / ⌘+scroll),
+  session restore (tabs, panes, carets, scroll position, folded regions), reload of files changed on disk (a changed buffer and a deleted file both ask first), font zoom (⌘+ / ⌘− / ⌘+scroll),
   Russian UI (menu bar, tool windows, Search Everywhere, editor context menu)
 - **AI**: Claude, Codex, OpenCode and Gemini via ACP or API key
 

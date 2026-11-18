@@ -344,6 +344,20 @@ impl EditorView {
         cx.notify();
     }
 
+    /// The first visible visual row and the collapsed folds, for the project session file.
+    /// Rows rather than pixels, so another window size or font still lands in place.
+    pub fn session_state(&self) -> (f32, Vec<usize>) {
+        (f32::from(self.scroll_y) / theme::editor_line_height(), self.collapsed_offsets())
+    }
+
+    /// Puts the folds and the scroll position back; the next paint clamps both.
+    pub fn restore_session_state(&mut self, rows: f32, folds: &[usize], cx: &mut Context<Self>) {
+        self.refold(folds);
+        self.center_on_caret = false;
+        self.scroll_y = px(rows * theme::editor_line_height());
+        cx.notify();
+    }
+
     /// Replaces the text after the file was changed outside PhpCraft; stays clean.
     pub fn reload_from_disk(&mut self, text: &str, cx: &mut Context<Self>) {
         let caret = self.buffer.selection.head.min(self.buffer.len_chars());

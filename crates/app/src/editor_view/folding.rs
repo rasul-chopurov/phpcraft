@@ -87,6 +87,32 @@ impl EditorView {
         self.remember_folds();
     }
 
+    /// Collapsed regions by their opening char offset, for the project session file.
+    /// Read-only: saving must not expand anything the user folded.
+    pub(super) fn collapsed_offsets(&self) -> Vec<usize> {
+        let carets: Vec<usize> = self.buffer.selections().iter().map(|s| s.head).collect();
+        self.folding
+            .collapsed
+            .iter()
+            .filter_map(|&(o, c)| {
+                let (open, close) = (self.buffer.anchor(o)?, self.buffer.anchor(c)?);
+                let multiline = self.buffer.char_to_line_col(open).0 != self.buffer.char_to_line_col(close).0;
+                (open < close && multiline && !carets.iter().any(|&caret| caret > open && caret < close)).then_some(open)
+            })
+            .collect()
+    }
+
+    /// Folds the regions the session file remembered; offsets that are no longer a region
+    /// are skipped, and carets keep folded code open.
+    pub(super) fn refold(&mut self, opens: &[usize]) {
+        let candidates = self.fold_candidates();
+        for &open in opens {
+            if let Some(&(open, close)) = candidates.iter().find(|(o, _)| *o == open) {
+                self.collapse(open, close);
+            }
+        }
+    }
+
     fn is_collapsed(&self, open: usize) -> bool {
         self.folding.collapsed.iter().any(|&(o, _)| self.buffer.anchor(o) == Some(open))
     }
