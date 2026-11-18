@@ -106,15 +106,18 @@ terminal, AI agents, settings sync and import (VS Code / Zed).
   (its build was cancelled) — the user may delete it.
 - **0.4.1-alpha**: git status polled only while the window is active (Windows users saw cmd
   windows flashing). **0.4.2-alpha**: windows and dialogs fit small screens.
-  **0.4.3-alpha**: Update and Restart (self-update in place).
+  **0.4.3-alpha**: Update and Restart (self-update in place). **0.5.0-alpha**: three-way merge
+  window, JS/TS module resolution with import rewriting, Move Class companions, Import Class,
+  session restore with scroll and folds, external-change prompts, full Russian UI.
 - Releases are built for **macOS and Windows only** (the user paused Linux builds; the site
-  doesn't list Linux). `Cargo.toml` version is `0.4.3-alpha`.
+  doesn't list Linux). `Cargo.toml` version is `0.5.0-alpha`.
 
 ### Next steps: known gaps / ideas
 
 Structural Search & Replace,
 coverage needs Xdebug or PCOV in the user's project, Run Anything, saved window layouts,
-UI localization (`i18n.rs`, Russian: the shell — menu bar, tool windows, Search Everywhere tabs
-and actions, editor context menu — is translated; dialogs and panels are next), Mermaid in Markdown preview,
+UI localization (`i18n.rs`, Russian: menus, tool windows, dialogs and panels are translated;
+crate-level messages and the About/What's New bodies are next), Mermaid in Markdown preview,
 DataGrip-level DB features (ER diagrams, explain, import/export), HTTP response preview,
-PR review comments inline in the diff.
+PR review comments inline in the diff, JS type information / hover docs, `notify`-based file
+watching instead of the two-second poll.
