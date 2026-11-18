@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use super::Workspace;
 
-gpui::actions!(workspace, [ToggleStructure]);
+gpui::actions!(workspace, [ToggleStructure, WindowLayouts]);
+use crate::i18n::trf;
 use crate::icons::{Icon, icon};
 use crate::theme;
 
@@ -154,11 +155,45 @@ impl Layout {
 
     pub fn load() -> Self {
         let mut layout: Self = std::fs::read_to_string(Self::path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        // Panels that need a running session start closed.
-        for tool in [ToolWindow::Ai, ToolWindow::Terminal, ToolWindow::Git, ToolWindow::Database, ToolWindow::Laravel] {
-            layout.hide(tool);
-        }
+        layout.close_session_panels();
         layout
+    }
+
+    /// Panels that need a running session start closed: a saved arrangement comes back with
+    /// them shut, so applying it never shows an empty terminal or a database that isn't there.
+    fn close_session_panels(&mut self) {
+        for tool in [ToolWindow::Ai, ToolWindow::Terminal, ToolWindow::Git, ToolWindow::Database, ToolWindow::Laravel] {
+            self.hide(tool);
+        }
+    }
+
+    /// Replaces this arrangement with a saved one.
+    fn adopt(&mut self, other: Layout) {
+        *self = other;
+        self.close_session_panels();
+    }
+
+    /// One line for the layouts list: which panel sits on each edge and the panel sizes.
+    fn summary(&self) -> String {
+        let mut parts = Vec::new();
+        for (side, tool) in [
+            (Side::Left, self.left),
+            (Side::Right, self.right),
+            (Side::Bottom, self.bottom),
+            (Side::BottomRight, self.bottom_right),
+        ] {
+            if let Some(tool) = tool {
+                let name = match side {
+                    Side::Left => crate::i18n::tr("Left"),
+                    Side::Right => crate::i18n::tr("Right"),
+                    Side::Bottom => crate::i18n::tr("Bottom"),
+                    Side::BottomRight => crate::i18n::tr("Bottom right"),
+                };
+                parts.push(format!("{}: {}", name, tool.title()));
+            }
+        }
+        parts.push(format!("{:.0} / {:.0} / {:.0}", self.left_width, self.right_width, self.bottom_height));
+        parts.join(" · ")
     }
 
     pub fn save(&self) {
@@ -510,5 +545,133 @@ impl Workspace {
 impl Workspace {
     pub(super) fn toggle_structure(&mut self, _: &ToggleStructure, window: &mut Window, cx: &mut Context<Self>) {
         self.toggle_tool(ToolWindow::Structure, window, cx);
+    }
+
+    /// View ▸ Window Layouts…: the saved arrangements, with the current one ready to name.
+    pub(super) fn window_layouts(&mut self, _: &WindowLayouts, window: &mut Window, cx: &mut Context<Self>) {
+        let saved = saved_layouts();
+        let rows: Vec<(String, String)> = saved.iter().map(|saved| (saved.name.clone(), saved.layout.summary())).collect();
+        let dialog = cx.new(|cx| super::super::dialogs::LayoutsDialog::new(rows, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    pub(super) fn save_window_layout(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        store_layout(name, &self.layout);
+        self.dismiss_modal(window, cx);
+        self.report(trf("Saved window layout '{}'.", &[name]), cx);
+    }
+
+    pub(super) fn apply_window_layout(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(saved) = saved_layouts().into_iter().find(|layout| layout.name == name) else {
+            return;
+        };
+        self.dismiss_modal(window, cx);
+        self.layout.adopt(saved.layout);
+        if self.layout.is_active(ToolWindow::Remote) {
+            self.ensure_remote(cx);
+        }
+        if self.layout.is_active(ToolWindow::Database) {
+            self.ensure_db(cx);
+        }
+        if self.layout.is_active(ToolWindow::Laravel) {
+            self.ensure_laravel_panel(cx);
+        }
+        if self.layout.is_active(ToolWindow::Services) {
+            self.ensure_services(cx);
+        }
+        self.layout.save();
+        self.report(trf("Applied window layout '{}'.", &[name]), cx);
+    }
+
+    pub(super) fn delete_window_layout(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        remove_layout(name);
+        self.dismiss_modal(window, cx);
+        self.window_layouts(&WindowLayouts, window, cx);
+    }
+
+    fn report(&mut self, text: String, cx: &mut Context<Self>) {
+        self.output = Some(super::tools::Output { title: crate::i18n::tr("Window Layouts").to_string(), text, running: false, ok: true });
+        cx.notify();
+    }
+}
+
+/// A named tool-window arrangement, kept in `<config dir>/layouts.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct SavedLayout {
+    pub name: String,
+    pub layout: Layout,
+}
+
+fn saved_path() -> std::path::PathBuf {
+    crate::config::dir().join("layouts.json")
+}
+
+pub(super) fn saved_layouts() -> Vec<SavedLayout> {
+    let Ok(text) = std::fs::read_to_string(saved_path()) else {
+        return Vec::new();
+    };
+    parse_saved(&text)
+}
+
+fn parse_saved(text: &str) -> Vec<SavedLayout> {
+    let mut list: Vec<SavedLayout> = serde_json::from_str(text).unwrap_or_default();
+    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    list
+}
+
+/// Adds or replaces a layout (the same name overwrites) and returns the new list.
+pub(super) fn store_layout(name: &str, layout: &Layout) -> Vec<SavedLayout> {
+    let mut list = saved_layouts();
+    upsert(&mut list, name, layout.clone());
+    let _ = std::fs::create_dir_all(crate::config::dir());
+    if let Ok(text) = serde_json::to_string_pretty(&list) {
+        let _ = std::fs::write(saved_path(), text);
+    }
+    list
+}
+
+/// Replaces the entry with the same name (any case) or adds a new one, keeping the list sorted.
+fn upsert(list: &mut Vec<SavedLayout>, name: &str, layout: Layout) {
+    list.retain(|saved| !saved.name.eq_ignore_ascii_case(name));
+    list.push(SavedLayout { name: name.to_string(), layout });
+    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+}
+
+pub(super) fn remove_layout(name: &str) {
+    let list: Vec<SavedLayout> = saved_layouts().into_iter().filter(|saved| !saved.name.eq_ignore_ascii_case(name)).collect();
+    if let Ok(text) = serde_json::to_string_pretty(&list) {
+        let _ = std::fs::write(saved_path(), text);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saved_store_replaces_by_name_and_round_trips() {
+        let mut layout = Layout::default();
+        layout.left_width = 321.;
+        let mut list = vec![SavedLayout { name: "Debug".into(), layout: Layout::default() }];
+        upsert(&mut list, "debug", layout);
+        let text = serde_json::to_string(&list).unwrap();
+        let back = parse_saved(&text);
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].name, "debug");
+        assert_eq!(back[0].layout.left_width, 321.);
+    }
+
+    #[test]
+    fn summaries_name_the_open_panels() {
+        let mut layout = Layout::default();
+        layout.left = Some(ToolWindow::Project);
+        layout.bottom = Some(ToolWindow::Terminal);
+        let summary = layout.summary();
+        assert!(summary.starts_with(&format!("{}: {}", crate::i18n::tr("Left"), ToolWindow::Project.title())));
+        assert!(summary.contains(&ToolWindow::Terminal.title().to_string()));
     }
 }

@@ -92,6 +92,7 @@ impl Workspace {
             action("Increase Font Size", "⌘+", Box::new(super::IncreaseFontSize)),
             action("Decrease Font Size", "⌘−", Box::new(super::DecreaseFontSize)),
             action("Reset Font Size", "⇧⌘0", Box::new(super::ResetFontSize)),
+            action("Window Layouts…", "", Box::new(super::layout::WindowLayouts)),
             action("Code Generation (Laravel)", "⇧⌘,", Box::new(OpenMake)),
             action("New Eloquent Model", "", Box::new(NewModel)),
             action("Route Search", "⌃⇧R", Box::new(OpenRouteSearch)),

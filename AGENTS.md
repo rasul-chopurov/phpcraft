@@ -108,14 +108,15 @@ terminal, AI agents, settings sync and import (VS Code / Zed).
   windows flashing). **0.4.2-alpha**: windows and dialogs fit small screens.
   **0.4.3-alpha**: Update and Restart (self-update in place). **0.5.0-alpha**: three-way merge
   window, JS/TS module resolution with import rewriting, Move Class companions, Import Class,
-  session restore with scroll and folds, external-change prompts, full Russian UI.
+  session restore with scroll and folds, external-change prompts, saved window layouts,
+  full Russian UI.
 - Releases are built for **macOS and Windows only** (the user paused Linux builds; the site
   doesn't list Linux). `Cargo.toml` version is `0.5.0-alpha`.
 
 ### Next steps: known gaps / ideas
 
 Structural Search & Replace,
-coverage needs Xdebug or PCOV in the user's project, Run Anything, saved window layouts,
+coverage needs Xdebug or PCOV in the user's project, Run Anything,
 UI localization (`i18n.rs`, Russian: menus, tool windows, dialogs and panels are translated;
 crate-level messages and the About/What's New bodies are next), Mermaid in Markdown preview,
 DataGrip-level DB features (ER diagrams, explain, import/export), HTTP response preview,

@@ -129,6 +129,8 @@ pub fn set(cx: &mut App) {
                 Some(("Increase Font Size", "workspace::IncreaseFontSize")),
                 Some(("Decrease Font Size", "workspace::DecreaseFontSize")),
                 Some(("Reset Font Size", "workspace::ResetFontSize")),
+                None,
+                Some(("Window Layouts…", "workspace::WindowLayouts")),
             ],
         ),
         menu(

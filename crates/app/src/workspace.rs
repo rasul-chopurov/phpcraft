@@ -1190,6 +1190,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::toggle_terminal))
             .on_action(cx.listener(Self::toggle_agent))
             .on_action(cx.listener(Self::toggle_structure))
+            .on_action(cx.listener(Self::window_layouts))
             .on_action(cx.listener(Self::split_right))
             .on_action(cx.listener(Self::unsplit_pane))
             .on_action(cx.listener(Self::focus_next_pane))

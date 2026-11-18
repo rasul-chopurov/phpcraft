@@ -636,6 +636,18 @@
     "{} was changed by another program and has unsaved edits. Reload it and lose those edits?": "{} изменён другой программой, а в редакторе есть несохранённые правки. Перезагрузить файл и потерять эти правки?",
     "File Deleted on Disk": "Файл удалён с диска",
     "{} is no longer on disk. Close its tab?": "{} больше нет на диске. Закрыть вкладку?",
-    "Reload": "Перезагрузить"
+    "Reload": "Перезагрузить",
+    "Window Layouts…": "Раскладки окон…",
+    "Window Layouts": "Раскладки окон",
+    "Name for this layout": "Название раскладки",
+    "No saved layouts yet.": "Сохранённых раскладок пока нет.",
+    "Leave the name empty to update the selected layout. ↵ applies the selected one.": "Оставьте имя пустым, чтобы обновить выбранную раскладку. ↵ применяет выбранную.",
+    "Save Current": "Сохранить текущую",
+    "Left": "Слева",
+    "Right": "Справа",
+    "Bottom": "Снизу",
+    "Bottom right": "Справа снизу",
+    "Saved window layout '{}'.": "Раскладка окон «{}» сохранена.",
+    "Applied window layout '{}'.": "Применена раскладка окон «{}»."
   }
 }

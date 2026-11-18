@@ -4,6 +4,7 @@ mod confirm;
 mod find_files;
 mod git;
 mod git_prompt;
+mod layouts;
 mod rebase;
 mod shelf;
 mod pull_requests;
@@ -32,6 +33,7 @@ pub use confirm::ConfirmPrompt;
 pub use find_files::FindInFilesDialog;
 pub use git::{BranchDialog, ConfirmDialog, GitCommand, LocalHistoryDialog};
 pub use git_prompt::{GitPrompt, GitPromptDialog};
+pub use layouts::LayoutsDialog;
 pub use rebase::RebaseDialog;
 pub use shelf::{ShelfDialog, ShelfMode};
 pub use pull_requests::PullRequestsDialog;
@@ -120,6 +122,10 @@ pub enum DialogEvent {
     Shelve { name: String, files: Vec<String> },
     /// Git ▸ Shelf: apply a shelf back (or only delete it).
     Unshelve { id: String, delete_only: bool },
+    /// View ▸ Window Layouts…: name the current arrangement of the tool windows.
+    SaveWindowLayout(String),
+    ApplyWindowLayout(String),
+    DeleteWindowLayout(String),
     /// Git ▸ Pull Requests ▸ Show Diff: the request against its base (one file, or all).
     PullRequestDiff { host: crate::pull_requests::Host, number: u64, base: String, file: Option<String> },
 }

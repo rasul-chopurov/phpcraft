@@ -678,6 +678,18 @@ impl Workspace {
                 let (id, delete_only) = (id.clone(), *delete_only);
                 self.unshelve(&id, delete_only, window, cx);
             }
+            DialogEvent::SaveWindowLayout(name) => {
+                let name = name.clone();
+                self.save_window_layout(&name, window, cx);
+            }
+            DialogEvent::ApplyWindowLayout(name) => {
+                let name = name.clone();
+                self.apply_window_layout(&name, window, cx);
+            }
+            DialogEvent::DeleteWindowLayout(name) => {
+                let name = name.clone();
+                self.delete_window_layout(&name, window, cx);
+            }
             DialogEvent::PullRequestDiff { host, number, base, file } => {
                 let (host, number, base, file) = (*host, *number, base.clone(), file.clone());
                 self.dismiss_modal(window, cx);
