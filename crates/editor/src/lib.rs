@@ -140,6 +140,11 @@ impl Buffer {
         self.version != self.saved_version
     }
 
+    /// Treats the current text as saved (the file was reloaded from disk).
+    pub fn mark_saved(&mut self) {
+        self.saved_version = self.version;
+    }
+
     pub fn version(&self) -> u64 {
         self.version
     }

@@ -8,6 +8,7 @@ mod shelf;
 mod pull_requests;
 mod git_lists;
 mod make;
+mod merge;
 mod navigate;
 mod prefs;
 mod datasource;
@@ -34,6 +35,7 @@ pub use shelf::{ShelfDialog, ShelfMode};
 pub use pull_requests::PullRequestsDialog;
 pub use git_lists::{GitList, GitListDialog};
 pub use make::{GeneratorDialog, MakeChooser, MakeDialog};
+pub use merge::MergeDialog;
 pub use navigate::{GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog};
 pub use prefs::{KeymapDialog, SettingsDialog, ThemeDialog};
 pub use datasource::DataSourceDialog;
@@ -72,6 +74,11 @@ pub enum DialogEvent {
     ConfigureArtisan(ArtisanCommand),
     OpenRoute(RouteInfo),
     OpenLocation(php_index::Location),
+    /// Import Class: add a `use` for this class to the active editor.
+    ImportClass(String),
+    /// Three-pane merge applied: put this text back into the file; `remaining` conflicts keep
+    /// their markers.
+    MergeFile { path: std::path::PathBuf, text: String, remaining: usize },
     /// Shift+Enter in Search Everywhere.
     OpenLocationInSplit(php_index::Location),
     ReplaceInFiles {

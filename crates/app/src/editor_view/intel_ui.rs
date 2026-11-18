@@ -17,6 +17,7 @@ actions!(
         ShowCompletions,
         ShowIntentions,
         OptimizeImports,
+        ImportClass,
         MenuUp,
         MenuDown,
         MenuConfirm,
@@ -30,6 +31,12 @@ pub enum MenuAction {
     Complete(CompletionItem),
     Navigate(Location),
     Import(String),
+    /// Open the "Import Class" list for the class under the caret.
+    ImportClass,
+    /// A non-selectable divider between groups of items.
+    Separator,
+    /// Dispatch an action by name (`editor::Copy`), for the context menu.
+    Run(&'static str),
     OptimizeImports,
     Paste(String),
     Mnemonic(char),
@@ -54,6 +61,19 @@ impl MenuItem {
     pub fn new(label: impl Into<SharedString>, detail: impl Into<SharedString>, icon: &'static str, action: MenuAction) -> Self {
         Self { label: label.into(), detail: detail.into(), icon, action }
     }
+
+    pub fn separator() -> Self {
+        Self {
+            label: SharedString::from(""),
+            detail: SharedString::from(""),
+            icon: "",
+            action: MenuAction::Separator,
+        }
+    }
+
+    fn is_separator(&self) -> bool {
+        matches!(self.action, MenuAction::Separator)
+    }
 }
 
 pub struct Menu {
@@ -61,6 +81,8 @@ pub struct Menu {
     selected: usize,
     /// Completion menus refresh as you type; others close on edit.
     is_completion: bool,
+    /// Where a context menu was opened; popups under the caret follow `caret_point`.
+    anchor: Option<Point<Pixels>>,
 }
 
 fn completion_icon(kind: CompletionKind) -> &'static str {
@@ -204,7 +226,7 @@ impl EditorView {
     pub(super) fn refresh_completion(&mut self, explicit: bool, cx: &mut Context<Self>) {
         let Some(path) = self.path() else { return };
         let markup = ["html", "htm", "vue"].iter().any(|e| path.extension().is_some_and(|x| x == *e));
-        if !self.buffer.is_php() && !markup {
+        if !self.buffer.is_php() && !markup && !js_analysis::is_js(&path) {
             return;
         }
         let items = self
@@ -310,6 +332,9 @@ impl EditorView {
         for (label, edits) in self.conflict_resolutions() {
             items.push(MenuItem::new(label, "", "⇆", MenuAction::Edits(edits)));
         }
+        if !items.is_empty() {
+            items.push(MenuItem::new("Merge conflicts in a three-pane window…", "", "⇄", MenuAction::Run("editor::MergeConflicts")));
+        }
         let path = self.path();
         let text = self.buffer.text();
         for problem in self.problems_at_caret().into_iter().filter(|p| p.id != "conflict") {
@@ -400,12 +425,100 @@ impl EditorView {
 
     fn import_class(&mut self, fqn: &str, cx: &mut Context<Self>) {
         let Some(path) = self.path() else { return };
-        if let Some(edit) = self.intel.import(&path, &self.buffer.text(), fqn) {
-            let caret = self.caret_byte();
-            self.buffer
-                .apply_edits(vec![(edit.range, edit.text)], caret);
-            self.changed(cx);
+        let short = short_name(fqn);
+        let reference = self
+            .unresolved_at_caret()
+            .and_then(|(range, name, _)| short_name(&name).eq_ignore_ascii_case(short).then_some(range));
+        let edits = self.intel.import_at(&path, &self.buffer.text(), fqn, reference);
+        if edits.is_empty() {
+            return;
         }
+        let caret = self.caret_byte();
+        self.buffer
+            .apply_edits(edits.into_iter().map(|edit| (edit.range, edit.text)).collect(), caret);
+        self.changed(cx);
+    }
+
+    /// Adds `use FQN` for a class picked in the Import Class dialog.
+    pub fn apply_import(&mut self, fqn: &str, cx: &mut Context<Self>) {
+        self.import_class(fqn, cx);
+    }
+
+    pub(super) fn import_class_dialog(
+        &mut self,
+        _: &ImportClass,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_import_class(window, cx);
+    }
+
+    /// Code ▸ Import Class…: the class index as a list, prefilled with the name under the caret.
+    fn open_import_class(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.buffer.is_php() {
+            return;
+        }
+        let mut query = None;
+        if let Some((_, name, candidates)) = self.unresolved_at_caret() {
+            // A single candidate needs no dialog: import it, like PhpStorm's quick-fix.
+            if let [fqn] = candidates.as_slice() {
+                self.import_class(fqn, cx);
+                return;
+            }
+            query = Some(short_name(&name).to_string());
+        }
+        let workspace = self.workspace.clone();
+        // Deferred: showing a modal must not happen while the editor is borrowed.
+        window.defer(cx, move |window, cx| {
+            workspace
+                .update(cx, |ws, cx| ws.open_import_class(query, window, cx))
+                .ok();
+        });
+    }
+
+    fn unresolved_at_caret(&mut self) -> Option<(std::ops::Range<usize>, String, Vec<String>)> {
+        let offset = self.caret_byte();
+        let found = self
+            .current_diagnostics()
+            .iter()
+            .find(|u| u.range.start <= offset && offset <= u.range.end)?;
+        Some((found.range.clone(), found.name.clone(), found.candidates.clone()))
+    }
+
+    /// Right-click menu: the editor actions that apply to the click position.
+    pub(super) fn show_context_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let php = self.buffer.is_php();
+        let selection = self.has_selected_text();
+        let mut items = Vec::new();
+        if selection {
+            items.push(MenuItem::new(crate::i18n::tr("Cut"), "⌘X", "✂", MenuAction::Run("editor::Cut")));
+            items.push(MenuItem::new(crate::i18n::tr("Copy"), "⌘C", "▤", MenuAction::Run("editor::Copy")));
+        }
+        items.push(MenuItem::new(crate::i18n::tr("Paste"), "⌘V", "▥", MenuAction::Run("editor::Paste")));
+        items.push(MenuItem::new(crate::i18n::tr("Paste from History…"), "⇧⌘V", "▦", MenuAction::Run("editor::PasteFromHistory")));
+        items.push(MenuItem::separator());
+        items.push(MenuItem::new(crate::i18n::tr("Undo"), "⌘Z", "↶", MenuAction::Run("editor::Undo")));
+        items.push(MenuItem::new(crate::i18n::tr("Redo"), "⇧⌘Z", "↷", MenuAction::Run("editor::Redo")));
+        if php {
+            items.push(MenuItem::separator());
+            items.push(MenuItem::new(crate::i18n::tr("Go to Declaration"), "⌘B", "→", MenuAction::Run("editor::GoToDeclaration")));
+            items.push(MenuItem::new(crate::i18n::tr("Find Usages"), "⌥F7", "⌕", MenuAction::Run("editor::FindUsages")));
+            items.push(MenuItem::new(crate::i18n::tr("Rename Symbol…"), "⇧F6", "✎", MenuAction::Run("editor::RenameSymbol")));
+            items.push(MenuItem::new(crate::i18n::tr("Move Class…"), "F6", "⇢", MenuAction::Run("editor::MoveClass")));
+            items.push(MenuItem::separator());
+            items.push(MenuItem::new(crate::i18n::tr("Import Class…"), "", "↳", MenuAction::ImportClass));
+            items.push(MenuItem::new(crate::i18n::tr("Optimize Imports"), "⌃⌥O", "✦", MenuAction::OptimizeImports));
+            items.push(MenuItem::new(crate::i18n::tr("Show Intention Actions"), "⌥↵", "💡", MenuAction::Run("editor::ShowIntentions")));
+            items.push(MenuItem::new(crate::i18n::tr("Generate…"), "⌘N", "✚", MenuAction::Run("editor::Generate")));
+        }
+        if !self.conflicts().is_empty() {
+            items.push(MenuItem::separator());
+            items.push(MenuItem::new(crate::i18n::tr("Merge Conflicts…"), "", "⇄", MenuAction::Run("editor::MergeConflicts")));
+        }
+        items.push(MenuItem::separator());
+        items.push(MenuItem::new(crate::i18n::tr("Reformat Code"), "⌘⌥L", "≡", MenuAction::Run("editor::ReformatCode")));
+        items.push(MenuItem::new(crate::i18n::tr("Comment with Line Comment"), "⌘/", "//", MenuAction::Run("editor::ToggleComment")));
+        self.show_menu_at(items, position, cx);
     }
 
     /// Unresolved class references, recomputed when the buffer changes.
@@ -439,6 +552,18 @@ impl EditorView {
             items,
             selected: 0,
             is_completion,
+            anchor: None,
+        });
+        cx.notify();
+    }
+
+    /// A menu anchored at a window position (the editor context menu) instead of the caret.
+    fn show_menu_at(&mut self, items: Vec<MenuItem>, position: Point<Pixels>, cx: &mut Context<Self>) {
+        self.menu = (!items.is_empty()).then_some(Menu {
+            items,
+            selected: 0,
+            is_completion: false,
+            anchor: Some(position),
         });
         cx.notify();
     }
@@ -456,17 +581,29 @@ impl EditorView {
     }
 
     pub(super) fn menu_up(&mut self, _: &MenuUp, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(menu) = &mut self.menu {
-            menu.selected = menu.selected.checked_sub(1).unwrap_or(menu.items.len() - 1);
-            cx.notify();
-        }
+        self.step_selection(-1, cx);
     }
 
     pub(super) fn menu_down(&mut self, _: &MenuDown, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(menu) = &mut self.menu {
-            menu.selected = (menu.selected + 1) % menu.items.len();
-            cx.notify();
+        self.step_selection(1, cx);
+    }
+
+    /// Moves the highlight, skipping separators (they can't be chosen).
+    fn step_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(menu) = &mut self.menu else { return };
+        let len = menu.items.len();
+        if len == 0 {
+            return;
         }
+        let mut ix = menu.selected as isize;
+        for _ in 0..len {
+            ix = (ix + delta).rem_euclid(len as isize);
+            if !menu.items[ix as usize].is_separator() {
+                menu.selected = ix as usize;
+                break;
+            }
+        }
+        cx.notify();
     }
 
     pub(super) fn menu_cancel(&mut self, _: &MenuCancel, _: &mut Window, cx: &mut Context<Self>) {
@@ -493,6 +630,13 @@ impl EditorView {
             MenuAction::Complete(completion) => self.apply_completion(completion, cx),
             MenuAction::Navigate(location) => self.navigate(location, window, cx),
             MenuAction::Import(fqn) => self.import_class(&fqn, cx),
+            MenuAction::ImportClass => self.open_import_class(window, cx),
+            MenuAction::Separator => {}
+            MenuAction::Run(name) => {
+                if let Ok(action) = cx.build_action(name, None) {
+                    window.dispatch_action(action, cx);
+                }
+            }
             MenuAction::OptimizeImports => self.run_optimize_imports(cx),
             MenuAction::Paste(text) => self.paste_text(&text, cx),
             MenuAction::Mnemonic(c) => self.set_bookmark_mnemonic(c, cx),
@@ -515,7 +659,7 @@ impl EditorView {
 
     pub(super) fn render_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let menu = self.menu.as_ref()?;
-        let position = self.caret_point?;
+        let position = menu.anchor.or(self.caret_point)?;
         let first = menu.selected.saturating_sub(MENU_ROWS - 1);
         let rows = menu
             .items
@@ -524,6 +668,9 @@ impl EditorView {
             .skip(first)
             .take(MENU_ROWS)
             .map(|(ix, item)| {
+                if item.is_separator() {
+                    return div().id(ix).mx_2().my_1().h(px(1.)).bg(theme::border());
+                }
                 let selected = ix == menu.selected;
                 div()
                     .id(ix)

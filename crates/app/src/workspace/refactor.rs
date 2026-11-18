@@ -28,6 +28,126 @@ impl Workspace {
         editors
     }
 
+    /// Applies byte-range edits to open editors (one undo step each, saved) or to files on disk.
+    fn apply_file_edits(
+        &mut self,
+        by_file: &HashMap<PathBuf, Vec<(std::ops::Range<usize>, String)>>,
+        editors: &[Entity<EditorView>],
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        for (path, edits) in by_file {
+            match editors.iter().find(|e| e.read(cx).buffer.path() == Some(path.as_path())) {
+                Some(editor) => editor.update(cx, |editor, cx| {
+                    let caret = editor.buffer.char_to_byte(editor.buffer.selection.head);
+                    editor.buffer.apply_edits(edits.clone(), caret);
+                    editor.save_now(cx);
+                    cx.notify();
+                }),
+                None => {
+                    let mut text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+                    let mut sorted = edits.clone();
+                    sorted.sort_by_key(|(r, _)| std::cmp::Reverse(r.start));
+                    for (range, replacement) in sorted {
+                        text.replace_range(range, &replacement);
+                    }
+                    std::fs::write(path, &text).map_err(|e| e.to_string())?;
+                    self.intel.update_file(path, &text);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Refactor ▸ Move Class (F6): asks for the namespace the class moves to.
+    pub(crate) fn start_move_class(&mut self, class: php_analysis::Moving, window: &mut Window, cx: &mut Context<Self>) {
+        let dialog = cx.new(|cx| InputDialog::new(FileOp::MoveClass(class), window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// Moves the declaration into a PSR-4 file of the new namespace, rewrites the project's
+    /// `use` statements and imports what the moved body needs there.
+    pub(super) fn move_class(&mut self, class: &php_analysis::Moving, namespace: &str, cx: &mut Context<Self>) -> Result<Option<PathBuf>, String> {
+        let namespace = namespace.trim().trim_matches('\\').to_string();
+        let segments: Vec<&str> = namespace.split('\\').filter(|s| !s.is_empty()).collect();
+        let bad = segments.iter().any(|s| !s.chars().all(|c| c.is_alphanumeric() || c == '_') || s.starts_with(|c: char| c.is_ascii_digit()));
+        if bad {
+            return Err(format!("'{namespace}' is not a namespace"));
+        }
+        let new_fqn = if namespace.is_empty() { class.name.clone() } else { format!("{namespace}\\{}", class.name) };
+        if new_fqn.eq_ignore_ascii_case(&class.fqn) {
+            return Err("The class is already in that namespace".into());
+        }
+        let dir = crate::templates::dir_for_namespace(&namespace, self.project.root())
+            .or_else(|| class.path.parent().map(|p| p.to_path_buf()))
+            .ok_or("No folder for that namespace")?;
+        let target = dir.join(format!("{}.php", class.name));
+        if target == class.path {
+            return Err("The class already lives in that file".into());
+        }
+        if target.exists() {
+            return Err(format!("{} already exists", target.display()));
+        }
+        let editors = self.open_editors();
+        let open: Vec<(PathBuf, String)> = editors
+            .iter()
+            .filter_map(|e| {
+                let buffer = &e.read(cx).buffer;
+                Some((buffer.path()?.to_path_buf(), buffer.text()))
+            })
+            .collect();
+        let text_of = |path: &std::path::Path| {
+            open.iter()
+                .find(|(p, _)| p == path)
+                .map(|(_, t)| t.clone())
+                .or_else(|| std::fs::read_to_string(path).ok())
+        };
+        let source = text_of(&class.path).ok_or_else(|| format!("{} is gone", class.path.display()))?;
+        let new_source = self
+            .intel
+            .moved_class_source(&class.path, &source, class, &namespace)
+            .ok_or("Could not parse the class")?;
+        let symbol = php_analysis::Symbol {
+            name: class.name.clone(),
+            declaration: php_index::Location {
+                path: class.path.clone(),
+                range: class.name_range.clone(),
+            },
+            local: false,
+        };
+        let mut files: Vec<PathBuf> = self.intel.find_usages(&symbol, &open).into_iter().map(|l| l.path).collect();
+        files.push(class.path.clone());
+        files.sort();
+        files.dedup();
+        let mut by_file: HashMap<PathBuf, Vec<(std::ops::Range<usize>, String)>> = HashMap::new();
+        for path in files {
+            let Some(text) = text_of(&path) else { continue };
+            let mut edits: Vec<(std::ops::Range<usize>, String)> = self
+                .intel
+                .move_class_edits(&path, &text, class, &new_fqn)
+                .into_iter()
+                .map(|e| (e.range, e.text))
+                .collect();
+            if path == class.path
+                && let Some(removal) = self.intel.remove_moved_class(&path, &text, class)
+            {
+                edits.push((removal.range, removal.text));
+            }
+            if !edits.is_empty() {
+                by_file.insert(path, edits);
+            }
+        }
+        let mut touched: Vec<PathBuf> = by_file.keys().cloned().collect();
+        touched.push(target.clone());
+        crate::local_history::record_disk(&touched, "Before Move Class");
+        self.apply_file_edits(&by_file, &editors, cx)?;
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&target, &new_source).map_err(|e| e.to_string())?;
+        self.intel.update_file(&target, &new_source);
+        Ok(Some(target))
+    }
+
     pub(super) fn rename_symbol(&mut self, symbol: &php_analysis::Symbol, new_name: &str, cx: &mut Context<Self>) -> Result<Option<PathBuf>, String> {
         let new_name = new_name.trim_start_matches('$');
         if new_name.is_empty() || !new_name.chars().all(|c| c.is_alphanumeric() || c == '_') || new_name.starts_with(|c: char| c.is_ascii_digit()) {

@@ -121,6 +121,7 @@ const DEFAULTS: &[Default] = &[
     // Usages.
     both("alt-f7", "editor::FindUsages", ED),
     both("shift-f6", "editor::RenameSymbol", ED),
+    both("f6", "editor::MoveClass", ED),
     per("cmd-n", "alt-insert", "editor::Generate", ED),
     per("f1", "ctrl-q", "editor::QuickDocumentation", ED),
     both("secondary-p", "editor::ParameterInfo", ED),
@@ -204,6 +205,12 @@ const DEFAULTS: &[Default] = &[
     per("cmd-l", "ctrl-g", "workspace::GoToLine", None),
     both("secondary-shift-a", "workspace::SearchEverywhere", None),
     both("secondary-w", "workspace::CloseTab", None),
+    // Zoom: ⌘+ / ⌘− resize the editor font (⇧ is implicit when the layout needs it for "+"),
+    // ⇧⌘0 restores the default — PhpStorm keeps ⌘0 for the Commit tool window.
+    per("cmd-=", "ctrl-=", "workspace::IncreaseFontSize", None),
+    per("cmd-shift-=", "ctrl-shift-=", "workspace::IncreaseFontSize", None),
+    per("cmd--", "ctrl--", "workspace::DecreaseFontSize", None),
+    per("cmd-shift-0", "ctrl-shift-0", "workspace::ResetFontSize", None),
     per("ctrl-tab", "ctrl-pagedown", "workspace::NextTab", None),
     per("ctrl-shift-tab", "ctrl-pageup", "workspace::PrevTab", None),
     // Laravel.

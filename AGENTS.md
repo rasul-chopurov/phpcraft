@@ -21,6 +21,7 @@ as data — see `crates/php-index/STUBS-LICENSE`.)
 | `editor` | Text buffer: rope, multi-caret selections, undo/redo groups, anchors, smart pairs, indentation, extend selection |
 | `php-syntax` | tree-sitter grammars + highlighting (PHP, HTML, JS/TS, CSS, JSON, YAML), hand-written highlighters (Blade overlay, Twig, SQL, Markdown, .env…), fold ranges, node ranges |
 | `php-index` | Project symbol index (classes, members, functions), binary cache, phpstorm-stubs (`stubs.bin.gz`, `stubs.rs`) |
+| `js-analysis` | JS/TS intelligence: declarations, imports and re-exports, `@/`-alias resolution, Vue/Svelte `<script>` blocks (goto, usages, rename, completion) |
 | `php-analysis` | Code intelligence on one parsed `Document` + `Index`: completion, goto, usages, rename symbol, generate, docs/parameter info, hierarchy, refactorings, inspections, intentions |
 | `laravel` | Laravel awareness: string navigation (views, routes, config, lang, env), Blade (sections/stacks/props, extract), route refs from routes/*.php, generators, artisan, DB, Laravel intentions |
 | `git` | git CLI wrapper: status, log, diff, blame, rebase (interactive), shelve, conflicts parsing, worktrees, remotes |
@@ -67,9 +68,9 @@ as data — see `crates/php-index/STUBS-LICENSE`.)
 - Analysis logic goes into the library crates with unit tests; the app wires UI.
 - Blocking work (git, php, network, indexing) runs on `cx.background_executor()`.
 - Spawned processes: `process::command`. PHP: `laravel::php_binary()`.
-- Per-project files live in `.phpcraft/` (run.json, laravel.json, debug.json, deployment.json,
-  shelf/, http/, junit.xml…); app-wide in `config::dir()` (settings, keymap, bookmarks,
-  breakpoints, index caches, unpacked stubs).
+- Per-project files live in `.phpcraft/` (session.json, run.json, laravel.json, debug.json,
+  deployment.json, shelf/, http/, junit.xml…); app-wide in `config::dir()` (settings, keymap,
+  bookmarks, breakpoints, index caches, unpacked stubs).
 - Verify with `cargo test --workspace` (≈150 tests) and `cargo build -p phpcraft` without
   warnings. For UI checks run `./target/debug/phpcraft <file>` and screenshot the window by id
   (a Swift `CGWindowListCopyWindowInfo` helper); background windows don't repaint, so state that
@@ -83,14 +84,15 @@ as data — see `crates/php-index/STUBS-LICENSE`.)
 
 ## What exists (high level)
 
-Editor (multi-caret, folding, soft wrap, smart pairs, bookmarks, extend selection, templates),
-PHP intelligence (completion with auto-import, goto, find usages, rename, extract / introduce /
+Editor (multi-caret, folding, soft wrap, smart pairs, bookmarks, extend selection, templates,
+font zoom with ⌘+ / ⌘− / ⌘+scroll, draggable scrollbar with problem marks),
+PHP intelligence (completion with auto-import, goto, find usages, rename, move class, extract / introduce /
 inline / safe delete, generate, quick doc, parameter info, hierarchy, call hierarchy,
 inspections + PHPStan/Psalm/PHPCS, spell checking of comments and strings (`typo`, ⌥↵ suggestions / save to dictionary), intentions, phpstorm-stubs), Laravel (string navigation,
 Blade sections/stacks/props, routes in the gutter, generators incl. DTO / Nova, extract blade
 component/view, facade→DI / rules→array / scope→#[Scope] intentions), Twig, Git (commit, log
-with graph, branches, diff, blame, merge conflicts in the editor, compare with revision /
-clipboard, interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes),
+with graph, branches, diff, blame, three-pane merge window, compare with revision / clipboard,
+interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes),
 Pull Requests (Git ▸ Pull Requests…: list, details, checkout, diff, comment via gh / glab),
 Xdebug debugger, Docker services, test runner with results and coverage, Composer menu, HTTP
 client (+ cURL / Postman / OpenAPI, history), database tools, SFTP deployment (auto upload),
@@ -109,9 +111,9 @@ terminal, AI agents, settings sync and import (PhpStorm / VS Code / Zed).
 
 ### Next steps: known gaps / ideas
 
-JS/TS intelligence (goto/usages/completion for Vue/Inertia), Structural Search & Replace,
-three-pane merge window (conflicts are resolved in the editor today), coverage needs Xdebug or
-PCOV in the user's project, Run Anything, saved window layouts, UI localization (`i18n.rs`
-exists but strings aren't translated), Mermaid in Markdown preview, file watchers, DataGrip-level
-DB features (ER diagrams, explain, import/export), HTTP response preview, PR review comments
-inline in the diff.
+Structural Search & Replace,
+coverage needs Xdebug or PCOV in the user's project, Run Anything, saved window layouts,
+UI localization (`i18n.rs`, Russian: the shell — menu bar, tool windows, Search Everywhere tabs
+and actions, editor context menu — is translated; dialogs and panels are next), Mermaid in Markdown preview,
+DataGrip-level DB features (ER diagrams, explain, import/export), HTTP response preview,
+PR review comments inline in the diff.

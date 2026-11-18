@@ -4,7 +4,7 @@
 use gpui::{Context, Window};
 
 use super::info::Info;
-use super::{EditorView, NextProblem, PrevProblem};
+use super::{EditorView, MergeConflicts, NextProblem, PrevProblem};
 
 impl EditorView {
     /// Problems for the current text (recomputed after edits, kept while the index loads).
@@ -76,6 +76,18 @@ impl EditorView {
         .into_iter()
         .map(|(label, o, t, tf)| (label, vec![(conflict.whole.clone(), git::resolve(&text, &conflict, o, t, tf))]))
         .collect()
+    }
+
+    /// Code ▸ Merge Conflicts… (also the editor's context menu): the three-pane merge window for
+    /// this file's `<<<<<<<` blocks. Unsaved edits are saved first so the panes match the file.
+    pub(super) fn merge_conflicts(&mut self, _: &MergeConflicts, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.path() else { return };
+        let text = self.buffer.text();
+        if git::conflicts(&text).is_empty() {
+            return;
+        }
+        self.save_now(cx);
+        self.workspace.update(cx, |ws, cx| ws.open_merge(&path, text, window, cx)).ok();
     }
 
     /// Problems at the caret, for the intentions menu.

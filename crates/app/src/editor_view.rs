@@ -27,7 +27,7 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
     EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hsla, KeyContext, LayoutId,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
-    ScrollWheelEvent, ShapedLine, SharedString, Style, TextRun, UTF16Selection, Window, actions,
+    ScrollDelta, ScrollWheelEvent, ShapedLine, SharedString, Style, TextRun, UTF16Selection, Window, actions,
     fill, font, point, prelude::*, px, relative, size,
 };
 
@@ -101,6 +101,7 @@ actions!(
         HighlightUsages,
         ClearUsageHighlights,
         RenameSymbol,
+        MoveClass,
         CallHierarchy,
         Generate,
         QuickDocumentation,
@@ -133,6 +134,8 @@ actions!(
         Unindent,
         GoToMatchingBrace,
         PasteFromHistory,
+        /// Open the three-pane merge window for the conflicts in this file.
+        MergeConflicts,
     ]
 );
 
@@ -140,6 +143,10 @@ const GUTTER_PADDING: f32 = 12.;
 /// Width of the ▶ run-mark column in test files.
 const RUN_MARK_WIDTH: f32 = 16.;
 const TEXT_PADDING: f32 = 8.;
+/// Width of the vertical scrollbar overlay on the right edge of the editor.
+const SCROLLBAR_WIDTH: f32 = 11.;
+const SCROLLBAR_INSET: f32 = 2.;
+const SCROLLBAR_MIN_THUMB: f32 = 24.;
 /// Width of the git blame column, in digits.
 const BLAME_CHARS: usize = 25;
 
@@ -198,6 +205,14 @@ pub struct EditorView {
     rows_cache: Option<(u64, Vec<(usize, usize)>, Option<usize>, std::rc::Rc<Vec<Row>>)>,
     /// Number of visual rows at the last paint (scroll limit).
     row_count: usize,
+    /// Fractional zoom steps from ⌘+scroll, so a smooth trackpad gesture zooms one pixel at a time.
+    zoom_steps: f32,
+    /// Scrollbar geometry from the last paint: (track, thumb) on the right edge.
+    scrollbar: Option<(Bounds<Pixels>, Bounds<Pixels>)>,
+    /// Scroll range at the last paint; wheel and thumb share it.
+    scroll_max: Pixels,
+    /// Y offset inside the thumb while it is dragged.
+    scroll_drag: Option<f32>,
     /// Bookmarks in this file: (line anchor, mnemonic).
     bookmarks: Vec<(usize, Option<char>)>,
     /// View ▸ Show Whitespaces.
@@ -248,6 +263,10 @@ impl EditorView {
             soft_wrap: None,
             rows_cache: None,
             row_count: 0,
+            zoom_steps: 0.,
+            scrollbar: None,
+            scroll_max: px(0.),
+            scroll_drag: None,
             bookmarks: Vec::new(),
             show_whitespace: false,
             usage_highlights: None,
@@ -315,6 +334,27 @@ impl EditorView {
         self.close_menu();
         self.center_on_caret = true;
         self.changed(cx);
+    }
+
+    /// Puts the caret back where the project session left it (no edit, no dirty flag).
+    pub fn restore_caret(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let ix = ix.min(self.buffer.len_chars());
+        self.buffer.move_to(ix, false);
+        self.center_on_caret = true;
+        cx.notify();
+    }
+
+    /// Replaces the text after the file was changed outside PhpCraft; stays clean.
+    pub fn reload_from_disk(&mut self, text: &str, cx: &mut Context<Self>) {
+        let caret = self.buffer.selection.head.min(self.buffer.len_chars());
+        let end = self.buffer.len_chars();
+        self.buffer.apply_edits(vec![(0..end, text.to_string())], caret);
+        self.buffer.mark_saved();
+        self.autosaved_version = self.buffer.version();
+        let caret = caret.min(self.buffer.len_chars());
+        self.buffer.move_to(caret, false);
+        self.refresh_git_base(cx);
+        cx.notify();
     }
 
     /// Replaces the whole text (Local History revert), as one undoable edit.
@@ -464,14 +504,14 @@ impl EditorView {
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
         if self.has_selected_text() {
             let text = self.buffer.selections_text();
-            text_ops::remember_copy(&text);
+            text_ops::remember_copy(&text, self.selection_imports());
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
     }
     fn cut(&mut self, _: &Cut, _: &mut Window, cx: &mut Context<Self>) {
         if self.has_selected_text() {
             let text = self.buffer.selections_text();
-            text_ops::remember_copy(&text);
+            text_ops::remember_copy(&text, self.selection_imports());
             cx.write_to_clipboard(ClipboardItem::new_string(text));
             self.buffer.insert("");
             self.changed(cx);
@@ -479,8 +519,7 @@ impl EditorView {
     }
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.buffer.paste(&text);
-            self.changed(cx);
+            self.paste_with_imports(&text, cx);
         }
     }
     /// ⌘S: also runs the actions on save (auto-save doesn't, so typing isn't disturbed).
@@ -529,6 +568,38 @@ impl EditorView {
     }
 
     // --- mouse ---------------------------------------------------------
+
+    /// A click on the scrollbar: grabs the thumb, or jumps the view to the click and starts
+    /// dragging from there. Returns true when the pointer was on the bar.
+    fn scrollbar_click(&mut self, position: Point<Pixels>) -> bool {
+        let Some((track, thumb)) = self.scrollbar else { return false };
+        if !track.contains(&position) {
+            return false;
+        }
+        let thumb_h = f32::from(thumb.size.height);
+        let travel = (f32::from(track.size.height) - thumb_h).max(0.);
+        let offset = if thumb.contains(&position) {
+            f32::from(position.y) - f32::from(thumb.origin.y)
+        } else {
+            let top = (f32::from(position.y) - f32::from(track.origin.y) - thumb_h / 2.)
+                .clamp(0., travel);
+            self.scroll_y = self.scroll_max * if travel > 0. { top / travel } else { 0. };
+            thumb_h / 2.
+        };
+        self.scroll_drag = Some(offset);
+        true
+    }
+
+    /// Moves the thumb with the pointer, keeping the grab offset.
+    fn drag_scrollbar(&mut self, grab: f32, position: Point<Pixels>) {
+        let Some((track, thumb)) = self.scrollbar else { return };
+        let travel = f32::from(track.size.height) - f32::from(thumb.size.height);
+        if travel <= 0. {
+            return;
+        }
+        let top = (f32::from(position.y) - f32::from(track.origin.y) - grab).clamp(0., travel);
+        self.scroll_y = self.scroll_max * (top / travel);
+    }
 
     /// The visual row at a window position, with its layout when it is on screen.
     fn row_at(&self, position: Point<Pixels>) -> Option<(usize, Option<&(Row, RowText, ShapedLine)>)> {
@@ -657,6 +728,11 @@ impl EditorView {
     ) {
         window.focus(&self.focus_handle);
         self.close_menu();
+        if self.scrollbar_click(event.position) {
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
         if self.cmd_click(event, window, cx) {
             return;
         }
@@ -716,6 +792,30 @@ impl EditorView {
             cx.stop_propagation();
             cx.notify();
         }
+    }
+
+    /// Right-click: focus the editor, move the caret to the click unless it is inside the
+    /// selection, and show the context menu there.
+    fn on_mouse_down_right(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.focus(&self.focus_handle);
+        self.close_menu();
+        if let Some(ix) = self.char_for_position(event.position) {
+            let inside = self
+                .buffer
+                .selections()
+                .iter()
+                .any(|s| (s.range().start..=s.range().end).contains(&ix));
+            if !inside {
+                self.buffer.move_to(ix, false);
+            }
+        }
+        self.show_context_menu(event.position, cx);
+        cx.stop_propagation();
     }
 
     /// Reloads the HEAD version used for gutter change markers.
@@ -786,12 +886,20 @@ impl EditorView {
         self.moved(cx);
     }
 
-    fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
+    fn on_mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.is_selecting = false;
         self.column_anchor = None;
+        if self.scroll_drag.take().is_some() {
+            cx.notify();
+        }
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(grab) = self.scroll_drag {
+            self.drag_scrollbar(grab, event.position);
+            cx.notify();
+            return;
+        }
         self.update_hover_link(event.position, event.modifiers.platform, cx);
         if let Some(anchor) = self.column_anchor
             && let Some(ix) = self.char_for_position(event.position)
@@ -809,10 +917,31 @@ impl EditorView {
     }
 
     fn on_scroll(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if event.modifiers.platform {
+            self.zoom_by_scroll(event, cx);
+            return;
+        }
         let delta = event.delta.pixel_delta(Self::line_height()).y;
-        let max = Self::line_height() * self.row_count.max(1).saturating_sub(1) as f32;
-        self.scroll_y = (self.scroll_y - delta).clamp(px(0.), max);
+        self.scroll_y = (self.scroll_y - delta).clamp(px(0.), self.scroll_max);
         cx.notify();
+    }
+
+    /// ⌘+scroll zooms the editor font. Scroll deltas accumulate, so a smooth trackpad gesture
+    /// changes the size one pixel at a time instead of jumping on every event.
+    fn zoom_by_scroll(&mut self, event: &ScrollWheelEvent, cx: &mut Context<Self>) {
+        self.zoom_steps += match event.delta {
+            ScrollDelta::Lines(delta) => delta.y / 2.,
+            ScrollDelta::Pixels(delta) => f32::from(delta.y) / 30.,
+        };
+        let steps = self.zoom_steps.trunc();
+        if steps == 0. {
+            return;
+        }
+        self.zoom_steps -= steps;
+        let size = theme::editor_font_size() + steps;
+        self.workspace
+            .update(cx, |workspace, cx| workspace.change_font_size(size, cx))
+            .ok();
     }
 
     fn range_to_utf16(&self, range: &Range<usize>) -> Range<usize> {
@@ -1064,6 +1193,7 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::show_completions))
             .on_action(cx.listener(Self::show_intentions))
             .on_action(cx.listener(Self::optimize_imports))
+            .on_action(cx.listener(Self::import_class_dialog))
             .on_action(cx.listener(Self::menu_up))
             .on_action(cx.listener(Self::menu_down))
             .on_action(cx.listener(Self::menu_confirm))
@@ -1140,6 +1270,7 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::highlight_usages))
             .on_action(cx.listener(Self::clear_usage_highlights))
             .on_action(cx.listener(Self::rename_symbol))
+            .on_action(cx.listener(Self::move_class))
             .on_action(cx.listener(Self::call_hierarchy))
             .on_action(cx.listener(Self::generate))
             .on_action(cx.listener(Self::quick_documentation))
@@ -1163,9 +1294,11 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::reformat_code))
             .on_action(cx.listener(Self::auto_indent_lines))
             .on_action(cx.listener(Self::toggle_breakpoint))
+            .on_action(cx.listener(Self::merge_conflicts))
             .on_action(cx.listener(Self::accept_ghost))
             .on_action(cx.listener(Self::dismiss_ghost))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_mouse_down_right))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
@@ -1234,6 +1367,10 @@ pub struct EditorPrepaint {
     blame_lines: Vec<(ShapedLine, Pixels)>,
     fold_marks: Vec<(ShapedLine, Point<Pixels>)>,
     plain: bool,
+    /// Scrollbar (track, thumb) drawn over the right edge.
+    scrollbar: Option<(Bounds<Pixels>, Bounds<Pixels>)>,
+    /// Problem marks on the scrollbar: vertical position, colour.
+    scroll_marks: Vec<(Pixels, Hsla)>,
     /// AI suggestion: first line shaped, painted at this origin.
     ghost: Option<(ShapedLine, Point<Pixels>)>,
 }
@@ -1360,6 +1497,30 @@ impl Element for EditorElement {
                 }
             }
 
+            // The scrollbar thumb spans the visible part of the content, so wheel and drag move
+            // the text by the same amount. Its geometry is kept for mouse hit-testing.
+            let content = line_height * rows.len() as f32;
+            let max = (content - bounds.size.height).max(px(0.));
+            view.scroll_max = max;
+            view.scroll_y = view.scroll_y.clamp(px(0.), max);
+            view.scrollbar = (max > px(0.)).then(|| {
+                let track = Bounds::new(
+                    point(bounds.right() - px(SCROLLBAR_WIDTH), bounds.top() + px(SCROLLBAR_INSET)),
+                    size(px(SCROLLBAR_WIDTH), bounds.size.height - px(SCROLLBAR_INSET * 2.)),
+                );
+                let track_h = f32::from(track.size.height);
+                let thumb_h = (track_h * f32::from(bounds.size.height) / f32::from(content))
+                    .clamp(SCROLLBAR_MIN_THUMB.min(track_h), track_h);
+                let travel = track_h - thumb_h;
+                let y = f32::from(track.origin.y)
+                    + travel * (f32::from(view.scroll_y) / f32::from(max));
+                let thumb = Bounds::new(
+                    point(track.origin.x + px(SCROLLBAR_INSET), px(y)),
+                    size(px(SCROLLBAR_WIDTH - SCROLLBAR_INSET * 2.), px(thumb_h)),
+                );
+                (track, thumb)
+            });
+
             let first_row = ((view.scroll_y / line_height).floor() as usize).min(rows.len().saturating_sub(1));
             let row_count = (bounds.size.height / line_height).ceil() as usize + 1;
             let last_row = (first_row + row_count).min(rows.len());
@@ -1385,6 +1546,18 @@ impl Element for EditorElement {
                 };
                 (p.range, color)
             }));
+            // Problem marks on the scrollbar, so a broken file is visible without scrolling.
+            let mut scroll_marks = Vec::new();
+            if let Some((track, _)) = view.scrollbar {
+                let text_len = view.buffer.len_chars();
+                let track_h = f32::from(track.size.height);
+                let total = rows.len().max(1) as f32;
+                for (range, color) in &problems {
+                    let ch = view.buffer.byte_to_char(range.start).min(text_len.saturating_sub(1));
+                    let y = f32::from(track.origin.y) + track_h * (rows::row_of(&rows, ch) as f32 / total);
+                    scroll_marks.push((px(y), *color));
+                }
+            }
             let link = view.hover_link.clone();
             let mut underlines = Vec::new();
             let (mut find_matches, find_current) = match &view.find {
@@ -1638,6 +1811,8 @@ impl Element for EditorElement {
                 blame_lines,
                 fold_marks,
                 plain: view.plain,
+                scrollbar: view.scrollbar,
+                scroll_marks,
                 ghost,
             }
         })
@@ -1706,6 +1881,24 @@ impl Element for EditorElement {
         }
         if let Some((line, origin)) = prepaint.ghost.take() {
             line.paint(origin, line_height, window, cx).ok();
+        }
+        if let Some((track, thumb)) = prepaint.scrollbar {
+            let dragging = self.view.read(cx).scroll_drag.is_some();
+            window.paint_quad(fill(track, theme::border().opacity(0.15)));
+            for (y, color) in &prepaint.scroll_marks {
+                let mark = Bounds::new(
+                    point(track.origin.x + px(SCROLLBAR_INSET + 0.5), *y),
+                    size(px(SCROLLBAR_WIDTH - SCROLLBAR_INSET * 2. - 1.), px(3.)),
+                );
+                window.paint_quad(gpui::PaintQuad {
+                    corner_radii: gpui::Corners::all(px(1.5)),
+                    ..fill(mark, color.opacity(0.95))
+                });
+            }
+            window.paint_quad(gpui::PaintQuad {
+                corner_radii: gpui::Corners::all(thumb.size.width / 2.),
+                ..fill(thumb, theme::muted().opacity(if dragging { 0.8 } else { 0.45 }))
+            });
         }
         if focus_handle.is_focused(window) {
             for caret in prepaint.caret.take().into_iter().chain(prepaint.extra_carets.drain(..)) {

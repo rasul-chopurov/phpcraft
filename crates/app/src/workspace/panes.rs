@@ -40,6 +40,7 @@ impl Workspace {
             Some(tab) => window.focus(&tab.focus_handle(cx)),
             None => window.focus(&self.focus_handle),
         }
+        self.save_session(&cx);
         cx.notify();
     }
 
@@ -112,6 +113,7 @@ impl Workspace {
         if let Some(tab) = self.tabs.get(self.active) {
             window.focus(&tab.focus_handle(cx));
         }
+        self.save_session(&cx);
         cx.notify();
     }
 

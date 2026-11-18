@@ -207,6 +207,15 @@ pub fn editor_font_size() -> f32 {
     FONTS.read().unwrap().as_ref().map(|f| f.editor_size).unwrap_or(13.5)
 }
 
+/// Applies a new editor (and terminal) font size without re-picking fonts, so zoom steps stay
+/// cheap. The caller persists the size in the settings.
+pub fn set_editor_font_size(size: f32, cx: &mut App) {
+    if let Some(fonts) = FONTS.write().unwrap().as_mut() {
+        fonts.editor_size = size.clamp(8., 32.);
+    }
+    cx.refresh_windows();
+}
+
 /// Line height that fits [`editor_font_size`].
 pub fn editor_line_height() -> f32 {
     (editor_font_size() * 1.48).round()

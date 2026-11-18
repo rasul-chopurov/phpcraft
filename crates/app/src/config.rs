@@ -66,6 +66,8 @@ pub struct Settings {
     pub reformat_on_save: bool,
     /// Actions on save: remove unused imports from saved PHP files.
     pub optimize_imports_on_save: bool,
+    /// Add the `use` statements of copied code when pasting it into another PHP file.
+    pub auto_import_on_paste: bool,
     /// Static analysers run on saved PHP files when installed in the project.
     pub phpstan: bool,
     pub psalm: bool,
@@ -93,6 +95,7 @@ impl Default for Settings {
             open_project_in: OpenProjectIn::NewTab,
             reformat_on_save: false,
             optimize_imports_on_save: false,
+            auto_import_on_paste: true,
             phpstan: true,
             psalm: true,
             phpcs: true,

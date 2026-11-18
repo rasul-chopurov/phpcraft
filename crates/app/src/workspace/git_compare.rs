@@ -1,6 +1,6 @@
 //! Git ▸ Compare with Branch / Revision… and Compare with Clipboard for the active file, and
-//! merge conflicts: Resolve Conflicts… lists the conflicted files, Mark File as Resolved stages
-//! one (the conflicts themselves are resolved in the editor with ⌥↵).
+//! merge conflicts: Resolve Conflicts… lists the conflicted files, Merge Conflicts… (⌥↵ in a
+//! conflicted file, or the editor's context menu) opens the three-pane merge window, and Mark File as Resolved stages one.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -83,7 +83,7 @@ impl Workspace {
                 let at = found.first().map_or(0, |c| c.whole.start);
                 NavItem {
                     label: s.path.clone(),
-                    detail: format!("{} conflict(s) — ⌥↵ in the file to resolve", found.len()),
+                    detail: format!("{} conflict(s) — ⌥↵ to merge", found.len()),
                     icon: "⇆",
                     target: NavTarget::Location(php_index::Location { path, range: at..at }),
                 }
@@ -95,6 +95,35 @@ impl Workspace {
             return;
         }
         self.open_list(NavMode::Conflicts, items, window, cx);
+    }
+
+    /// The three-pane merge window for a file whose text still has `<<<<<<<` blocks.
+    pub(crate) fn open_merge(&mut self, path: &std::path::Path, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        if git::conflicts(&text).is_empty() {
+            self.output = Some(super::tools::Output { title: "Merge".into(), text: "No merge conflicts in this file.".into(), running: false, ok: true });
+            cx.notify();
+            return;
+        }
+        let dialog = cx.new(|cx| crate::dialogs::MergeDialog::new(path, text, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// Puts the resolved text back: into the open editor when the file is open, else on disk.
+    pub(super) fn apply_merge(&mut self, path: PathBuf, text: String, remaining: usize, cx: &mut Context<Self>) {
+        let open = self.tabs.iter().find(|tab| tab.read(cx).buffer.path() == Some(path.as_path())).cloned();
+        if let Some(tab) = open {
+            tab.update(cx, |editor, cx| editor.replace_text(&text, cx));
+        } else if std::fs::write(&path, &text).is_ok() {
+            self.intel.update_file(&path, &text);
+        }
+        let message = if remaining == 0 {
+            format!("{} resolved", path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().to_string()))
+        } else {
+            format!("{remaining} conflict(s) left in {}", path.display())
+        };
+        self.output = Some(super::tools::Output { title: "Merge".into(), text: message, running: false, ok: true });
+        self.refresh_git(cx);
+        cx.notify();
     }
 
     /// Stages the active file once no conflict markers are left in it.

@@ -961,6 +961,21 @@ pub fn resolve(text: &str, conflict: &Conflict, ours: bool, theirs: bool, theirs
     }
 }
 
+/// All conflicts resolved by the same list of choices (`None` keeps the markers), plus how many
+/// are still unresolved.
+pub fn resolve_all(text: &str, choices: &[Option<(bool, bool, bool)>]) -> (String, usize) {
+    let conflicts = conflicts(text);
+    let mut out = text.to_string();
+    let mut left = conflicts.len();
+    for (ix, conflict) in conflicts.iter().enumerate().rev() {
+        if let Some((ours, theirs, theirs_first)) = choices.get(ix).copied().flatten() {
+            left -= 1;
+            out.replace_range(conflict.whole.clone(), &resolve(text, conflict, ours, theirs, theirs_first));
+        }
+    }
+    (out, left)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1094,6 +1109,20 @@ mod tests {
         assert_eq!(&text[c.whole.clone()], "<<<<<<< HEAD\nmine\n||||||| base\nold\n=======\ntheirs\n>>>>>>> feature\n");
         assert_eq!(resolve(text, c, true, true, false), "mine\ntheirs\n");
         assert_eq!(resolve(text, c, false, true, false), "theirs\n");
+    }
+
+    #[test]
+    fn resolves_every_conflict_with_its_choice() {
+        let text = "a\n<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> feature\nb\n<<<<<<< HEAD\nours2\n=======\ntheirs2\n>>>>>>> feature\nc\n";
+        let (out, left) = resolve_all(text, &[Some((true, false, false)), Some((true, true, true))]);
+        assert_eq!((out.as_str(), left), ("a\nmine\nb\ntheirs2\nours2\nc\n", 0));
+        // A conflict without a choice keeps its markers and is counted.
+        let (out, left) = resolve_all(text, &[None, Some((false, true, false))]);
+        assert!(out.contains("<<<<<<< HEAD\nmine"));
+        assert!(out.contains("b\ntheirs2\nc\n"));
+        assert_eq!(left, 1);
+        // Fewer choices than conflicts: the rest stay unresolved.
+        assert_eq!(resolve_all(text, &[]).1, 2);
     }
 
     #[test]

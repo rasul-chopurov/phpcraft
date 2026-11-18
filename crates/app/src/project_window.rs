@@ -22,7 +22,9 @@ pub fn new_workspace(root: &Path, window: &mut Window, cx: &mut gpui::App) -> an
     crate::config::remember_project(project.root());
     Ok(cx.new(|cx| {
         let mut workspace = Workspace::new(project, window, cx);
+        workspace.restore_session(window, cx);
         workspace.start_git_polling(cx);
+        workspace.start_file_polling(cx);
         workspace
     }))
 }

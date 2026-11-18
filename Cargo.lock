@@ -2997,6 +2997,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "js-analysis"
+version = "0.4.3-alpha"
+dependencies = [
+ "tree-sitter",
+ "tree-sitter-javascript",
+ "tree-sitter-typescript",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3937,6 +3946,7 @@ dependencies = [
  "git",
  "gpui",
  "history",
+ "js-analysis",
  "laravel",
  "php-analysis",
  "php-index",

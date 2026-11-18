@@ -1,0 +1,10 @@
+[package]
+name = "js-analysis"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tree-sitter.workspace = true
+tree-sitter-javascript = "0.25"
+tree-sitter-typescript = "0.23"

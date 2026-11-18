@@ -569,6 +569,8 @@ impl SettingsDialog {
         crate::workspace::save_agent_config(&self.agent);
         // Re-picks fonts and applies the theme.
         theme::init(cx);
+        // The menu bar is built once with translated labels, so rebuild it for a new language.
+        crate::menus::set(cx);
         self.status = Some("Applied".into());
         cx.notify();
     }
@@ -621,7 +623,20 @@ impl SettingsDialog {
                         cx.notify();
                     }))
                 });
-                body.child(row("Open projects in").child(div().flex().gap_1().children(open_in)))
+                let languages = std::iter::once(("system".to_string(), "System (follow OS)".to_string()))
+                    .chain(crate::i18n::languages());
+                let language = languages.map(|(code, name)| {
+                    let selected = s.language == code;
+                    let picked = code.clone();
+                    option_chip(SharedString::from(format!("language-{code}")), &name, selected).on_click(cx.listener(move |this, _, _, cx| {
+                        this.settings.language = picked.clone();
+                        crate::i18n::set_language(&picked);
+                        crate::menus::set(cx);
+                        cx.notify();
+                    }))
+                });
+                body.child(row("Language").child(div().flex().flex_wrap().gap_1().children(language)))
+                    .child(row("Open projects in").child(div().flex().gap_1().children(open_in)))
                     .child(row("Updates").child(toggle("check-updates", "Check for updates at startup", s.check_for_updates, |s| s.check_for_updates ^= true)))
                     .child(row("Auto save").child(div().flex().gap_1().children(auto_save)))
                     .child(
@@ -633,6 +648,14 @@ impl SettingsDialog {
                                 .child(toggle("reformat-on-save", "Reformat code (Pint / PHP CS Fixer)", s.reformat_on_save, |s| s.reformat_on_save ^= true))
                                 .child(toggle("optimize-on-save", "Optimize imports", s.optimize_imports_on_save, |s| s.optimize_imports_on_save ^= true)),
                         ),
+                    )
+                    .child(
+                        row("Paste").child(toggle(
+                            "imports-on-paste",
+                            "Add imports of pasted code",
+                            s.auto_import_on_paste,
+                            |s| s.auto_import_on_paste ^= true,
+                        )),
                     )
                     .child(
                         row("Quality tools").child(

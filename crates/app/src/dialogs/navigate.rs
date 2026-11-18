@@ -37,12 +37,14 @@ pub enum NavMode {
     Callers,
     Todo,
     Conflicts,
+    /// Import Class: the list adds a `use` instead of opening the file.
+    ImportClass,
 }
 
 impl NavMode {
     /// Modes showing one list of `sources.recent` without tabs.
     fn is_single(self) -> bool {
-        matches!(self, Self::Recent | Self::UnusedViews | Self::Tables | Self::Bookmarks | Self::Usages | Self::Problems | Self::Tests | Self::Callers | Self::Todo | Self::Conflicts)
+        matches!(self, Self::Recent | Self::UnusedViews | Self::Tables | Self::Bookmarks | Self::Usages | Self::Problems | Self::Tests | Self::Callers | Self::Todo | Self::Conflicts | Self::ImportClass)
     }
 
     const TABS: [NavMode; 6] = [
@@ -54,8 +56,8 @@ impl NavMode {
         Self::Text,
     ];
 
-    fn label(self) -> &'static str {
-        match self {
+    fn label(self) -> gpui::SharedString {
+        let english = match self {
             Self::All => "All",
             Self::Classes => "Classes",
             Self::Files => "Files",
@@ -72,7 +74,9 @@ impl NavMode {
             Self::Callers => "Call Hierarchy",
             Self::Todo => "TODO",
             Self::Conflicts => "Merge Conflicts",
-        }
+            Self::ImportClass => "Import Class",
+        };
+        crate::i18n::tr(english)
     }
 }
 
@@ -81,6 +85,8 @@ pub enum NavTarget {
     Action(Box<dyn Action>),
     /// A database table to build a model from.
     Table(String),
+    /// Add a `use` for this class (the Import Class dialog).
+    Import(String),
 }
 
 impl Clone for NavTarget {
@@ -89,6 +95,7 @@ impl Clone for NavTarget {
             Self::Location(l) => Self::Location(l.clone()),
             Self::Action(a) => Self::Action(a.boxed_clone()),
             Self::Table(t) => Self::Table(t.clone()),
+            Self::Import(fqn) => Self::Import(fqn.clone()),
         }
     }
 }
@@ -151,7 +158,7 @@ impl EventEmitter<DialogEvent> for NavigateDialog {}
 
 /// A row in the result list: an item with matched char positions, or a section header.
 enum Row {
-    Header(&'static str),
+    Header(SharedString),
     Item(NavItem, Vec<usize>),
 }
 
@@ -245,8 +252,14 @@ impl NavigateDialog {
         }));
     }
 
-    fn set_include_vendor(&mut self, include: bool, cx: &mut Context<Self>) {
-        self.include_vendor = include;
+    /// Prefills the search field (Import Class opens with the name under the caret).
+    pub fn prefill(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.query.update(cx, |field, cx| field.set_text(text.to_string(), cx));
+        self.selected = 0;
+        cx.notify();
+    }
+
+    fn set_include_vendor(&mut self, include: bool, cx: &mut Context<Self>) {        self.include_vendor = include;
         // Reload the file list with or without vendor/.
         let root = self.root.clone();
         self.sources.files = None;
@@ -317,6 +330,7 @@ impl NavigateDialog {
         };
         match self.mode {
             NavMode::Classes => section(&self.sources.classes, LIMIT).collect(),
+            NavMode::ImportClass => section(&self.sources.classes, LIMIT).collect(),
             NavMode::Files => section(&files, LIMIT).collect(),
             NavMode::Symbols => section(&self.sources.symbols, LIMIT).collect(),
             NavMode::Actions => section(&self.sources.actions, LIMIT).collect(),
@@ -326,7 +340,7 @@ impl NavigateDialog {
             }
             NavMode::All => {
                 if query.trim().is_empty() {
-                    let mut rows = vec![Row::Header("Recent Files")];
+                    let mut rows = vec![Row::Header(crate::i18n::tr("Recent Files"))];
                     rows.extend(section(&self.sources.recent, PER_SECTION));
                     return rows;
                 }
@@ -339,7 +353,7 @@ impl NavigateDialog {
                 ] {
                     let found: Vec<Row> = section(items, PER_SECTION).collect();
                     if !found.is_empty() {
-                        rows.push(Row::Header(title));
+                        rows.push(Row::Header(crate::i18n::tr(title)));
                         rows.extend(found);
                     }
                 }
@@ -400,6 +414,7 @@ impl NavigateDialog {
             NavTarget::Location(location) => cx.emit(DialogEvent::OpenLocation(location)),
             NavTarget::Action(action) => cx.emit(DialogEvent::RunAction(action)),
             NavTarget::Table(table) => cx.emit(DialogEvent::ModelFromTable(table)),
+            NavTarget::Import(fqn) => cx.emit(DialogEvent::ImportClass(fqn)),
         }
     }
 
@@ -466,7 +481,7 @@ impl Render for NavigateDialog {
         };
         let tabs = tabs.into_iter().map(|mode| {
             div()
-                .id(SharedString::from(mode.label()))
+                .id(mode.label())
                 .px_2()
                 .py_1()
                 .rounded_sm()

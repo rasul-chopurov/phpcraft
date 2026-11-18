@@ -19,11 +19,16 @@
 
 ## Features
 
-- **PHP**: project index with `vendor/`, go to declaration, type inference, completion with auto-import, Optimize Imports
+- **PHP**: project index with `vendor/`, go to declaration, type inference, completion with auto-import,
+  Import Class (Code ▸ Import Class…, editor context menu), Optimize Imports, copy/paste carries `use`
+  statements into the target file, Move Class (F6) to another namespace with its references
+- **JS/TS & Vue**: go to declaration, find usages, rename and completion across ES modules, `@/` aliases, `require`, and the `<script>` blocks of Vue/Svelte components
 - **Laravel**: `route()`, `view()`, `config()`, Blade, Eloquent, facades, validation rules, Livewire, Filament, Inertia; 44 code generators (⇧⌘,)
-- **Git**: Commit window, side-by-side diff, log with graph, branches, blame
+- **Git**: Commit window, side-by-side diff, three-pane merge window for conflicts, log with graph, branches, blame
 - **Database**: MySQL, MariaDB, PostgreSQL, SQLite; tables open as editable tabs
-- **Workspace**: project tabs, split editors, Search Everywhere, terminal, run configurations, Artisan
+- **Workspace**: project tabs, split editors, Search Everywhere, terminal, run configurations, Artisan,
+  session restore (tabs, panes, carets), reload of files changed on disk, font zoom (⌘+ / ⌘− / ⌘+scroll),
+  Russian UI (menu bar, tool windows, Search Everywhere, editor context menu)
 - **AI**: Claude, Codex, OpenCode and Gemini via ACP or API key
 
 ## Install

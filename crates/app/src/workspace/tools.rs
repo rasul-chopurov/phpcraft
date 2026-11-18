@@ -699,6 +699,18 @@ impl Workspace {
                 });
                 self.open_location(&location, from, window, cx);
             }
+            DialogEvent::ImportClass(fqn) => {
+                let fqn = fqn.clone();
+                self.dismiss_modal(window, cx);
+                if let Some(tab) = self.tabs.get(self.active).cloned() {
+                    tab.update(cx, |editor, cx| editor.apply_import(&fqn, cx));
+                }
+            }
+            DialogEvent::MergeFile { path, text, remaining } => {
+                let (path, text, remaining) = (path.clone(), text.clone(), *remaining);
+                self.dismiss_modal(window, cx);
+                self.apply_merge(path, text, remaining, cx);
+            }
             DialogEvent::RunAction(action) => {
                 let action = action.boxed_clone();
                 self.dismiss_modal(window, cx);

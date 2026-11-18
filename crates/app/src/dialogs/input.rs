@@ -20,6 +20,8 @@ pub enum FileOp {
     FromTemplate(PathBuf, crate::templates::Template),
     /// Refactor ▸ Rename of a PHP symbol.
     RenameSymbol(php_analysis::Symbol),
+    /// Refactor ▸ Move Class (F6): the declaration, which leaves its namespace.
+    MoveClass(php_analysis::Moving),
     /// Tools ▸ Composer ▸ Require… / Remove… (the name is `vendor/package [constraint]`).
     ComposerRequire,
     ComposerRemove,
@@ -46,6 +48,7 @@ impl InputDialog {
             FileOp::NewFile(_) | FileOp::NewDirectory(_) | FileOp::FromTemplate(..) => Some(String::new()),
             FileOp::Delete(_) => None,
             FileOp::RenameSymbol(symbol) => Some(symbol.name.clone()),
+            FileOp::MoveClass(class) => Some(class.namespace.clone()),
             FileOp::ComposerRequire | FileOp::ComposerRemove => Some(String::new()),
             FileOp::PhpInterpreter(current) => Some(current.clone()),
             FileOp::ExtractBlade { .. } => Some(String::new()),
@@ -95,6 +98,7 @@ impl Render for InputDialog {
             FileOp::Delete(path) => (format!("Move {} to the Trash?", name(path)), "Delete"),
             FileOp::FromTemplate(dir, template) => (format!("New {} in {}", template.label(), name(dir)), "Create"),
             FileOp::RenameSymbol(symbol) => (format!("Rename '{}' and its usages to", symbol.name), "Refactor"),
+            FileOp::MoveClass(class) => (format!("Move '{}' to namespace (empty for the global namespace)", class.name), "Move"),
             FileOp::ComposerRequire => ("Require package (vendor/package, optionally a version)".to_string(), "Require"),
             FileOp::ComposerRemove => ("Remove package (vendor/package)".to_string(), "Remove"),
             FileOp::PhpInterpreter(_) => ("PHP interpreter for runs, tests and Artisan".to_string(), "Save"),

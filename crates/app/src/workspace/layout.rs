@@ -67,8 +67,8 @@ impl ToolWindow {
         }
     }
 
-    pub fn title(self) -> &'static str {
-        match self {
+    pub fn title(self) -> SharedString {
+        let english = match self {
             ToolWindow::Project => "Project",
             ToolWindow::Structure => "Structure",
             ToolWindow::Modules => "Modules",
@@ -81,7 +81,8 @@ impl ToolWindow {
             ToolWindow::Remote => "Remote Hosts",
             ToolWindow::Debug => "Debug",
             ToolWindow::Services => "Services",
-        }
+        };
+        crate::i18n::tr(english)
     }
 
     fn shortcut(self) -> &'static str {

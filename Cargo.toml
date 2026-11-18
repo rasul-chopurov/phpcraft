@@ -13,6 +13,7 @@ project = { path = "crates/project" }
 editor = { path = "crates/editor" }
 php-index = { path = "crates/php-index" }
 php-analysis = { path = "crates/php-analysis" }
+js-analysis = { path = "crates/js-analysis" }
 laravel = { path = "crates/laravel" }
 search = { path = "crates/search" }
 git = { path = "crates/git" }

@@ -15,6 +15,8 @@ mod laravel_panel;
 mod panes;
 mod git_window;
 mod tabs;
+mod session;
+mod external;
 mod refactor;
 mod problems;
 mod tests_view;
@@ -58,7 +60,15 @@ use crate::intel::Intel;
 use crate::theme;
 use php_index::Location;
 
-actions!(workspace, [CloseTab, NextTab, PrevTab, NavigateBack]);
+actions!(workspace, [
+    CloseTab,
+    NextTab,
+    PrevTab,
+    NavigateBack,
+    IncreaseFontSize,
+    DecreaseFontSize,
+    ResetFontSize
+]);
 
 pub struct Workspace {
     project: Project,
@@ -123,6 +133,13 @@ pub struct Workspace {
     files_cache: Option<Arc<Vec<crate::dialogs::NavItem>>>,
     shift_clean: bool,
     last_shift_tap: Option<std::time::Instant>,
+    /// True while the saved session is being reopened (no saving back).
+    restoring_session: bool,
+    /// File stamps of the open tabs, to notice edits made outside PhpCraft.
+    disk: external::Disk,
+    _file_poll: Option<gpui::Task<()>>,
+    /// When the index was last rebuilt after an external change.
+    last_disk_scan: Option<std::time::Instant>,
 }
 
 impl Workspace {
@@ -148,6 +165,9 @@ impl Workspace {
                 && crate::config::Settings::load_cached().auto_save != crate::config::AutoSave::Off
             {
                 this.save_all(cx);
+            }
+            if !window.is_window_active() {
+                this.save_session(cx);
             }
         })
         .detach();
@@ -197,6 +217,10 @@ impl Workspace {
             files_cache: None,
             shift_clean: false,
             last_shift_tap: None,
+            restoring_session: false,
+            disk: Default::default(),
+            _file_poll: None,
+            last_disk_scan: None,
             project,
             rows,
             tabs: Vec::new(),
@@ -421,6 +445,7 @@ impl Workspace {
                 self.selected_path = Some(path);
             }
         }
+        self.save_session(cx);
         cx.notify();
     }
 
@@ -439,6 +464,7 @@ impl Workspace {
         } else {
             self.activate(next, window, cx);
         }
+        self.save_session(cx);
     }
 
     fn close_tab(&mut self, _: &CloseTab, window: &mut Window, cx: &mut Context<Self>) {
@@ -714,6 +740,33 @@ impl Workspace {
         } else {
             format!("{framework}Indexing…")
         }
+    }
+
+    /// Font size is a settings value, so every zoom step is persisted and the settings dialog and
+    /// the welcome screen show the new size.
+    pub(crate) fn change_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+        let size = size.clamp(8., 32.);
+        let mut settings = crate::config::Settings::load();
+        if (size - settings.editor_font_size).abs() < f32::EPSILON {
+            return;
+        }
+        settings.editor_font_size = size;
+        settings.save();
+        theme::set_editor_font_size(size, cx);
+    }
+
+    fn increase_font_size(&mut self, _: &IncreaseFontSize, _: &mut Window, cx: &mut Context<Self>) {
+        let size = crate::config::Settings::load().editor_font_size + 1.;
+        self.change_font_size(size, cx);
+    }
+
+    fn decrease_font_size(&mut self, _: &DecreaseFontSize, _: &mut Window, cx: &mut Context<Self>) {
+        let size = crate::config::Settings::load().editor_font_size - 1.;
+        self.change_font_size(size, cx);
+    }
+
+    fn reset_font_size(&mut self, _: &ResetFontSize, _: &mut Window, cx: &mut Context<Self>) {
+        self.change_font_size(crate::config::Settings::default().editor_font_size, cx);
     }
 }
 
@@ -1029,6 +1082,9 @@ impl Render for Workspace {
             // Files dropped from Finder / Explorer open in the editor; folders open as projects.
             .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| this.drop_paths(paths.paths(), window, cx)))
             .on_action(cx.listener(Self::close_tab))
+            .on_action(cx.listener(Self::increase_font_size))
+            .on_action(cx.listener(Self::decrease_font_size))
+            .on_action(cx.listener(Self::reset_font_size))
             .on_action(cx.listener(Self::reopen_closed_tab))
             .on_action(cx.listener(Self::toggle_pin_tab))
             .on_action(cx.listener(Self::close_tabs_left))

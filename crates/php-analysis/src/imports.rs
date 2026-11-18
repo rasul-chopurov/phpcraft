@@ -43,35 +43,118 @@ pub fn class_insertion(doc: &Document, fqn: &str) -> (String, Option<TextEdit>) 
     (short, import_edit(doc, fqn))
 }
 
+/// Edits for "Import class": adds `use <fqn>;`, or qualifies the reference at `reference`
+/// when its short name is already imported from another namespace.
+pub fn import_class_at(doc: &Document, fqn: &str, reference: Range<usize>) -> Vec<TextEdit> {
+    let (insert, edit) = class_insertion(doc, fqn);
+    if insert.starts_with('\\') {
+        return vec![TextEdit { range: reference, text: insert }];
+    }
+    edit.into_iter().collect()
+}
+
 /// The edit that adds `use <fqn>;` in sorted position, or `None` if nothing is needed.
 pub fn import_edit(doc: &Document, fqn: &str) -> Option<TextEdit> {
     let fqn = fqn.trim_start_matches('\\');
-    let uses = &doc.symbols.uses;
-    if uses.iter().any(|u| u.kind == UseKind::Class && u.fqn.eq_ignore_ascii_case(fqn)) {
+    if doc.symbols.uses.iter().any(|u| u.kind == UseKind::Class && u.fqn.eq_ignore_ascii_case(fqn)) {
         return None;
     }
     if namespace_of(fqn).eq_ignore_ascii_case(&doc.ctx.namespace) {
         return None;
     }
-    let line = format!("use {fqn};");
+    insert_imports(doc, &[fqn])
+}
+
+/// Whether a `name`/`qualified_name` node is a class reference (not a member, function or declaration name).
+/// FQNs of the classes used by the code in `ranges`, for copy/paste: what the destination
+/// file needs to import. Fully qualified references are skipped — they work as written.
+pub fn used_imports(doc: &Document, index: &Index, ranges: &[Range<usize>]) -> Vec<String> {
+    let mut out = Vec::new();
+    for node in class_references(doc) {
+        let range = node.byte_range();
+        if !ranges.iter().any(|sel| sel.start <= range.start && range.end <= sel.end) {
+            continue;
+        }
+        let text = doc.text(node);
+        if text.starts_with('\\') {
+            continue;
+        }
+        let Some(fqn) = doc.ctx.resolve_class(text) else { continue };
+        if index.class(&fqn).is_none() || php_index::is_builtin_class(&fqn) {
+            continue;
+        }
+        out.push(fqn);
+    }
+    out.sort_by_key(|fqn| fqn.to_ascii_lowercase());
+    out.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    out
+}
+
+/// Edits that make the pasted `imports` resolve in `doc` (the text after the paste): the
+/// `use` lines in sorted position, plus fully qualified references where the short name is
+/// already taken by another import.
+pub fn paste_edits(doc: &Document, imports: &[String], pasted: Range<usize>) -> Vec<TextEdit> {
+    let mut additions: Vec<&str> = Vec::new();
+    let mut edits = Vec::new();
+    for fqn in imports {
+        let fqn = fqn.trim_start_matches('\\');
+        if namespace_of(fqn).eq_ignore_ascii_case(&doc.ctx.namespace) {
+            continue;
+        }
+        match doc.ctx.imported_class(short_name(fqn)) {
+            Some(imported) if imported.eq_ignore_ascii_case(fqn) => {}
+            // The short name belongs to another class: keep the pasted code qualified.
+            Some(_) => {
+                for node in class_references(doc) {
+                    let range = node.byte_range();
+                    if pasted.start <= range.start
+                        && range.end <= pasted.end
+                        && doc.text(node).eq_ignore_ascii_case(short_name(fqn))
+                    {
+                        edits.push(TextEdit { range, text: format!("\\{fqn}") });
+                    }
+                }
+            }
+            None => additions.push(fqn),
+        }
+    }
+    if !additions.is_empty() {
+        additions.sort_by_key(|fqn| fqn.to_ascii_lowercase());
+        additions.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        if let Some(edit) = insert_imports(doc, &additions) {
+            edits.push(edit);
+        }
+    }
+    edits
+}
+
+/// Adds several `use` lines as one block, keeping classes before `use function` / `use const`.
+pub(crate) fn insert_imports(doc: &Document, fqns: &[&str]) -> Option<TextEdit> {
+    let uses = &doc.symbols.uses;
+    let block = fqns.iter().map(|fqn| format!("use {fqn};")).collect::<Vec<_>>().join("\n");
+    let largest = fqns.last()?.to_ascii_lowercase();
     let class_uses: Vec<_> = uses.iter().filter(|u| u.kind == UseKind::Class).collect();
     if let Some(next) = class_uses
         .iter()
-        .find(|u| u.fqn.to_ascii_lowercase() > fqn.to_ascii_lowercase())
+        .find(|u| u.fqn.to_ascii_lowercase() > largest)
     {
         let at = next.decl_range.start;
-        return Some(TextEdit { range: at..at, text: format!("{line}\n") });
+        return Some(TextEdit { range: at..at, text: format!("{block}\n") });
     }
-    if let Some(last) = uses.iter().max_by_key(|u| u.decl_range.end) {
+    if let Some(last) = class_uses.last() {
         let at = last.decl_range.end;
-        return Some(TextEdit { range: at..at, text: format!("\n{line}") });
+        return Some(TextEdit { range: at..at, text: format!("\n{block}") });
+    }
+    if let Some(first) = uses.iter().min_by_key(|u| u.decl_range.start) {
+        let at = first.decl_range.start;
+        return Some(TextEdit { range: at..at, text: format!("{block}\n") });
     }
     if let Some(ns) = &doc.symbols.namespace_range {
         let at = ns.end;
-        return Some(TextEdit { range: at..at, text: format!("\n\n{line}") });
+        return Some(TextEdit { range: at..at, text: format!("\n\n{block}") });
     }
     let at = doc.source.find("<?php").map(|i| i + 5)?;
-    Some(TextEdit { range: at..at, text: format!("\n\n{line}") })
+    Some(TextEdit { range: at..at, text: format!("\n\n{block}") })
 }
 
 /// Whether a `name`/`qualified_name` node is a class reference (not a member, function or declaration name).
@@ -89,7 +172,7 @@ fn is_class_reference(doc: &Document, node: Node) -> bool {
     }
 }
 
-fn class_references<'d>(doc: &'d Document) -> Vec<Node<'d>> {
+pub(crate) fn class_references<'d>(doc: &'d Document) -> Vec<Node<'d>> {
     let mut out = Vec::new();
     visit(doc.tree.root_node(), &mut |node| {
         if matches!(node.kind(), "name" | "qualified_name") && is_class_reference(doc, node) {

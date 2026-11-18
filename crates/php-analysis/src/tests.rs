@@ -178,6 +178,91 @@ fn unresolved_and_optimize_imports() {
     assert!(!out.contains("Unused"));
 }
 
+fn apply(src: &str, mut edits: Vec<TextEdit>) -> String {
+    edits.sort_by_key(|e| std::cmp::Reverse(e.range.start));
+    let mut out = src.to_string();
+    for edit in edits {
+        out.replace_range(edit.range, &edit.text);
+    }
+    out
+}
+
+#[test]
+fn copied_code_remembers_its_imports() {
+    let index = index();
+    let src = "<?php\nnamespace App\\Http;\n\nuse App\\Models\\Post;\nuse App\\Models\\User;\n\nclass X\n{\n    function f()\n    {\n        $p = new Post();\n        User::ADMIN;\n        \\App\\Models\\Post::class;\n    }\n}\n";
+    let doc = Document::parse(Path::new("/p/X.php"), src).unwrap();
+    let body = src.find("$p = new").unwrap()..src.find("\\App\\Models\\Post::class").unwrap();
+    let imports = used_imports(&doc, &index, &[body]);
+    assert_eq!(imports, ["App\\Models\\Post", "App\\Models\\User"]);
+
+    // A whole-file copy carries the same two classes: FQN references need no import.
+    assert_eq!(used_imports(&doc, &index, &[0..src.len()]), ["App\\Models\\Post", "App\\Models\\User"]);
+}
+
+#[test]
+fn paste_adds_sorted_imports() {
+    let src = "<?php\n\nnamespace App\\Http;\n\nclass Y\n{\n}\n";
+    let doc = Document::parse(Path::new("/p/Y.php"), src).unwrap();
+    let pasted = src.find("class Y").unwrap()..src.len();
+    let imports = ["Illuminate\\Support\\Str".to_string(), "App\\Models\\Post".to_string()];
+    let out = apply(src, paste_edits(&doc, &imports, pasted));
+    assert!(out.contains("namespace App\\Http;\n\nuse App\\Models\\Post;\nuse Illuminate\\Support\\Str;\n\nclass Y"), "{out}");
+}
+
+#[test]
+fn paste_keeps_classes_before_function_imports() {
+    let src = "<?php\n\nnamespace App\\Http;\n\nuse Alpha\\Thing;\nuse function Zeta\\helper;\n\nclass Y\n{\n}\n";
+    let doc = Document::parse(Path::new("/p/Y.php"), src).unwrap();
+    let pasted = src.find("class Y").unwrap()..src.len();
+    let out = apply(src, paste_edits(&doc, &["Zebra\\Tool".to_string()], pasted));
+    assert!(out.contains("use Alpha\\Thing;\nuse Zebra\\Tool;\nuse function Zeta\\helper;"), "{out}");
+}
+
+#[test]
+fn paste_skips_imports_it_already_has() {
+    let src = "<?php\n\nnamespace App\\Http;\n\nuse App\\Models\\Post;\n\nclass Y\n{\n    function f() { new Post(); }\n}\n";
+    let doc = Document::parse(Path::new("/p/Y.php"), src).unwrap();
+    let pasted = src.find("function f").unwrap()..src.len();
+    assert!(paste_edits(&doc, &["App\\Models\\Post".to_string()], pasted).is_empty());
+
+    let same_namespace = "<?php\n\nnamespace App\\Models;\n\nclass Y {}\n";
+    let doc = Document::parse(Path::new("/p/App/Models/Y.php"), same_namespace).unwrap();
+    assert!(paste_edits(&doc, &["App\\Models\\Post".to_string()], 0..same_namespace.len()).is_empty());
+}
+
+#[test]
+fn paste_qualifies_names_taken_by_another_import() {
+    let src = "<?php\n\nnamespace App\\Http;\n\nuse Other\\Post;\n\nclass Y\n{\n    function f() { new Post(); }\n}\n";
+    let doc = Document::parse(Path::new("/p/Y.php"), src).unwrap();
+    let pasted = src.find("function f").unwrap()..src.len();
+    let out = apply(src, paste_edits(&doc, &["App\\Models\\Post".to_string()], pasted));
+    assert!(out.contains("new \\App\\Models\\Post();"), "{out}");
+    assert!(out.contains("use Other\\Post;"));
+    assert!(!out.contains("use App\\Models\\Post;"));
+}
+
+#[test]
+fn import_goes_before_function_imports() {
+    let src = "<?php\n\nnamespace App\\Http;\n\nuse Alpha\\Thing;\nuse function Zeta\\helper;\n\nclass X {}\n";
+    let doc = Document::parse(Path::new("/p/X.php"), src).unwrap();
+    let edit = import_edit(&doc, "Zebra\\Tool").unwrap();
+    let out = apply(src, vec![edit]);
+    assert!(out.contains("use Alpha\\Thing;\nuse Zebra\\Tool;\nuse function Zeta\\helper;"), "{out}");
+    assert!(import_edit(&doc, "App\\Http\\X").is_none());
+    assert!(import_edit(&doc, "Alpha\\Thing").is_none());
+}
+
+#[test]
+fn import_class_qualifies_the_reference_when_the_name_is_taken() {
+    let src = "<?php\n\nnamespace App\\Http;\n\nuse Other\\Post;\n\nclass X\n{\n    function f() { new Post(); }\n}\n";
+    let doc = Document::parse(Path::new("/p/X.php"), src).unwrap();
+    let at = src.find("new Post").unwrap() + 4;
+    let out = apply(src, import_class_at(&doc, "App\\Models\\Post", at..at + 4));
+    assert!(out.contains("new \\App\\Models\\Post();"), "{out}");
+    assert!(out.contains("use Other\\Post;"));
+}
+
 #[test]
 fn string_args_are_detected() {
     let index = index();
@@ -254,4 +339,66 @@ fn no_autopopup_in_comments_and_plain_strings() {
     assert!(labels(ARCHIVE, at(ARCHIVE, "Pos in a string", 3)).is_empty());
     // Code right after them still completes.
     assert!(labels(USER, at(USER, "new Post", 6)).contains(&"Post".to_string()));
+}
+
+const MOVED: &str = "<?php\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\n/** A user of the shop. */\n#[\\AllowDynamicProperties]\nclass User extends Model\n{\n    public Post $latest;\n\n    public function posts(): Post\n    {\n        return new Post();\n    }\n}\n";
+
+#[test]
+fn move_class_takes_the_docblock_and_attributes_with_it() {
+    let doc = Document::parse(Path::new("/p/User.php"), MOVED).unwrap();
+    let class = moving_class(&doc, at(MOVED, "class User", 7)).unwrap();
+    assert_eq!(class.fqn, "App\\Models\\User");
+    assert_eq!(class.range.start, at(MOVED, "/** A user", 0));
+    assert_eq!(&MOVED[class.name_range.clone()], "User");
+
+    let out = apply(MOVED, vec![removal_edit(&doc, &class)]);
+    assert_eq!(out, "<?php\nnamespace App\\Models;\n\nuse Illuminate\\Database\\Eloquent\\Model;\n\n");
+}
+
+#[test]
+fn moved_class_gets_the_imports_its_body_needs() {
+    let doc = Document::parse(Path::new("/p/User.php"), MOVED).unwrap();
+    let class = moving_class(&doc, at(MOVED, "class User", 7)).unwrap();
+    let src = moved_source(&doc, &index(), &class, "App\\Domain");
+    assert!(src.starts_with("<?php\n\nnamespace App\\Domain;\n\nuse App\\Models\\Post;\nuse Illuminate\\Database\\Eloquent\\Model;\n\n/** A user of the shop. */"));
+    assert!(src.contains("class User extends Model"));
+    assert!(src.contains("new Post()"));
+
+    // Classes of the new namespace need no import.
+    let same = moved_source(&doc, &index(), &class, "App\\Models");
+    assert!(!same.contains("use App\\Models\\Post;"));
+    assert!(same.contains("use Illuminate\\Database\\Eloquent\\Model;"));
+}
+
+#[test]
+fn references_follow_the_class_to_its_new_namespace() {
+    let doc = Document::parse(Path::new("/p/User.php"), MOVED).unwrap();
+    let class = moving_class(&doc, at(MOVED, "class User", 7)).unwrap();
+    let new_fqn = "App\\Domain\\User";
+
+    // An imported short name: only the `use` line changes.
+    let imported = "<?php\nnamespace App\\Http;\n\nuse App\\Models\\User;\n\nfunction f(User $u): User { return new User(); }\n";
+    let doc_imported = Document::parse(Path::new("/p/f.php"), imported).unwrap();
+    let out = apply(imported, reference_edits(&doc_imported, &class, new_fqn));
+    assert!(out.contains("use App\\Domain\\User;"));
+    assert!(out.contains("function f(User $u): User"));
+
+    // An alias: the name stays, the `use` line follows the class.
+    let aliased = "<?php\nnamespace App\\Http;\n\nuse App\\Models\\User as U;\n\nfunction f(U $u) {}\n";
+    let doc_aliased = Document::parse(Path::new("/p/g.php"), aliased).unwrap();
+    let out = apply(aliased, reference_edits(&doc_aliased, &class, new_fqn));
+    assert!(out.contains("use App\\Domain\\User as U;"));
+    assert!(out.contains("function f(U $u)"));
+
+    // A same-namespace reference: it needs an import now.
+    let sibling = "<?php\nnamespace App\\Models;\n\nclass Other\n{\n    public function user(): ?User { return null; }\n}\n";
+    let doc_sibling = Document::parse(Path::new("/p/Other.php"), sibling).unwrap();
+    let out = apply(sibling, reference_edits(&doc_sibling, &class, new_fqn));
+    assert!(out.contains("namespace App\\Models;\n\nuse App\\Domain\\User;"), "{out}");
+
+    // A fully qualified reference follows the class.
+    let qualified = "<?php\nnamespace App\\Http;\n\nfunction f(\\App\\Models\\User $u) {}\n";
+    let doc_qualified = Document::parse(Path::new("/p/h.php"), qualified).unwrap();
+    let out = apply(qualified, reference_edits(&doc_qualified, &class, new_fqn));
+    assert!(out.contains("function f(\\App\\Domain\\User $u)"));
 }

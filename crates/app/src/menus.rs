@@ -3,14 +3,16 @@
 
 use gpui::{App, Menu, MenuItem, SystemMenuType};
 
+use crate::i18n::tr;
+
 fn item(cx: &App, name: &str, action: &str) -> Option<MenuItem> {
     let action = cx.build_action(action, None).ok()?;
-    Some(MenuItem::Action { name: name.to_string().into(), action, os_action: None })
+    Some(MenuItem::Action { name: tr(name), action, os_action: None })
 }
 
 fn menu(cx: &App, name: &str, entries: &[Option<(&str, &str)>]) -> Menu {
     Menu {
-        name: name.to_string().into(),
+        name: tr(name),
         items: entries
             .iter()
             .filter_map(|entry| match entry {
@@ -123,6 +125,10 @@ pub fn set(cx: &mut App) {
                 Some(("TODO", "workspace::ShowTodo")),
                 Some(("Soft-Wrap", "editor::ToggleSoftWrap")),
                 Some(("Show Whitespaces", "editor::ToggleWhitespace")),
+                None,
+                Some(("Increase Font Size", "workspace::IncreaseFontSize")),
+                Some(("Decrease Font Size", "workspace::DecreaseFontSize")),
+                Some(("Reset Font Size", "workspace::ResetFontSize")),
             ],
         ),
         menu(
@@ -165,6 +171,7 @@ pub fn set(cx: &mut App) {
                 Some(("Quick Documentation", "editor::QuickDocumentation")),
                 Some(("Parameter Info", "editor::ParameterInfo")),
                 Some(("Optimize Imports", "editor::OptimizeImports")),
+                Some(("Import Class…", "editor::ImportClass")),
                 Some(("Comment with Line Comment", "editor::ToggleComment")),
                 None,
                 Some(("Expand", "editor::ExpandRegion")),
@@ -179,6 +186,7 @@ pub fn set(cx: &mut App) {
             "Refactor",
             &[
                 Some(("Rename…", "editor::RenameSymbol")),
+                Some(("Move Class…", "editor::MoveClass")),
                 Some(("Introduce Variable", "editor::IntroduceVariable")),
                 Some(("Extract Method", "editor::ExtractMethod")),
                 Some(("Introduce Constant", "editor::IntroduceConstant")),
@@ -237,7 +245,7 @@ pub fn set(cx: &mut App) {
             ],
         ),
         Menu {
-            name: "Tools".into(),
+            name: tr("Tools"),
             items: [
                 Some(MenuItem::submenu(menu(
                     cx,
@@ -279,7 +287,7 @@ pub fn set(cx: &mut App) {
             .collect(),
         },
         Menu {
-            name: "Git".into(),
+            name: tr("Git"),
             items: [
                 item(cx, "Commit…", "workspace::ShowCommit"),
                 item(cx, "Push…", "workspace::GitPush"),
@@ -289,6 +297,7 @@ pub fn set(cx: &mut App) {
                 Some(MenuItem::separator()),
                 item(cx, "Merge…", "workspace::GitMerge"),
                 item(cx, "Resolve Conflicts…", "workspace::ResolveConflicts"),
+                item(cx, "Merge Conflicts… (three-pane)", "editor::MergeConflicts"),
                 item(cx, "Mark File as Resolved", "workspace::MarkResolved"),
                 item(cx, "Rebase…", "workspace::GitRebase"),
                 item(cx, "Interactive Rebase…", "workspace::GitInteractiveRebase"),

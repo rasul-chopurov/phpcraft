@@ -72,7 +72,7 @@ impl Workspace {
 
     fn actions_list() -> Vec<NavItem> {
         let action = |label: &str, shortcut: &str, action: Box<dyn Action>| NavItem {
-            label: label.to_string(),
+            label: crate::i18n::tr(label).to_string(),
             detail: shortcut.to_string(),
             icon: "▶",
             target: NavTarget::Action(action),
@@ -89,6 +89,9 @@ impl Workspace {
             action("Local History: Show History", "⌥⇧H", Box::new(ShowLocalHistory)),
             action("Go to Line", "⌘L", Box::new(GoToLine)),
             action("Optimize Imports", "⌃⌥O", Box::new(OptimizeImports)),
+            action("Increase Font Size", "⌘+", Box::new(super::IncreaseFontSize)),
+            action("Decrease Font Size", "⌘−", Box::new(super::DecreaseFontSize)),
+            action("Reset Font Size", "⇧⌘0", Box::new(super::ResetFontSize)),
             action("Code Generation (Laravel)", "⇧⌘,", Box::new(OpenMake)),
             action("New Eloquent Model", "", Box::new(NewModel)),
             action("Route Search", "⌃⇧R", Box::new(OpenRouteSearch)),
@@ -189,6 +192,39 @@ impl Workspace {
         let root = self.project.root().to_path_buf();
         let sources = self.nav_sources();
         let dialog = cx.new(|cx| NavigateDialog::new(&root, mode, sources, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// Code ▸ Import Class… (also in the editor context menu): pick a class and add its `use`.
+    pub(crate) fn open_import_class(
+        &mut self,
+        query: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let root = self.project.root().to_path_buf();
+        let classes = self
+            .intel
+            .class_entries()
+            .into_iter()
+            .map(|(name, fqn, _)| NavItem {
+                label: name,
+                detail: php_index::namespace_of(&fqn).to_string(),
+                icon: "C",
+                target: NavTarget::Import(fqn),
+            })
+            .collect::<Vec<_>>();
+        let sources = NavSources {
+            classes: Arc::new(classes),
+            symbols: Arc::new(Vec::new()),
+            actions: Arc::new(Vec::new()),
+            recent: Vec::new(),
+            files: None,
+        };
+        let dialog = cx.new(|cx| NavigateDialog::new(&root, NavMode::ImportClass, sources, window, cx));
+        if let Some(query) = query.filter(|q| !q.is_empty()) {
+            dialog.update(cx, |dialog, cx| dialog.prefill(&query, cx));
+        }
         self.show_modal(dialog, window, cx);
     }
 

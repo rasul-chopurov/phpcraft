@@ -12,6 +12,7 @@ mod goto;
 mod imports;
 mod inspect;
 mod intentions;
+mod move_class;
 mod refactor;
 mod types;
 mod usages;
@@ -31,8 +32,10 @@ pub use refactor::{delete_declaration, extract_method, inline_variable, introduc
 pub use hierarchy::{InheritanceMark, inheritance_marks, implementations, related_tests, super_declaration, type_hierarchy};
 pub use generate::{generate_accessors, generate_constructor, generate_phpdoc, implement_methods, overridable_methods, override_method};
 pub use usages::{Symbol, caller_name, symbol_at, usages_in};
+pub use move_class::{Moving, moved_source, moving_class, reference_edits, removal_edit};
 pub use imports::{
-    TextEdit, Unresolved, class_insertion, import_edit, optimize_imports, unresolved_classes,
+    TextEdit, Unresolved, class_insertion, import_class_at, import_edit, optimize_imports,
+    paste_edits, unresolved_classes, used_imports,
 };
 
 /// A parsed file plus its declarations and name context.

@@ -76,22 +76,6 @@ impl Template {
     }
 }
 
-/// `App\Http\Controllers` for `<root>/app/Http/Controllers`, from the nearest composer.json
-/// PSR-4 map (modules have their own composer.json).
-pub fn namespace_for(dir: &Path, root: &Path) -> String {
-    let mut current = Some(dir);
-    while let Some(base) = current {
-        if let Some(ns) = psr4_namespace(base, dir) {
-            return ns;
-        }
-        if base == root {
-            break;
-        }
-        current = base.parent();
-    }
-    String::new()
-}
-
 fn psr4_namespace(composer_dir: &Path, dir: &Path) -> Option<String> {
     let text = std::fs::read_to_string(composer_dir.join("composer.json")).ok()?;
     let json: serde_json::Value = serde_json::from_str(&text).ok()?;
@@ -123,6 +107,22 @@ fn psr4_namespace(composer_dir: &Path, dir: &Path) -> Option<String> {
     best.map(|(_, ns)| ns)
 }
 
+/// `App\Http\Controllers` for `<root>/app/Http/Controllers`, from the nearest composer.json
+/// PSR-4 map (modules have their own composer.json).
+pub fn namespace_for(dir: &Path, root: &Path) -> String {
+    let mut current = Some(dir);
+    while let Some(base) = current {
+        if let Some(ns) = psr4_namespace(base, dir) {
+            return ns;
+        }
+        if base == root {
+            break;
+        }
+        current = base.parent();
+    }
+    String::new()
+}
+
 fn kebab(name: &str) -> String {
     let mut out = String::new();
     for (i, c) in name.chars().enumerate() {
@@ -132,6 +132,54 @@ fn kebab(name: &str) -> String {
         out.extend(c.to_lowercase());
     }
     out
+}
+
+/// The directory for a namespace, the inverse of [`namespace_for`]: the longest PSR-4 prefix
+/// that contains it. `App\Models\User` under `App\` → `<root>/app/Models`.
+pub fn dir_for_namespace(namespace: &str, root: &Path) -> Option<PathBuf> {
+    let mut best: Option<(usize, PathBuf)> = None;
+    let mut dirs = vec![root.to_path_buf()];
+    if let Ok(entries) = std::fs::read_dir(root) {
+        // Modules have their own composer.json.
+        dirs.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
+    }
+    for composer_dir in dirs {
+        let Ok(text) = std::fs::read_to_string(composer_dir.join("composer.json")) else { continue };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { continue };
+        for section in ["autoload", "autoload-dev"] {
+            let Some(map) = json[section]["psr-4"].as_object() else { continue };
+            for (prefix, paths) in map {
+                let prefix = prefix.trim_end_matches('\\');
+                let rest = if prefix.is_empty() {
+                    Some(namespace)
+                } else if namespace.get(..prefix.len()).is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+                    && namespace.as_bytes().get(prefix.len()) == Some(&b'\\')
+                {
+                    Some(&namespace[prefix.len() + 1..])
+                } else if namespace.eq_ignore_ascii_case(prefix) {
+                    Some("")
+                } else {
+                    None
+                };
+                let Some(rest) = rest else { continue };
+                let paths: Vec<&str> = match paths {
+                    serde_json::Value::String(p) => vec![p.as_str()],
+                    serde_json::Value::Array(a) => a.iter().filter_map(|p| p.as_str()).collect(),
+                    _ => continue,
+                };
+                for p in paths {
+                    let mut dir = composer_dir.join(p.trim_end_matches('/'));
+                    for part in rest.split('\\').filter(|p| !p.is_empty()) {
+                        dir.push(part);
+                    }
+                    if best.as_ref().is_none_or(|(len, _)| prefix.len() >= *len) {
+                        best = Some((prefix.len(), dir));
+                    }
+                }
+            }
+        }
+    }
+    best.map(|(_, dir)| dir)
 }
 
 /// Files to create for `template` named `name` in `dir`: `(path, content)`. The first one

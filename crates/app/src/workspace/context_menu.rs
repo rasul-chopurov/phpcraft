@@ -295,6 +295,7 @@ impl Workspace {
                 trash::delete(path).map(|_| None).map_err(|e| e.to_string())
             }
             FileOp::RenameSymbol(symbol) => self.rename_symbol(symbol, name, cx),
+            FileOp::MoveClass(class) => self.move_class(class, name, cx),
             FileOp::ExtractBlade { component, path, range, text } => self.extract_blade(*component, path, range.clone(), text, name, cx),
             FileOp::CompareRevision(path) => {
                 let path = path.clone();

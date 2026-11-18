@@ -3,7 +3,7 @@
 
 use gpui::{Context, Window};
 
-use super::{CallHierarchy, ClearUsageHighlights, EditorView, FindUsages, HighlightUsages, RenameSymbol};
+use super::{CallHierarchy, ClearUsageHighlights, EditorView, FindUsages, HighlightUsages, MoveClass, RenameSymbol};
 
 impl EditorView {
     pub(super) fn find_usages(&mut self, _: &FindUsages, window: &mut Window, cx: &mut Context<Self>) {
@@ -55,6 +55,15 @@ impl EditorView {
         // Unsaved edits first, so offsets match the files on disk.
         self.save_now(cx);
         self.workspace.update(cx, |ws, cx| ws.start_rename(symbol, window, cx)).ok();
+    }
+
+    /// Refactor ▸ Move Class (F6): moves the declaration at the caret to another namespace.
+    pub(super) fn move_class(&mut self, _: &MoveClass, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self.path() else { return };
+        let Some(class) = self.intel.moving_class(&path, &self.buffer.text(), self.caret_byte()) else { return };
+        // Unsaved edits first, so offsets match the files on disk.
+        self.save_now(cx);
+        self.workspace.update(cx, |ws, cx| ws.start_move_class(class, window, cx)).ok();
     }
 
     /// Navigate ▸ Call Hierarchy (⌃⌥H): who calls the method or function at the caret.

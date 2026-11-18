@@ -298,8 +298,58 @@ impl Intel {
         marks
     }
 
+    /// Reads a file for JS/TS resolution, preferring unsaved editor text.
+    fn js_load<'a>(open: &'a [(PathBuf, String)]) -> impl Fn(&Path) -> Option<String> + 'a {
+        move |path: &Path| {
+            open.iter()
+                .find(|(p, _)| p == path)
+                .map(|(_, text)| text.clone())
+                .or_else(|| std::fs::read_to_string(path).ok())
+        }
+    }
+
+    /// Go to declaration in JavaScript / TypeScript / Vue script blocks.
+    fn js_definition(&self, path: &Path, source: &str, offset: usize) -> Vec<Location> {
+        let Some(doc) = js_analysis::parse(path, source) else { return Vec::new() };
+        let load = |path: &Path| std::fs::read_to_string(path).ok();
+        js_analysis::definition(&doc, offset, &self.root, &load)
+            .into_iter()
+            .map(|location| Location { path: location.path, range: location.range })
+            .collect()
+    }
+
+    /// Completion from local declarations and the exports of imported modules.
+    fn js_complete(&self, path: &Path, source: &str, offset: usize) -> Vec<CompletionItem> {
+        let Some(doc) = js_analysis::parse(path, source) else { return Vec::new() };
+        let load = |path: &Path| std::fs::read_to_string(path).ok();
+        let (_, replace) = js_analysis::word_at(source, offset);
+        js_analysis::complete(&doc, offset, &self.root, &load)
+            .into_iter()
+            .map(|(label, detail, kind)| {
+                let kind = match kind {
+                    js_analysis::Kind::Function => php_analysis::CompletionKind::Function,
+                    js_analysis::Kind::Const | js_analysis::Kind::Enum => {
+                        php_analysis::CompletionKind::Constant
+                    }
+                    _ => php_analysis::CompletionKind::Class,
+                };
+                CompletionItem::simple(label, detail, kind, replace.clone())
+            })
+            .collect()
+    }
+
     /// The symbol under `offset`, for Find Usages.
     pub fn symbol_at(&self, path: &Path, source: &str, offset: usize) -> Option<php_analysis::Symbol> {
+        if js_analysis::is_js(path) && js_analysis::in_script(source, offset) {
+            let doc = js_analysis::parse(path, source)?;
+            let load = |path: &Path| std::fs::read_to_string(path).ok();
+            let symbol = js_analysis::resolve(&doc, offset, &self.root, &load)?;
+            return Some(php_analysis::Symbol {
+                name: symbol.name,
+                declaration: Location { path: symbol.declaration.path, range: symbol.declaration.range },
+                local: false,
+            });
+        }
         let index = self.index.read().unwrap();
         let doc = Document::parse(path, source)?;
         php_analysis::symbol_at(&doc, &index, offset)
@@ -308,6 +358,26 @@ impl Intel {
     /// Every usage of `symbol` in the project's PHP files (vendor/ excluded). `open` gives the
     /// text of files with unsaved changes. Runs on a background thread.
     pub fn find_usages(&self, symbol: &php_analysis::Symbol, open: &[(PathBuf, String)]) -> Vec<Location> {
+        if js_analysis::is_js(&symbol.declaration.path) {
+            let root = self.root.clone();
+            let load = Self::js_load(open);
+            let js_symbol = js_analysis::Symbol {
+                name: symbol.name.clone(),
+                declaration: js_analysis::Location {
+                    path: symbol.declaration.path.clone(),
+                    range: symbol.declaration.range.clone(),
+                },
+            };
+            let mut found = Vec::new();
+            for path in search::list_files(&self.root, false).into_iter().filter(|path| js_analysis::is_js(path)) {
+                let Some(text) = load(&path) else { continue };
+                let Some(doc) = js_analysis::parse(&path, &text) else { continue };
+                for range in js_analysis::usages_in(&doc, &js_symbol, &root, &load) {
+                    found.push(Location { path: path.clone(), range });
+                }
+            }
+            return found;
+        }
         let files: Vec<PathBuf> = if symbol.local {
             vec![symbol.declaration.path.clone()]
         } else {
@@ -342,6 +412,18 @@ impl Intel {
 
     /// Usages of `symbol` in one file's text.
     pub fn find_usages_in(&self, symbol: &php_analysis::Symbol, path: &Path, text: &str) -> Vec<std::ops::Range<usize>> {
+        if js_analysis::is_js(path) {
+            let Some(doc) = js_analysis::parse(path, text) else { return Vec::new() };
+            let js_symbol = js_analysis::Symbol {
+                name: symbol.name.clone(),
+                declaration: js_analysis::Location {
+                    path: symbol.declaration.path.clone(),
+                    range: symbol.declaration.range.clone(),
+                },
+            };
+            let load = |path: &Path| std::fs::read_to_string(path).ok();
+            return js_analysis::usages_in(&doc, &js_symbol, &self.root, &load);
+        }
         let index = self.index.read().unwrap();
         Document::parse(path, text).map(|doc| php_analysis::usages_in(&doc, &index, symbol)).unwrap_or_default()
     }
@@ -349,6 +431,9 @@ impl Intel {
     pub fn goto(&self, path: &Path, source: &str, offset: usize) -> Vec<Location> {
         if path.to_string_lossy().ends_with(".twig") {
             return crate::twig::goto(&self.root, source, offset);
+        }
+        if js_analysis::is_js(path) && js_analysis::in_script(source, offset) {
+            return self.js_definition(path, source, offset);
         }
         let index = self.index.read().unwrap();
         let doc = Document::parse(path, source);
@@ -400,6 +485,11 @@ impl Intel {
         source: &str,
         offset: usize,
     ) -> Option<std::ops::Range<usize>> {
+        if js_analysis::is_js(path) {
+            let doc = js_analysis::parse(path, source)?;
+            let (_, range) = doc.identifier_at(offset)?;
+            return (!self.js_definition(path, source, offset).is_empty()).then_some(range);
+        }
         let doc = Document::parse(path, source)?;
         let range =
             php_analysis::reference_range(&doc, offset).or_else(|| word_range(source, offset))?;
@@ -410,6 +500,9 @@ impl Intel {
         let name = path.to_string_lossy();
         if name.ends_with(".twig") {
             return crate::twig::complete(&self.root, source, offset);
+        }
+        if js_analysis::is_js(path) && js_analysis::in_script(source, offset) {
+            return self.js_complete(path, source, offset);
         }
         // Blade: section / stack names, component props as attributes and `$variables`.
         if is_blade(path) {
@@ -607,12 +700,68 @@ impl Intel {
         models
     }
 
-    pub fn import(&self, path: &Path, source: &str, fqn: &str) -> Option<TextEdit> {
-        Document::parse(path, source).and_then(|doc| php_analysis::import_edit(&doc, fqn))
-    }
-
     pub fn optimize_imports(&self, path: &Path, source: &str) -> Option<TextEdit> {
         Document::parse(path, source).and_then(|doc| php_analysis::optimize_imports(&doc))
+    }
+
+    /// The class declaration under `offset`, for Move Class.
+    pub fn moving_class(&self, path: &Path, source: &str, offset: usize) -> Option<php_analysis::Moving> {
+        Document::parse(path, source).and_then(|doc| php_analysis::moving_class(&doc, offset))
+    }
+
+    /// The file a moved class is written to: header, needed imports and the declaration.
+    pub fn moved_class_source(&self, path: &Path, source: &str, class: &php_analysis::Moving, new_namespace: &str) -> Option<String> {
+        self.with_doc(path, source, |doc, index| {
+            php_analysis::moved_source(doc, index, class, new_namespace)
+        })
+    }
+
+    /// Edits that keep this file's references valid when `class` moves to `new_fqn`.
+    pub fn move_class_edits(&self, path: &Path, source: &str, class: &php_analysis::Moving, new_fqn: &str) -> Vec<TextEdit> {
+        Document::parse(path, source)
+            .map(|doc| php_analysis::reference_edits(&doc, class, new_fqn))
+            .unwrap_or_default()
+    }
+
+    /// The edit that deletes the moved declaration from its old file.
+    pub fn remove_moved_class(&self, path: &Path, source: &str, class: &php_analysis::Moving) -> Option<TextEdit> {
+        Document::parse(path, source).map(|doc| php_analysis::removal_edit(&doc, class))
+    }
+
+    /// Edits for "Import class" picked in a dialog or quick-fix: `use FQN`, or a qualified
+    /// reference when the short name already belongs to another class.
+    pub fn import_at(
+        &self,
+        path: &Path,
+        source: &str,
+        fqn: &str,
+        reference: Option<std::ops::Range<usize>>,
+    ) -> Vec<TextEdit> {
+        Document::parse(path, source)
+            .map(|doc| match reference {
+                Some(range) => php_analysis::import_class_at(&doc, fqn, range),
+                None => php_analysis::import_edit(&doc, fqn).into_iter().collect(),
+            })
+            .unwrap_or_default()
+    }
+
+    /// FQNs of the classes used in `ranges`, remembered with the copied text.
+    pub fn imports_in(&self, path: &Path, source: &str, ranges: &[std::ops::Range<usize>]) -> Vec<String> {
+        self.with_doc(path, source, |doc, index| php_analysis::used_imports(doc, index, ranges))
+            .unwrap_or_default()
+    }
+
+    /// Edits that add the imports pasted code relied on in its source file.
+    pub fn paste_imports(
+        &self,
+        path: &Path,
+        source: &str,
+        imports: &[String],
+        pasted: std::ops::Range<usize>,
+    ) -> Vec<TextEdit> {
+        Document::parse(path, source)
+            .map(|doc| php_analysis::paste_edits(&doc, imports, pasted))
+            .unwrap_or_default()
     }
 }
 

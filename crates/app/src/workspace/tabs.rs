@@ -88,6 +88,7 @@ impl Workspace {
             self.tabs.insert(at, tab);
             self.active = at;
         }
+        self.save_session(cx);
         cx.notify();
     }
 
