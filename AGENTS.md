@@ -92,7 +92,7 @@ inline / safe delete, generate, quick doc, parameter info, hierarchy, call hiera
 inspections + PHPStan/Psalm/PHPCS, spell checking of comments and strings (`typo`, ⌥↵ suggestions / save to dictionary), intentions, bundled PHP stubs), Laravel (string navigation,
 Blade sections/stacks/props, routes in the gutter, generators incl. DTO / Nova, extract blade
 component/view, facade→DI / rules→array / scope→#[Scope] intentions), Twig, Git (commit, log
-with graph, branches, diff, blame, three-pane merge window, compare with revision / clipboard,
+with graph, branches, diff, blame, three-way merge window (BASE pane, line-level auto-merge), compare with revision / clipboard,
 interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes),
 Pull Requests (Git ▸ Pull Requests…: list, details, checkout, diff, comment via gh / glab),
 Xdebug debugger, Docker services, test runner with results and coverage, Composer menu, HTTP

@@ -3,7 +3,6 @@
   "strings": {
     "Commit": "Коммит",
     "{} files": "файлов: {}",
-
     "File": "Файл",
     "Edit": "Правка",
     "View": "Вид",
@@ -17,7 +16,6 @@
     "Patch": "Патч",
     "Uncommitted Changes": "Незакоммиченные изменения",
     "Rebase / Cherry-Pick / Merge in Progress": "Идёт rebase / cherry-pick / merge",
-
     "Project": "Проект",
     "Structure": "Структура",
     "Modules": "Модули",
@@ -27,7 +25,6 @@
     "Remote Hosts": "Удалённые хосты",
     "Debug": "Отладка",
     "Services": "Сервисы",
-
     "New Project…": "Новый проект…",
     "Open…": "Открыть…",
     "Clone Repository…": "Клонировать репозиторий…",
@@ -45,7 +42,6 @@
     "Keymap…": "Раскладка клавиш…",
     "Themes…": "Темы…",
     "Quit PhpCraft": "Выйти из PhpCraft",
-
     "Undo": "Отменить",
     "Redo": "Повторить",
     "Cut": "Вырезать",
@@ -81,7 +77,6 @@
     "Next Bookmark": "Следующая закладка",
     "Previous Bookmark": "Предыдущая закладка",
     "Show Bookmarks…": "Закладки…",
-
     "Markdown Preview": "Предпросмотр Markdown",
     "Git Blame": "Git Blame",
     "Soft-Wrap": "Перенос строк",
@@ -89,7 +84,6 @@
     "Increase Font Size": "Увеличить шрифт",
     "Decrease Font Size": "Уменьшить шрифт",
     "Reset Font Size": "Сбросить размер шрифта",
-
     "Search Everywhere": "Поиск везде",
     "Class…": "Класс…",
     "File…": "Файл…",
@@ -106,7 +100,6 @@
     "Back": "Назад",
     "Next Tab": "Следующая вкладка",
     "Previous Tab": "Предыдущая вкладка",
-
     "Code Completion": "Автодополнение",
     "Show Intention Actions": "Действия по контексту",
     "Generate…": "Сгенерировать…",
@@ -126,7 +119,6 @@
     "Expand All": "Развернуть все",
     "Collapse All": "Свернуть все",
     "Fold Selection": "Сложить выделение",
-
     "Rename…": "Переименовать…",
     "Rename Symbol…": "Переименовать символ…",
     "Go to Declaration": "Перейти к объявлению",
@@ -140,7 +132,6 @@
     "Safe Delete": "Безопасное удаление",
     "Extract Blade Component…": "Извлечь Blade-компонент…",
     "Extract View…": "Извлечь представление…",
-
     "Code Generation…": "Генерация кода…",
     "New Eloquent Model…": "Новая модель Eloquent…",
     "New Eloquent Model from Database Table…": "Модель Eloquent из таблицы БД…",
@@ -151,7 +142,6 @@
     "Remove Model PhpDocs…": "Удалить PhpDoc модели…",
     "Find Unused Views": "Найти неиспользуемые представления",
     "Laravel Settings…": "Настройки Laravel…",
-
     "Run…": "Запустить…",
     "Rerun": "Перезапустить",
     "Run Context Configuration": "Запустить конфигурацию из контекста",
@@ -169,7 +159,6 @@
     "Rerun Failed Tests": "Перезапустить упавшие тесты",
     "Run with Coverage": "Запустить с покрытием",
     "Hide Coverage": "Скрыть покрытие",
-
     "Install": "Установить",
     "Update": "Обновить",
     "Require…": "Подключить пакет…",
@@ -177,7 +166,6 @@
     "Dump Autoloader": "Пересобрать автозагрузчик",
     "Validate composer.json": "Проверить composer.json",
     "Show Outdated Packages": "Устаревшие пакеты",
-
     "HTTP Client": "HTTP-клиент",
     "New Request File": "Новый файл запроса",
     "Run Request": "Выполнить запрос",
@@ -186,11 +174,9 @@
     "Import Postman Collection…": "Импорт коллекции Postman…",
     "Import OpenAPI / Swagger (JSON)…": "Импорт OpenAPI / Swagger (JSON)…",
     "History": "История",
-
     "Deployment: Upload to Server": "Развёртывание: выгрузить на сервер",
     "Deployment: Download from Server": "Развёртывание: скачать с сервера",
     "Deployment: Automatic Upload (on / off)": "Развёртывание: авто-выгрузка (вкл / выкл)",
-
     "Push…": "Push…",
     "Update Project…": "Обновить проект…",
     "Pull…": "Pull…",
@@ -230,7 +216,6 @@
     "Add Remote…": "Добавить remote…",
     "Clone…": "Клонировать…",
     "VCS Operations Popup…": "Операции VCS…",
-
     "Reopen Closed Tab": "Открыть закрытую вкладку",
     "Pin / Unpin Tab": "Закрепить или открепить вкладку",
     "Close Tab": "Закрыть вкладку",
@@ -243,9 +228,7 @@
     "Split Right": "Разделить вправо",
     "Unsplit": "Объединить области",
     "Next Splitter": "Следующая область",
-
     "What's New": "Что нового",
-
     "Go to File": "Перейти к файлу",
     "Go to Class": "Перейти к классу",
     "Go to Symbol": "Перейти к символу",
@@ -268,7 +251,6 @@
     "Select Theme": "Выбрать тему",
     "New Eloquent Model from Database Table": "Модель Eloquent из таблицы БД",
     "Laravel Settings": "Настройки Laravel",
-
     "All": "Все",
     "Classes": "Классы",
     "Files": "Файлы",
@@ -643,6 +625,10 @@
     "Trait": "Трейт",
     "Interface": "Интерфейс",
     "Enum": "Перечисление",
-    "Pivot Table": "Сводная таблица"
+    "Pivot Table": "Сводная таблица",
+    "BASE": "БАЗА",
+    "Auto-merge": "Авто-слияние",
+    "{} auto-merged": "автоматически слито: {}",
+    "← / → use a side · ↑ / ↓ walk the conflicts · B both · A auto-merge · U clear · Esc cancel": "← / → выбрать сторону · ↑ / ↓ переход по конфликтам · B оба · A авто-слияние · U сбросить · Esc отмена"
   }
 }

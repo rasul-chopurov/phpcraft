@@ -896,6 +896,13 @@ impl Repo {
     pub fn remotes(&self) -> Vec<(String, String)> {
         self.git(&["remote", "-v"]).map(|t| parse_remotes(&t)).unwrap_or_default()
     }
+
+    /// The three index stages of a conflicted file, relative path: common ancestor, ours, theirs.
+    /// `None` when the path is not unmerged, which is the normal case once conflicts are resolved.
+    pub fn merge_stages(&self, path: &str) -> Option<(String, String, String)> {
+        let stage = |n: u8| self.git(&["show", &format!(":{n}:{path}")]).ok();
+        Some((stage(1)?, stage(2)?, stage(3)?))
+    }
 }
 
 /// A merge conflict block in a file: byte ranges of the whole block and of each side's text
@@ -974,6 +981,155 @@ pub fn resolve_all(text: &str, choices: &[Option<(bool, bool, bool)>]) -> (Strin
         }
     }
     (out, left)
+}
+
+/// All conflicts resolved by the text each one was decided to become (`None` keeps the markers).
+pub fn resolve_all_texts(text: &str, texts: &[Option<String>]) -> (String, usize) {
+    let conflicts = conflicts(text);
+    let mut out = text.to_string();
+    let mut left = conflicts.len();
+    for (ix, conflict) in conflicts.iter().enumerate().rev() {
+        if let Some(replacement) = texts.get(ix).and_then(|t| t.as_ref()) {
+            left -= 1;
+            out.replace_range(conflict.whole.clone(), replacement);
+        }
+    }
+    (out, left)
+}
+
+/// A hunk of one side's changes: the base lines it touches and the lines that replace them.
+type Hunk<'a> = (Range<usize>, Vec<&'a str>);
+
+/// Line changes turning `base` into `side`, as base line ranges.
+fn hunks<'a>(base: &str, side: &'a str) -> Vec<Hunk<'a>> {
+    let diff = TextDiff::from_lines(base, side);
+    let new_lines = diff.new_slices();
+    let mut out = Vec::new();
+    for op in diff.ops() {
+        let (old, new) = match *op {
+            DiffOp::Equal { .. } => continue,
+            DiffOp::Delete { old_index, old_len, new_index } => (old_index..old_index + old_len, new_index..new_index),
+            DiffOp::Insert { old_index, new_index, new_len } => (old_index..old_index, new_index..new_index + new_len),
+            DiffOp::Replace { old_index, old_len, new_index, new_len } => (old_index..old_index + old_len, new_index..new_index + new_len),
+        };
+        out.push((old, new_lines[new].to_vec()));
+    }
+    out
+}
+
+/// Whether two line ranges touch the same lines. Insertions collide only at the same point or
+/// inside another range, so an insertion exactly at a range's edge still goes through.
+fn collide(a: Range<usize>, b: &Range<usize>) -> bool {
+    if a.start == a.end && b.start == b.end {
+        a.start == b.start
+    } else if a.start == a.end {
+        b.start < a.start && a.start < b.end
+    } else if b.start == b.end {
+        a.start < b.start && b.start < a.end
+    } else {
+        a.start < b.end && b.start < a.end
+    }
+}
+
+/// Lines `start..end` of `base` with `picked` hunks applied.
+fn apply(base: &[&str], start: usize, end: usize, picked: &[&Hunk]) -> String {
+    let mut out = String::new();
+    let mut at = start;
+    for (range, lines) in picked {
+        if range.start > at {
+            out.push_str(&base[at..range.start].concat());
+        }
+        for line in lines {
+            out.push_str(line);
+        }
+        at = at.max(range.end);
+    }
+    out.push_str(&base[at..end].concat());
+    out
+}
+
+/// Writes a marker line, keeping it on its own line even in a file without a final newline.
+fn marker(out: &mut String, line: &str) {
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(line);
+    out.push('\n');
+}
+
+/// Writes a conflict section, newline-terminated for the marker that follows it.
+fn section(out: &mut String, text: &str) {
+    out.push_str(text);
+    if !text.is_empty() && !text.ends_with('\n') {
+        out.push('\n');
+    }
+}
+
+/// Three-way line merge, diff3 style: hunks changed on one side only are taken as they are, and
+/// overlapping hunks become `<<<<<<<` / `|||||||` / `=======` / `>>>>>>>` blocks. The ancestor
+/// sections are what lets the merge window show BASE and merge single lines.
+pub fn merge3(base: &str, ours: &str, theirs: &str, ours_label: &str, theirs_label: &str) -> String {
+    let base_lines: Vec<&str> = base.split_inclusive('\n').collect();
+    let mut all: Vec<(Hunk, bool)> = hunks(base, ours).into_iter().map(|h| (h, true)).collect();
+    all.extend(hunks(base, theirs).into_iter().map(|h| (h, false)));
+    all.sort_by_key(|((range, _), _)| (range.start, range.end));
+
+    let mut out = String::new();
+    let mut at = 0;
+    let mut ix = 0;
+    while ix < all.len() {
+        let start = all[ix].0.0.start;
+        let mut end = all[ix].0.0.end;
+        let mut next = ix + 1;
+        while next < all.len() && collide(start..end, &all[next].0.0) {
+            end = end.max(all[next].0.0.end);
+            next += 1;
+        }
+        let group = &all[ix..next];
+        out.push_str(&base_lines[at..start].concat());
+        let only_ours = group.iter().filter(|(_, ours)| *ours);
+        let only_theirs = group.iter().filter(|(_, ours)| !*ours);
+        if only_ours.clone().next().is_some() && only_theirs.clone().next().is_some() {
+            let side = |ours: bool| {
+                let picked: Vec<&Hunk> = group.iter().filter(|(_, o)| *o == ours).map(|(h, _)| h).collect();
+                apply(&base_lines, start, end, &picked)
+            };
+            marker(&mut out, &format!("<<<<<<< {ours_label}"));
+            section(&mut out, &side(true));
+            marker(&mut out, "||||||| base");
+            section(&mut out, &base_lines[start..end].concat());
+            marker(&mut out, "=======");
+            section(&mut out, &side(false));
+            marker(&mut out, &format!(">>>>>>> {theirs_label}"));
+        } else {
+            let picked: Vec<&Hunk> = group.iter().map(|(h, _)| h).collect();
+            out.push_str(&apply(&base_lines, start, end, &picked));
+        }
+        at = end;
+        ix = next;
+    }
+    out.push_str(&base_lines[at..].concat());
+    out
+}
+
+/// Merges a conflict whose sides touched different lines of `base`, line by line. `None` when
+/// both sides changed the same lines, so the choice has to stay with the user.
+pub fn auto_merge(base: &str, ours: &str, theirs: &str) -> Option<String> {
+    if ours == base || ours == theirs {
+        return Some(theirs.to_string());
+    }
+    if theirs == base {
+        return Some(ours.to_string());
+    }
+    let a = hunks(base, ours);
+    let b = hunks(base, theirs);
+    if a.iter().any(|(ra, _)| b.iter().any(|(rb, _)| collide(ra.clone(), rb))) {
+        return None;
+    }
+    let base_lines: Vec<&str> = base.split_inclusive('\n').collect();
+    let mut picked: Vec<&Hunk> = a.iter().chain(b.iter()).collect();
+    picked.sort_by_key(|(range, _)| (range.start, range.end));
+    Some(apply(&base_lines, 0, base_lines.len(), &picked))
 }
 
 #[cfg(test)]
@@ -1123,6 +1279,43 @@ mod tests {
         assert_eq!(left, 1);
         // Fewer choices than conflicts: the rest stay unresolved.
         assert_eq!(resolve_all(text, &[]).1, 2);
+    }
+
+    #[test]
+    fn merges_three_ways() {
+        let base = "a\nb\nc\nd\ne\nf\n";
+        // Disjoint edits are applied without a conflict block.
+        let ours = "a\nB\nc\nd\ne\nf\n";
+        let theirs = "a\nb\nc\nd\nE\nf\n";
+        assert_eq!(merge3(base, ours, theirs, "LOCAL", "REMOTE"), "a\nB\nc\nd\nE\nf\n");
+        // Overlapping edits keep all three sides.
+        let ours = "a\nb\nX\nd\ne\nf\n";
+        let theirs = "a\nb\nY\nd\ne\nf\n";
+        let merged = merge3(base, ours, theirs, "LOCAL", "REMOTE");
+        assert_eq!(merged, "a\nb\n<<<<<<< LOCAL\nX\n||||||| base\nc\n=======\nY\n>>>>>>> REMOTE\nd\ne\nf\n");
+        // Insertions at different places merge; the same place conflicts.
+        assert_eq!(merge3("a\nc\n", "a\nb\nc\n", "a\nc\nd\n", "L", "R"), "a\nb\nc\nd\n");
+        // An insertion inside a block the other side replaced is a conflict.
+        assert_eq!(
+            merge3("a\nb\nc\n", "a\nb\nNEW\nc\n", "a\nX\n", "L", "R"),
+            "a\n<<<<<<< L\nb\nNEW\nc\n||||||| base\nb\nc\n=======\nX\n>>>>>>> R\n"
+        );
+        // A file without a final newline still gets markers on their own lines.
+        let merged = merge3("x", "o", "t", "L", "R");
+        assert_eq!(merged, "<<<<<<< L\no\n||||||| base\nx\n=======\nt\n>>>>>>> R\n");
+        // One side untouched: the other side wins as is.
+        assert_eq!(merge3(base, ours, base, "L", "R"), ours);
+    }
+
+    #[test]
+    fn auto_merges_line_by_line() {
+        let base = "a\nb\nc\nd\n";
+        assert_eq!(auto_merge(base, "A\nb\nc\nd\n", "a\nb\nc\nD\n").as_deref(), Some("A\nb\nc\nD\n"));
+        assert_eq!(auto_merge(base, "a\nX\nc\nd\n", "a\nY\nc\nd\n"), None);
+        assert_eq!(auto_merge(base, base, "a\nB\nc\nd\n").as_deref(), Some("a\nB\nc\nd\n"));
+        assert_eq!(auto_merge(base, "a\nB\nc\nd\n", "a\nB\nc\nd\n").as_deref(), Some("a\nB\nc\nd\n"));
+        // An insertion inside a replaced block is a real conflict.
+        assert_eq!(auto_merge("a\nb\nc\n", "a\nb\nN\nc\n", "a\nX\n"), None);
     }
 
     #[test]

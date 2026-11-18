@@ -105,6 +105,10 @@ impl Workspace {
             cx.notify();
             return;
         }
+        let text = match self.intel.repo() {
+            Some(repo) => with_base(repo, path, text),
+            None => text,
+        };
         let dialog = cx.new(|cx| crate::dialogs::MergeDialog::new(path, text, window, cx));
         self.show_modal(dialog, window, cx);
     }
@@ -145,4 +149,21 @@ impl Workspace {
         self.refresh_git(cx);
         cx.notify();
     }
+}
+
+/// Rebuilds the conflict text with `|||||||` ancestor sections from the index stages, so the merge
+/// window can show BASE and merge single lines. The working file is kept when it no longer matches
+/// what git would produce — the user may have resolved some conflicts there by hand.
+fn with_base(repo: &git::Repo, path: &std::path::Path, text: String) -> String {
+    let Some(rel) = repo.relative(path) else { return text };
+    let Some((base, ours, theirs)) = repo.merge_stages(&rel) else { return text };
+    let rebuilt = git::merge3(&base, &ours, &theirs, "LOCAL", "REMOTE");
+    let old = git::conflicts(&text);
+    let new = git::conflicts(&rebuilt);
+    let same = old.len() == new.len()
+        && old
+            .iter()
+            .zip(&new)
+            .all(|(a, b)| text[a.ours.clone()] == rebuilt[b.ours.clone()] && text[a.theirs.clone()] == rebuilt[b.theirs.clone()]);
+    if same { rebuilt } else { text }
 }

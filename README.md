@@ -24,7 +24,7 @@
   statements into the target file, Move Class (F6) to another namespace with its references
 - **JS/TS & Vue**: go to declaration, find usages, rename and completion across ES modules, `@/` aliases, `require`, and the `<script>` blocks of Vue/Svelte components
 - **Laravel**: `route()`, `view()`, `config()`, Blade, Eloquent, facades, validation rules, Livewire, Filament, Inertia; 44 code generators (⇧⌘,)
-- **Git**: Commit window, side-by-side diff, three-pane merge window for conflicts, log with graph, branches, blame
+- **Git**: Commit window, side-by-side diff, three-way merge window for conflicts (common ancestor, line-level auto-merge), log with graph, branches, blame
 - **Database**: MySQL, MariaDB, PostgreSQL, SQLite; tables open as editable tabs
 - **Workspace**: project tabs, split editors, Search Everywhere, terminal, run configurations, Artisan,
   session restore (tabs, panes, carets), reload of files changed on disk, font zoom (⌘+ / ⌘− / ⌘+scroll),
