@@ -585,7 +585,7 @@ impl Workspace {
             return;
         }
         match event {
-            DialogEvent::Run { .. } | DialogEvent::EditRunConfigurations | DialogEvent::FileOp { .. } | DialogEvent::DataSourceSaved { .. } | DialogEvent::Confirmed(_) => {}
+            DialogEvent::Run { .. } | DialogEvent::RunAnything(_) | DialogEvent::EditRunConfigurations | DialogEvent::FileOp { .. } | DialogEvent::DataSourceSaved { .. } | DialogEvent::Confirmed(_) => {}
             DialogEvent::Dismiss => {
                 self.dismiss_modal(window, cx);
                 self.cancel_disk_ask(window, cx);

@@ -223,6 +223,7 @@ pub fn set(cx: &mut App) {
             cx,
             "Run",
             &[
+                Some(("Run Anything…", "workspace::RunAnything")),
                 Some(("Run…", "workspace::RunPopup")),
                 Some(("Rerun", "workspace::RunLast")),
                 Some(("Run Context Configuration", "workspace::RunContext")),

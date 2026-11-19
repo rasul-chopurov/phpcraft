@@ -133,6 +133,9 @@ pub struct Workspace {
     files_cache: Option<Arc<Vec<crate::dialogs::NavItem>>>,
     shift_clean: bool,
     last_shift_tap: Option<std::time::Instant>,
+    /// ⌃⌃ opens Run Anything, the same way ⇧⇧ opens Search Everywhere.
+    ctrl_clean: bool,
+    last_ctrl_tap: Option<std::time::Instant>,
     /// True while the saved session is being reopened (no saving back).
     restoring_session: bool,
     /// File stamps of the open tabs, to notice edits made outside PhpCraft.
@@ -223,6 +226,8 @@ impl Workspace {
             files_cache: None,
             shift_clean: false,
             last_shift_tap: None,
+            ctrl_clean: false,
+            last_ctrl_tap: None,
             restoring_session: false,
             disk: Default::default(),
             disk_asks: Vec::new(),
@@ -1224,6 +1229,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::new_terminal))
             .on_action(cx.listener(Self::close_terminal))
             .on_action(cx.listener(Self::run_popup))
+            .on_action(cx.listener(Self::run_anything))
             .on_action(cx.listener(Self::run_last))
             .on_action(cx.listener(Self::run_context))
             .on_action(cx.listener(Self::stop_run))

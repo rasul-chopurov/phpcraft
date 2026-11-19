@@ -6,13 +6,13 @@ use gpui::{Context, Entity, Focusable, SharedString, Subscription, Window, actio
 
 use super::Workspace;
 use super::tools::Output;
-use crate::dialogs::{DialogEvent, RunDialog};
-use crate::run_configs::{self, RunConfig};
+use crate::dialogs::{DialogEvent, RunAnythingDialog, RunDialog};
+use crate::run_configs::{self, Kind, RunConfig};
 use crate::terminal_view::{TerminalView, TerminalViewEvent};
 use crate::theme;
 use crate::i18n::tr;
 
-actions!(workspace, [ToggleTerminal, NewTerminal, CloseTerminal, RunPopup, RunLast, RunContext, StopRun, EditRunConfigurations]);
+actions!(workspace, [ToggleTerminal, NewTerminal, CloseTerminal, RunPopup, RunAnything, RunLast, RunContext, StopRun, EditRunConfigurations]);
 
 pub(super) struct TerminalTab {
     view: Entity<TerminalView>,
@@ -285,6 +285,38 @@ impl Workspace {
         self.show_modal(dialog, window, cx);
     }
 
+    pub(super) fn run_anything(&mut self, _: &RunAnything, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let saved = run_configs::load(&root);
+        let detected = run_configs::detect(&root);
+        let history = run_configs::history(&root);
+        let cached = self.artisan_commands.clone();
+        let dialog = cx.new(|cx| RunAnythingDialog::new(&root, saved, detected, history, cached, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// Runs a line typed into Run Anything: an Artisan command when it names one, else the shell.
+    pub(super) fn run_anything_line(&mut self, line: String, cx: &mut Context<Self>) {
+        let line = line.trim().to_string();
+        if line.is_empty() {
+            return;
+        }
+        let root = self.project.root().to_path_buf();
+        let _ = run_configs::record_history(&root, &line);
+        let first = line.split_whitespace().next().unwrap_or("").to_string();
+        let artisan = self
+            .artisan_commands
+            .as_ref()
+            .is_some_and(|list| list.iter().any(|c| c.name == first));
+        let kind = if artisan {
+            Kind::Artisan { command: line.clone() }
+        } else {
+            Kind::Shell { command: line.clone() }
+        };
+        let config = RunConfig { name: line, kind, env: Default::default() };
+        self.start_run(config, false, cx);
+    }
+
     pub(super) fn run_last(&mut self, _: &RunLast, window: &mut Window, cx: &mut Context<Self>) {
         match self.terminals.last_run.clone().or_else(|| run_configs::load(self.project.root()).into_iter().next()) {
             Some(config) => self.start_run(config, false, cx),
@@ -333,6 +365,12 @@ impl Workspace {
                 let (config, save) = (config.clone(), *save);
                 self.dismiss_modal(window, cx);
                 self.start_run(config, save, cx);
+                true
+            }
+            DialogEvent::RunAnything(line) => {
+                let line = line.clone();
+                self.dismiss_modal(window, cx);
+                self.run_anything_line(line, cx);
                 true
             }
             DialogEvent::EditRunConfigurations => {

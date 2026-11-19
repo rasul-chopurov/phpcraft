@@ -97,7 +97,8 @@ interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes
 Pull Requests (Git ▸ Pull Requests…: list, details, checkout, diff, comment via gh / glab),
 Xdebug debugger, Docker services, test runner with results and coverage, Composer menu, HTTP
 client (+ cURL / Postman / OpenAPI, history), database tools, SFTP deployment (auto upload),
-terminal, AI agents, settings sync and import (VS Code / Zed).
+terminal (Run Anything with ⌃⌃: configurations, Artisan, typed shell lines), AI agents, settings
+sync and import (VS Code / Zed).
 
 ## State at the last handoff (2026-11-01)
 
@@ -116,7 +117,7 @@ terminal, AI agents, settings sync and import (VS Code / Zed).
 ### Next steps: known gaps / ideas
 
 Structural Search & Replace,
-coverage needs Xdebug or PCOV in the user's project, Run Anything,
+coverage needs Xdebug or PCOV in the user's project,
 UI localization (`i18n.rs`, Russian: menus, tool windows, dialogs and panels are translated;
 crate-level messages and the About/What's New bodies are next), Mermaid in Markdown preview,
 DataGrip-level DB features (ER diagrams, explain, import/export), HTTP response preview,

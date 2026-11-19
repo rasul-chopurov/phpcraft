@@ -30,7 +30,8 @@ actions!(
     ]
 );
 
-const DOUBLE_SHIFT: Duration = Duration::from_millis(350);
+/// Two taps of the same modifier within this window open a popup.
+const DOUBLE_TAP: Duration = Duration::from_millis(350);
 const RECENT_LIMIT: usize = 30;
 
 impl Workspace {
@@ -85,6 +86,7 @@ impl Workspace {
             action("Go to File", "⇧⌘O", Box::new(GoToFile)),
             action("Go to Class", "⌘O", Box::new(GoToClass)),
             action("Go to Symbol", "⌥⌘O", Box::new(GoToSymbol)),
+            action("Run Anything…", "⌃⌃", Box::new(super::terminal_panel::RunAnything)),
             action("Recent Files", "⌘E", Box::new(RecentFiles)),
             action("Local History: Show History", "⌥⇧H", Box::new(ShowLocalHistory)),
             action("Go to Line", "⌘L", Box::new(GoToLine)),
@@ -363,7 +365,7 @@ impl Workspace {
         }
     }
 
-    /// ⇧⇧: two taps of Shift alone in quick succession.
+    /// ⇧⇧: two taps of Shift alone in quick succession; ⌃⌃ does the same for Run Anything.
     pub(super) fn on_modifiers(
         &mut self,
         event: &ModifiersChangedEvent,
@@ -371,16 +373,19 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         let m = event.modifiers;
-        let others = m.control || m.alt || m.platform || m.function;
-        if m.shift && !others {
+        if m.shift && !(m.control || m.alt || m.platform || m.function) {
             self.shift_clean = true;
             return;
         }
-        if !m.shift && !others && std::mem::take(&mut self.shift_clean) {
-            let now = Instant::now();
+        if m.control && !(m.shift || m.alt || m.platform || m.function) {
+            self.ctrl_clean = true;
+            return;
+        }
+        let now = Instant::now();
+        if !m.shift && !m.control && !m.alt && !m.platform && !m.function && std::mem::take(&mut self.shift_clean) {
             if self
                 .last_shift_tap
-                .is_some_and(|t| now.duration_since(t) < DOUBLE_SHIFT)
+                .is_some_and(|t| now.duration_since(t) < DOUBLE_TAP)
                 && self.modal.is_none()
             {
                 self.last_shift_tap = None;
@@ -391,10 +396,26 @@ impl Workspace {
         } else {
             self.shift_clean = false;
         }
+        if !m.shift && !m.control && !m.alt && !m.platform && !m.function && std::mem::take(&mut self.ctrl_clean) {
+            if self
+                .last_ctrl_tap
+                .is_some_and(|t| now.duration_since(t) < DOUBLE_TAP)
+                && self.modal.is_none()
+            {
+                self.last_ctrl_tap = None;
+                self.run_anything(&super::terminal_panel::RunAnything, window, cx);
+            } else {
+                self.last_ctrl_tap = Some(now);
+            }
+        } else {
+            self.ctrl_clean = false;
+        }
     }
 
     pub(super) fn on_any_key(&mut self) {
         self.shift_clean = false;
         self.last_shift_tap = None;
+        self.ctrl_clean = false;
+        self.last_ctrl_tap = None;
     }
 }

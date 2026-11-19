@@ -17,6 +17,7 @@ mod datasource;
 mod input;
 mod projects;
 mod run;
+mod run_anything;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -46,6 +47,7 @@ pub use datasource::DataSourceDialog;
 pub use input::{FileOp, InputDialog};
 pub use projects::{ProjectDialog, avatar, project_name, tilde};
 pub use run::RunDialog;
+pub use run_anything::RunAnythingDialog;
 
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
@@ -110,6 +112,8 @@ pub enum DialogEvent {
     CloneRepository { url: String, parent: std::path::PathBuf },
     /// Run a configuration; `save` stores it in `.phpcraft/run.json`.
     Run { config: crate::run_configs::RunConfig, save: bool },
+    /// Run Anything: a typed line, run as an Artisan command when it names one, else in the shell.
+    RunAnything(String),
     EditRunConfigurations,
     /// From [`InputDialog`]: `name` is empty for Delete.
     FileOp { op: FileOp, name: String },

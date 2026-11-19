@@ -53,6 +53,7 @@ const FIELD: Option<&str> = Some("TextField");
 const DIALOG: Option<&str> = Some("Dialog");
 const LIST: Option<&str> = Some("ListDialog");
 const ARTISAN: Option<&str> = Some("ArtisanDialog");
+const RUN_ANYTHING: Option<&str> = Some("RunAnythingDialog");
 const MENU: Option<&str> = Some("Editor && menu");
 const GHOST: Option<&str> = Some("Editor && ghost");
 const KEYMAP: Option<&str> = Some("KeymapDialog");
@@ -261,6 +262,8 @@ const DEFAULTS: &[Default] = &[
     per("cmd-w", "ctrl-shift-w", "workspace::CloseTerminal", Some("Terminal")),
     per("ctrl-r", "shift-f10", "workspace::RunLast", None),
     per("ctrl-alt-r", "alt-shift-f10", "workspace::RunPopup", None),
+    // Run Anything also opens on a double Ctrl tap; the binding makes it visible in the menu.
+    per("cmd-alt-enter", "ctrl-alt-enter", "workspace::RunAnything", None),
     both("ctrl-shift-f10", "workspace::RunContext", None),
     per("cmd-f2", "ctrl-f2", "workspace::StopRun", None),
     // Diff tab.
@@ -305,6 +308,11 @@ const DEFAULTS: &[Default] = &[
     both("escape", "dialog::Cancel", LIST),
     both("up", "dialog::SelectPrev", LIST),
     both("down", "dialog::SelectNext", LIST),
+    both("up", "dialog::SelectPrev", RUN_ANYTHING),
+    both("down", "dialog::SelectNext", RUN_ANYTHING),
+    both("enter", "dialog::Confirm", RUN_ANYTHING),
+    both("escape", "dialog::Cancel", RUN_ANYTHING),
+    both("tab", "dialog::Complete", RUN_ANYTHING),
     both("tab", "navigate::NextMode", Some("NavigateDialog")),
     both("shift-tab", "navigate::PrevMode", Some("NavigateDialog")),
     both("up", "dialog::SelectPrev", KEYMAP),

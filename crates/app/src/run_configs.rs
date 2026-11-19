@@ -51,6 +51,9 @@ struct File {
     configurations: Vec<RunConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     php: Option<String>,
+    /// Lines typed into Run Anything, newest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    history: Vec<String>,
 }
 
 pub fn file_path(root: &Path) -> PathBuf {
@@ -147,6 +150,24 @@ pub fn save(root: &Path, config: &RunConfig) -> std::io::Result<()> {
     write(root, &file)
 }
 
+/// Lines typed into Run Anything, newest first.
+pub fn history(root: &Path) -> Vec<String> {
+    read(root).history
+}
+
+/// Remembers a line Run Anything ran, without duplicates and capped at 30 entries.
+pub fn record_history(root: &Path, line: &str) -> std::io::Result<()> {
+    let line = line.trim();
+    if line.is_empty() {
+        return Ok(());
+    }
+    let mut file = read(root);
+    file.history.retain(|h| h != line);
+    file.history.insert(0, line.to_string());
+    file.history.truncate(30);
+    write(root, &file)
+}
+
 fn write(root: &Path, file: &File) -> std::io::Result<()> {
     let path = file_path(root);
     std::fs::create_dir_all(path.parent().unwrap())?;
@@ -157,7 +178,7 @@ fn write(root: &Path, file: &File) -> std::io::Result<()> {
 pub fn ensure_file(root: &Path) -> std::io::Result<PathBuf> {
     let path = file_path(root);
     if !path.exists() {
-        let file = File { configurations: detect(root).into_iter().take(3).collect(), php: None };
+        let file = File { configurations: detect(root).into_iter().take(3).collect(), php: None, history: Vec::new() };
         write(root, &file)?;
     }
     Ok(path)
@@ -340,7 +361,10 @@ mod tests {
     use super::*;
 
     fn project(files: &[(&str, &str)]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("phpcraft-run-{}-{}", std::process::id(), files.len()));
+        // A counter keeps the parallel tests off each other's directories.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let ix = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("phpcraft-run-{}-{ix}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for (path, content) in files {
             let path = dir.join(path);
@@ -373,6 +397,21 @@ mod tests {
         let saved = load(&root);
         assert_eq!(saved.len(), 1);
         assert_eq!(command(&saved[0], &root).args, ["artisan", "serve", "--port=8080"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn records_typed_lines_newest_first() {
+        let root = project(&[("artisan", "")]);
+        record_history(&root, "  migrate --seed  ").unwrap();
+        record_history(&root, "npm run dev").unwrap();
+        record_history(&root, "migrate --seed").unwrap();
+        assert_eq!(history(&root), ["migrate --seed", "npm run dev"]);
+        // The configurations file survives a history write.
+        save(&root, &RunConfig { name: "serve".into(), kind: Kind::Artisan { command: "serve".into() }, env: BTreeMap::new() }).unwrap();
+        record_history(&root, "php -v").unwrap();
+        assert_eq!(load(&root).len(), 1);
+        assert_eq!(history(&root).len(), 3);
         std::fs::remove_dir_all(root).unwrap();
     }
 
