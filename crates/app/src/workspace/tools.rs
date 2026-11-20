@@ -448,10 +448,10 @@ impl Workspace {
 
     pub(super) fn about(&mut self, _: &About, _: &mut Window, cx: &mut Context<Self>) {
         self.output = Some(Output {
-            title: "About".into(),
-            text: format!(
+            title: crate::i18n::tr("About").to_string(),
+            text: crate::i18n::trf(
                 "PhpCraft {} — a PHP & Laravel IDE in pure Rust.\nMade with ❤️ in Azerbaijan · https://path.az\nOpen source: https://github.com/rasul-chopurov/phpcraft",
-                env!("CARGO_PKG_VERSION")
+                &[env!("CARGO_PKG_VERSION")],
             ),
             running: false,
             ok: true,

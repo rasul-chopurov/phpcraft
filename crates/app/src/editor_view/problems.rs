@@ -34,6 +34,8 @@ impl EditorView {
                 severity: php_analysis::Severity::Error,
                 message: format!("Merge conflict: {} ↔ {} (⌥↵ to resolve)", conflict.ours_label, conflict.theirs_label),
                 id: "conflict",
+                template: "Merge conflict: {} ↔ {} (⌥↵ to resolve)",
+                params: vec![conflict.ours_label.clone(), conflict.theirs_label.clone()],
             });
         }
         if let Some((v, external)) = &self.external_problems
@@ -106,7 +108,7 @@ impl EditorView {
         };
         if let Some(problem) = target.cloned() {
             self.reveal_byte(problem.range.start, cx);
-            self.info = Some(Info::Message(problem.message));
+            self.info = Some(Info::Message(crate::i18n::problem(&problem).to_string()));
         }
     }
 

@@ -1,13 +1,18 @@
 //! Files changed on disk by git, Artisan, a deploy or another editor: clean buffers are
 //! reloaded, a buffer with unsaved edits asks before it is overwritten, a deleted file asks
-//! before its tab closes. Polled every two seconds while the window is active (gpui has no
-//! cross-platform file watcher here).
+//! before its tab closes.
+//!
+//! The platform watcher (FSEvents, ReadDirectoryChangesW, inotify) is registered on the
+//! folders of the open tabs only — a project's `vendor` and `node_modules` rarely hold a tab,
+//! so nothing watches a hundred thousand files. A stamp check on the reported path keeps a
+//! burst of events (a save is often a write, a rename and a chmod) down to one read.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use gpui::{AppContext, Context, Entity, Window};
+use gpui::{App, AppContext, Context, Entity, Window};
+use notify::{EventKind, RecursiveMode, Watcher};
 
 use super::Workspace;
 use crate::editor_view::EditorView;
@@ -48,19 +53,36 @@ fn stamp(path: &Path) -> Option<Stamp> {
 const RESCAN_AFTER: Duration = Duration::from_secs(5);
 
 impl Workspace {
-    /// Starts polling the files of open tabs and the expanded tree.
-    pub(crate) fn start_file_polling(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Watches the folders of the open tabs, and catches up on anything that happened while
+    /// the window was away from the front.
+    pub(crate) fn start_file_watching(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let handle = window.window_handle();
         self.check_disk(cx);
         self.show_disk_ask(window, cx);
-        self._file_poll = Some(cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_executor().timer(Duration::from_secs(2)).await;
+
+        // Unbounded, so a storm of events never blocks the watcher's own thread.
+        let (events, incoming) = async_channel::unbounded::<Vec<PathBuf>>();
+        let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            let Ok(event) = event else { return };
+            // Reading a file is not a change; only writes, renames, creations and removals are.
+            if matches!(event.kind, EventKind::Access(_)) || event.paths.is_empty() {
+                return;
+            }
+            let _ = events.send_blocking(event.paths);
+        });
+        // Without a watcher the tabs still catch up whenever the window is activated.
+        let Ok(watcher) = watcher else { return };
+        self.file_watcher = Some(watcher);
+        self.watch_tab_dirs(cx);
+        self._file_watch = Some(cx.spawn(async move |this, cx| {
+            while let Ok(paths) = incoming.recv().await {
                 let alive = cx
                     .update_window(handle, |_, window, cx| {
                         this.update(cx, |this, cx| {
+                            // A tab opened since the last event brought a folder with it.
+                            this.watch_tab_dirs(cx);
+                            this.check_disk_paths(&paths, cx);
                             if this.window_active {
-                                this.check_disk(cx);
                                 this.show_disk_ask(window, cx);
                             }
                         })
@@ -74,6 +96,41 @@ impl Workspace {
         }));
     }
 
+    /// The folders holding an open tab.
+    fn tab_dirs(&self, cx: &App) -> HashSet<PathBuf> {
+        let mut dirs = HashSet::new();
+        for tab in self.all_tabs() {
+            if let Some(path) = tab.read(cx).buffer.path()
+                && let Some(dir) = path.parent()
+            {
+                dirs.insert(dir.to_path_buf());
+            }
+        }
+        dirs
+    }
+
+    /// Keeps the watched folders equal to the folders of the open tabs.
+    pub(super) fn watch_tab_dirs(&mut self, cx: &App) {
+        let dirs = self.tab_dirs(cx);
+        if dirs == self.watched_dirs {
+            return;
+        }
+        let added: Vec<PathBuf> = dirs.difference(&self.watched_dirs).cloned().collect();
+        let removed: Vec<PathBuf> = self.watched_dirs.difference(&dirs).cloned().collect();
+        if let Some(watcher) = self.file_watcher.as_mut() {
+            // Non-recursive: a folder that cannot be watched (a permission, a network share)
+            // only costs the events inside it.
+            for dir in &added {
+                let _ = watcher.watch(dir, RecursiveMode::NonRecursive);
+            }
+            for dir in &removed {
+                let _ = watcher.unwatch(dir);
+            }
+        }
+        self.watched_dirs = dirs;
+    }
+
+
     /// Every tab of every pane (the focused pane keeps its tabs in `tabs`).
     fn all_tabs(&self) -> Vec<Entity<EditorView>> {
         let mut tabs = self.tabs.clone();
@@ -85,11 +142,23 @@ impl Workspace {
 
     /// Reloads buffers whose file changed on disk, refreshes the tree, reindexes.
     pub(super) fn check_disk(&mut self, cx: &mut Context<Self>) {
+        self.check_disk_of(None, cx);
+    }
+
+    /// The same, for the files a watcher event named: the rest of the tabs did not move.
+    fn check_disk_paths(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        self.check_disk_of(Some(paths), cx);
+    }
+
+    fn check_disk_of(&mut self, only: Option<&[PathBuf]>, cx: &mut Context<Self>) {
         let mut stale = false;
         let mut reloads: Vec<(Entity<EditorView>, String)> = Vec::new();
         for tab in self.all_tabs() {
             let editor = tab.read(cx);
             let Some(path) = editor.buffer.path().map(|p| p.to_path_buf()) else { continue };
+            if only.is_some_and(|only| !only.iter().any(|changed| changed == &path)) {
+                continue;
+            }
             let now = stamp(&path);
             let known = match self.disk.get(&path) {
                 // First sight of a tab: remember the file as it is now.
@@ -102,22 +171,30 @@ impl Workspace {
             if known == now {
                 continue;
             }
-            self.disk.insert(path.clone(), now);
             // A file that vanished stays in its tab until the user says otherwise.
             if now.is_none() {
+                self.disk.insert(path.clone(), now);
                 self.ask_disk(Ask::Deleted { path });
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(&path) else { continue };
             if text == editor.buffer.text() {
+                self.disk.insert(path, now);
                 continue;
             }
             if editor.buffer.is_dirty() {
+                self.disk.insert(path.clone(), now);
                 self.ask_disk(Ask::Changed { path, text });
-            } else {
-                reloads.push((tab.clone(), text));
-                stale = true;
+                continue;
             }
+            // Half a file would be worse than a late reload: a save that is still writing
+            // changes the stamp again while we read.
+            if stamp(&path) != now {
+                continue;
+            }
+            self.disk.insert(path, now);
+            reloads.push((tab.clone(), text));
+            stale = true;
         }
         for (tab, text) in reloads {
             tab.update(cx, |editor, cx| editor.reload_from_disk(&text, cx));
@@ -197,11 +274,12 @@ impl Workspace {
         self.disk_asks.retain(|ask| ask.path() != path);
         self.disk_asked.remove(&path);
         if reload {
-            // The text the question was about, or a fresh read if it was queued before a save.
-            let text = match asked {
+            // Prefer what is on disk now: the question may have been queued a moment before
+            // the writer finished, and answering it must not restore half a file.
+            let text = std::fs::read_to_string(&path).ok().or(match asked {
                 Some(Ask::Changed { text, .. }) => Some(text),
-                _ => std::fs::read_to_string(&path).ok(),
-            };
+                _ => None,
+            });
             if let Some(text) = text {
                 self.disk.insert(path.clone(), stamp(&path));
                 for tab in self.all_tabs() {

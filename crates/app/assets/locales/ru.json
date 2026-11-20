@@ -668,6 +668,22 @@
     "Structural Replace": "Структурная замена",
     "Replacing by structure…": "Структурная замена…",
     "Replaced {} occurrence(s) in {} file(s).": "Заменено вхождений: {} в файлах: {}.",
-    "Structural replace failed: {}": "Структурная замена не удалась: {}"
+    "Structural replace failed: {}": "Структурная замена не удалась: {}",
+    "Typo: '{}'": "Опечатка: '{}'",
+    "Method '{}' not found in {}": "Метод '{}' не найден в {}",
+    "Property '{}' not found in {}": "Свойство '{}' отсутствует в {}",
+    "'{}' expects at least {} argument(s), {} given": "'{}' ожидает минимум {} аргументов, передано {}",
+    "'{}' expects at most {} argument(s), {} given": "'{}' ожидает не больше {} аргументов, передано {}",
+    "Undefined function '{}'": "Неизвестная функция '{}'",
+    "Unreachable statement": "Недостижимый код",
+    "Duplicate array key '{}'": "Повторяющийся ключ массива: '{}'",
+    "Unused local variable '{}'": "Неиспользуемая локальная переменная '{}'",
+    "Undefined variable '{}'": "Неизвестная переменная '{}'",
+    "Missing return statement": "Отсутствует оператор return",
+    "Unused private method '{}'": "Неиспользуемый приватный метод '{}'",
+    "Unused private property '{}'": "Неиспользуемое приватное свойство '{}'",
+    "Unused import '{}'": "Неиспользуемый импорт: '{}'",
+    "Merge conflict: {} ↔ {} (⌥↵ to resolve)": "Конфликт слияния: {} ↔ {} (⌥↵ — разрешить)",
+    "PhpCraft {} — a PHP & Laravel IDE in pure Rust.\nMade with ❤️ in Azerbaijan · https://path.az\nOpen source: https://github.com/rasul-chopurov/phpcraft": "PhpCraft {} — IDE для PHP и Laravel на чистом Rust.\nСделано с ❤️ в Азербайджане · https://path.az\nОткрытый код: https://github.com/rasul-chopurov/phpcraft"
   }
 }

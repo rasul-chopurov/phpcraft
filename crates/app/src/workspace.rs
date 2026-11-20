@@ -146,7 +146,11 @@ pub struct Workspace {
     disk_asked: std::collections::HashSet<std::path::PathBuf>,
     /// The question on screen, put back if it is cancelled.
     disk_current: Option<external::Ask>,
-    _file_poll: Option<gpui::Task<()>>,
+    /// Platform file watcher over the folders of the open tabs.
+    file_watcher: Option<notify::RecommendedWatcher>,
+    /// Folders currently handed to the watcher.
+    watched_dirs: std::collections::HashSet<std::path::PathBuf>,
+    _file_watch: Option<gpui::Task<()>>,
     /// When the index was last rebuilt after an external change.
     last_disk_scan: Option<std::time::Instant>,
 }
@@ -169,6 +173,9 @@ impl Workspace {
             // Git status is polled only while the window is active; catch up on return.
             if this.window_active {
                 this.refresh_git(cx);
+                // Anything that changed while the window was away is looked at on return.
+                this.check_disk(cx);
+                this.show_disk_ask(window, cx);
             }
             if !window.is_window_active()
                 && crate::config::Settings::load_cached().auto_save != crate::config::AutoSave::Off
@@ -233,7 +240,9 @@ impl Workspace {
             disk_asks: Vec::new(),
             disk_asked: Default::default(),
             disk_current: None,
-            _file_poll: None,
+            file_watcher: None,
+            watched_dirs: Default::default(),
+            _file_watch: None,
             last_disk_scan: None,
             project,
             rows,
@@ -300,6 +309,8 @@ impl Workspace {
         });
         cx.observe(&editor, |_, _, cx| cx.notify()).detach();
         self.tabs.push(editor);
+        // A tab in a folder nobody watched yet: the watcher takes the folder with it.
+        self.watch_tab_dirs(cx);
         self.activate(self.tabs.len() - 1, window, cx);
     }
 

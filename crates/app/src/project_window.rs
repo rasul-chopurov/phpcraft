@@ -24,7 +24,7 @@ pub fn new_workspace(root: &Path, window: &mut Window, cx: &mut gpui::App) -> an
         let mut workspace = Workspace::new(project, window, cx);
         workspace.restore_session(window, cx);
         workspace.start_git_polling(cx);
-        workspace.start_file_polling(window, cx);
+        workspace.start_file_watching(window, cx);
         workspace
     }))
 }

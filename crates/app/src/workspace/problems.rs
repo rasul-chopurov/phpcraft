@@ -29,7 +29,7 @@ impl Workspace {
                 let line = text[..problem.range.start.min(text.len())].matches('\n').count() + 1;
                 let file = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
                 NavItem {
-                    label: problem.message,
+                    label: crate::i18n::problem(&problem).to_string(),
                     detail: format!("{file}:{line}"),
                     icon: icon(problem.severity),
                     target: NavTarget::Location(php_index::Location { path, range: problem.range }),

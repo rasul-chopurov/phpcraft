@@ -22,9 +22,15 @@ pub enum Severity {
 pub struct Problem {
     pub range: Range<usize>,
     pub severity: Severity,
+    /// The English sentence: `template` with `params` already filled in.
     pub message: String,
     /// Stable name of the inspection (`undefined-method`, `unused-variable`…).
     pub id: &'static str,
+    /// The English wording, holes and all, so the app can translate it into the user's
+    /// language with its own word order and fill `params` back in.
+    pub template: &'static str,
+    /// The values `message` was built from, in the order the holes appear.
+    pub params: Vec<String>,
 }
 
 /// Built-in functions of the PHP runtime (lowercase). Empty when unknown: then undefined
@@ -69,7 +75,7 @@ pub fn typos(doc: &Document, dict: &spell::Dictionary) -> Vec<Problem> {
         if matches!(node.kind(), "comment" | "string_content" | "nowdoc_string") {
             let start = node.start_byte();
             for typo in dict.check(doc.text(node)) {
-                out.push(problem(start + typo.range.start..start + typo.range.end, Severity::Weak, "typo", format!("Typo: '{}'", typo.word)));
+                out.push(problem(start + typo.range.start..start + typo.range.end, Severity::Weak, "typo", "Typo: '{}'", &[&typo.word]));
             }
         }
         true
@@ -77,8 +83,21 @@ pub fn typos(doc: &Document, dict: &spell::Dictionary) -> Vec<Problem> {
     out
 }
 
-fn problem(range: Range<usize>, severity: Severity, id: &'static str, message: String) -> Problem {
-    Problem { range, severity, message, id }
+fn problem(range: Range<usize>, severity: Severity, id: &'static str, template: &'static str, params: &[&str]) -> Problem {
+    Problem { range, severity, message: fill(template, params), id, template, params: params.iter().map(|p| (*p).to_string()).collect() }
+}
+
+/// Puts `params` into the `{}` holes left to right — the order the English sentence and every
+/// translation of it are written in.
+pub(crate) fn fill(template: &str, params: &[&str]) -> String {
+    let mut out = template.to_string();
+    for param in params {
+        match out.find("{}") {
+            Some(at) => out.replace_range(at..at + 2, param),
+            None => break,
+        }
+    }
+    out
 }
 
 /// Whether members of `class` can't be checked: magic method `magic`, mixins, facades
@@ -122,7 +141,7 @@ fn undefined_member(doc: &Document, index: &Index, node: Node, call: bool, out: 
         Some(_) => {}
         None if !has_magic(index, &class, magic) => {
             let short = class.rsplit('\\').next().unwrap_or(&class);
-            out.push(problem(name.byte_range(), Severity::Warning, if call { "undefined-method" } else { "undefined-property" }, format!("{} '{text}' not found in {short}", if call { "Method" } else { "Property" })));
+            out.push(problem(name.byte_range(), Severity::Warning, if call { "undefined-method" } else { "undefined-property" }, if call { "Method '{}' not found in {}" } else { "Property '{}' not found in {}" }, &[text, short]));
         }
         None => {}
     }
@@ -143,7 +162,7 @@ fn undefined_static(doc: &Document, index: &Index, node: Node, out: &mut Vec<Pro
         Some(_) => {}
         None if !has_magic(index, &class, "__callStatic") && !has_magic(index, &class, "__call") => {
             let short = class.rsplit('\\').next().unwrap_or(&class);
-            out.push(problem(name.byte_range(), Severity::Warning, "undefined-method", format!("Method '{text}' not found in {short}")));
+            out.push(problem(name.byte_range(), Severity::Warning, "undefined-method", "Method '{}' not found in {}", &[text, short]));
         }
         None => {}
     }
@@ -202,9 +221,9 @@ fn check_arguments(doc: &Document, call: Node, signature: &str, name: &str, out:
     let Some((required, max)) = arity(signature) else { return };
     let given = list.len();
     if given < required {
-        out.push(problem(args.byte_range(), Severity::Error, "argument-count", format!("'{name}' expects at least {required} argument(s), {given} given")));
+        out.push(problem(args.byte_range(), Severity::Error, "argument-count", "'{}' expects at least {} argument(s), {} given", &[name, &required.to_string(), &given.to_string()]));
     } else if max.is_some_and(|m| given > m) {
-        out.push(problem(args.byte_range(), Severity::Error, "argument-count", format!("'{name}' expects at most {} argument(s), {given} given", max.unwrap_or(0))));
+        out.push(problem(args.byte_range(), Severity::Error, "argument-count", "'{}' expects at most {} argument(s), {} given", &[name, &max.unwrap_or(0).to_string(), &given.to_string()]));
     }
 }
 
@@ -220,7 +239,7 @@ fn function_call(doc: &Document, index: &Index, builtins: &Builtins, node: Node,
         None => {
             let short = name.rsplit('\\').next().unwrap_or(name).to_lowercase();
             if !builtins.functions.is_empty() && !builtins.functions.contains(&short) {
-                out.push(problem(function.byte_range(), Severity::Error, "undefined-function", format!("Undefined function '{name}'")));
+                out.push(problem(function.byte_range(), Severity::Error, "undefined-function", "Undefined function '{}'", &[name]));
             }
         }
     }
@@ -236,7 +255,7 @@ fn unreachable(doc: &Document, block: Node, out: &mut Vec<Problem>) {
             || (statement.kind() == "expression_statement" && (text.starts_with("throw ") || text.starts_with("exit") || text.starts_with("die")));
         if terminal && let Some(next) = statements.get(i + 1) {
             let last = statements.last().unwrap();
-            out.push(problem(next.start_byte()..last.end_byte(), Severity::Warning, "unreachable-code", "Unreachable statement".into()));
+            out.push(problem(next.start_byte()..last.end_byte(), Severity::Warning, "unreachable-code", "Unreachable statement", &[]));
             return;
         }
     }
@@ -251,7 +270,7 @@ fn duplicate_keys(doc: &Document, array: Node, out: &mut Vec<Problem>) {
         if parts.len() == 2 && matches!(parts[0].kind(), "string" | "encapsed_string" | "integer") {
             let key = doc.text(parts[0]).trim_matches(['\'', '"']).to_string();
             if !seen.insert(key.clone()) {
-                out.push(problem(parts[0].byte_range(), Severity::Warning, "duplicate-key", format!("Duplicate array key '{key}'")));
+                out.push(problem(parts[0].byte_range(), Severity::Warning, "duplicate-key", "Duplicate array key '{}'", &[&key]));
             }
         }
     }
@@ -357,14 +376,14 @@ fn function_body(doc: &Document, function: Node, out: &mut Vec<Problem>) {
     for (name, ranges) in &writes {
         if !reads.contains_key(name) && !params.contains(name) {
             for r in ranges {
-                out.push(problem(r.clone(), Severity::Weak, "unused-variable", format!("Unused local variable '{name}'")));
+                out.push(problem(r.clone(), Severity::Weak, "unused-variable", "Unused local variable '{}'", &[name]));
             }
         }
     }
     for (name, ranges) in &reads {
         if !writes.contains_key(name) && !params.contains(name) && !matches!(name.as_str(), "$_GET" | "$_POST" | "$_SERVER" | "$_SESSION" | "$_COOKIE" | "$_FILES" | "$_REQUEST" | "$_ENV" | "$GLOBALS" | "$argv" | "$argc" | "$http_response_header") {
             for r in ranges {
-                out.push(problem(r.clone(), Severity::Warning, "undefined-variable", format!("Undefined variable '{name}'")));
+                out.push(problem(r.clone(), Severity::Warning, "undefined-variable", "Undefined variable '{}'", &[name]));
             }
         }
     }
@@ -385,7 +404,7 @@ fn missing_return(doc: &Document, function: Node, out: &mut Vec<Problem>) {
         }
     });
     if !returns && let Some(name) = function.child_by_field_name("name") {
-        out.push(problem(name.byte_range(), Severity::Warning, "missing-return", "Missing return statement".into()));
+        out.push(problem(name.byte_range(), Severity::Warning, "missing-return", "Missing return statement", &[]));
     }
 }
 
@@ -419,7 +438,7 @@ fn unused_private(doc: &Document, class: Node, out: &mut Vec<Problem>) {
             }).count();
             if uses <= 1 {
                 let what = if member.kind() == "method_declaration" { "method" } else { "property" };
-                out.push(problem(range, Severity::Weak, "unused-private", format!("Unused private {what} '{name}'")));
+                out.push(problem(range, Severity::Weak, "unused-private", if what == "method" { "Unused private method '{}'" } else { "Unused private property '{}'" }, &[&name]));
             }
         }
     }
@@ -429,7 +448,7 @@ fn unused_imports(doc: &Document, out: &mut Vec<Problem>) {
     let used = crate::imports::used_names(doc);
     for item in &doc.symbols.uses {
         if !used.contains(&item.alias.to_ascii_lowercase()) {
-            out.push(problem(item.decl_range.clone(), Severity::Weak, "unused-import", format!("Unused import '{}'", item.fqn)));
+            out.push(problem(item.decl_range.clone(), Severity::Weak, "unused-import", "Unused import '{}'", &[&item.fqn]));
         }
     }
 }

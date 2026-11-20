@@ -333,12 +333,12 @@ impl EditorView {
             items.push(MenuItem::new(label, "", "⇆", MenuAction::Edits(edits)));
         }
         if !items.is_empty() {
-            items.push(MenuItem::new("Merge conflicts in a three-pane window…", "", "⇄", MenuAction::Run("editor::MergeConflicts")));
+            items.push(MenuItem::new(crate::i18n::tr("Merge conflicts in a three-pane window…"), "", "⇄", MenuAction::Run("editor::MergeConflicts")));
         }
         let path = self.path();
         let text = self.buffer.text();
         for problem in self.problems_at_caret().into_iter().filter(|p| p.id != "conflict") {
-            items.push(MenuItem::new(problem.message.clone(), "", "⚠", MenuAction::Nothing));
+            items.push(MenuItem::new(crate::i18n::problem(&problem), "", "⚠", MenuAction::Nothing));
             if problem.id == "unused-variable"
                 && let Some(path) = &path
                 && let Some(Some(fix)) = self.intel.with_doc(path, &text, |doc, _| php_analysis::remove_unused_variable(doc, problem.range.clone()))

@@ -99,6 +99,8 @@ impl EditorView {
                             severity: if f.minor { php_analysis::Severity::Weak } else { php_analysis::Severity::Warning },
                             message: format!("{}: {}", tool.name(), f.message),
                             id: "external",
+                            template: "{}: {}",
+                            params: vec![tool.name().to_string(), f.message.clone()],
                         }
                     })
                     .collect();

@@ -99,6 +99,13 @@ pub fn trf(english: &str, args: &[&str]) -> String {
     out
 }
 
+/// A problem reported by an analysis crate, in the user's language. The crate ships the
+/// English wording plus the values it filled in, so a translation is free to reorder them.
+pub(crate) fn problem(problem: &php_analysis::Problem) -> SharedString {
+    let params: Vec<&str> = problem.params.iter().map(String::as_str).collect();
+    trf(problem.template, &params).into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
