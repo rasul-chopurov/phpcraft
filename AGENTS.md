@@ -119,7 +119,7 @@ sync and import (VS Code / Zed).
 
 coverage needs Xdebug or PCOV in the user's project,
 UI localization (`i18n.rs`, Russian: menus, tool windows, dialogs and panels are translated;
-inspection messages travel as templates so the app translates them, About is translated;
-what's left is intention and quick-fix labels), Mermaid in Markdown preview,
+inspection messages and intention labels travel as templates so the app translates them, About
+is translated), Mermaid in Markdown preview,
 DataGrip-level DB features (ER diagrams, explain, import/export), HTTP response preview,
 PR review comments inline in the diff, JS type information / hover docs.

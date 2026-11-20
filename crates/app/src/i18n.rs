@@ -106,6 +106,13 @@ pub(crate) fn problem(problem: &php_analysis::Problem) -> SharedString {
     trf(problem.template, &params).into()
 }
 
+/// An intention action (⌥↵) in the user's language, built the same way as a problem: the
+/// analysis crate ships the English wording and the values it filled in.
+pub(crate) fn intention(intention: &php_analysis::Intention) -> SharedString {
+    let params: Vec<&str> = intention.params.iter().map(String::as_str).collect();
+    trf(intention.template, &params).into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

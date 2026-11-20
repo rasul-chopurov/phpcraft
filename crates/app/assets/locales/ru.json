@@ -684,6 +684,23 @@
     "Unused private property '{}'": "Неиспользуемое приватное свойство '{}'",
     "Unused import '{}'": "Неиспользуемый импорт: '{}'",
     "Merge conflict: {} ↔ {} (⌥↵ to resolve)": "Конфликт слияния: {} ↔ {} (⌥↵ — разрешить)",
-    "PhpCraft {} — a PHP & Laravel IDE in pure Rust.\nMade with ❤️ in Azerbaijan · https://path.az\nOpen source: https://github.com/rasul-chopurov/phpcraft": "PhpCraft {} — IDE для PHP и Laravel на чистом Rust.\nСделано с ❤️ в Азербайджане · https://path.az\nОткрытый код: https://github.com/rasul-chopurov/phpcraft"
+    "PhpCraft {} — a PHP & Laravel IDE in pure Rust.\nMade with ❤️ in Azerbaijan · https://path.az\nOpen source: https://github.com/rasul-chopurov/phpcraft": "PhpCraft {} — IDE для PHP и Laravel на чистом Rust.\nСделано с ❤️ в Азербайджане · https://path.az\nОткрытый код: https://github.com/rasul-chopurov/phpcraft",
+    "Replace quotes": "Заменить кавычки",
+    "Replace concatenation with interpolation": "Заменить конкатенацию интерполяцией",
+    "Flip '{}'": "Перевернуть '{}'",
+    "Convert to short array syntax": "Короткий синтаксис массива",
+    "Convert to long array syntax": "Длинный синтаксис массива",
+    "Convert to closure": "Преобразовать в замыкание",
+    "Convert to arrow function": "Преобразовать в arrow-функцию",
+    "Make {}": "Сделать {}",
+    "Replace with '{}'": "Заменить на '{}'",
+    "Invert 'if' condition": "Инвертировать условие 'if'",
+    "Import class '{}'": "Импортировать класс '{}'",
+    "Remove unused variable '{}'": "Удалить неиспользуемую переменную '{}'",
+    "Inject {} instead of the {} facade": "Внедрить {} вместо фасада {}",
+    "Convert validation rules to an array": "Правила валидации в массив",
+    "Convert to a #[Scope] method": "Преобразовать в метод #[Scope]",
+    "Change to '{}'": "Заменить на '{}'",
+    "Save '{}' to project dictionary": "Сохранить '{}' в словарь проекта"
   }
 }

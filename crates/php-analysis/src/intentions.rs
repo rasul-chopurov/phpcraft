@@ -7,8 +7,26 @@ use crate::{Document, TextEdit};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Intention {
+    /// The English label: `template` with its `params` filled in.
     pub label: String,
+    /// The English wording, holes and all, so the app can translate it into the user's
+    /// language with its own word order and fill `params` back in.
+    pub template: &'static str,
+    /// The values `label` was built from, in the order the holes appear.
+    pub params: Vec<String>,
     pub edits: Vec<TextEdit>,
+}
+
+impl Intention {
+    /// An intention whose label is `template` with `params` in its holes.
+    pub fn new(template: &'static str, params: &[&str], edits: Vec<TextEdit>) -> Intention {
+        Intention {
+            label: crate::fill_template(template, params),
+            template,
+            params: params.iter().map(|p| (*p).to_string()).collect(),
+            edits,
+        }
+    }
 }
 
 fn edit(node: Node, text: String) -> TextEdit {
@@ -63,12 +81,12 @@ fn quotes(doc: &Document, node: Node, out: &mut Vec<Intention>) {
     let text = doc.text(node);
     if let Some(inner) = text.strip_prefix('\'').and_then(|t| t.strip_suffix('\'')) {
         if !inner.contains(['"', '$', '\\']) {
-            out.push(Intention { label: "Replace quotes".into(), edits: vec![edit(node, format!("\"{inner}\""))] });
+            out.push(Intention::new("Replace quotes", &[], vec![edit(node, format!("\"{inner}\""))]));
         }
     } else if let Some(inner) = text.strip_prefix('"').and_then(|t| t.strip_suffix('"'))
         && !inner.contains(['\'', '$', '\\', '{'])
     {
-        out.push(Intention { label: "Replace quotes".into(), edits: vec![edit(node, format!("'{inner}'"))] });
+        out.push(Intention::new("Replace quotes", &[], vec![edit(node, format!("'{inner}'"))]));
     }
 }
 
@@ -103,7 +121,7 @@ fn concatenation(doc: &Document, node: Node, out: &mut Vec<Intention>) {
         }
     }
     text.push('"');
-    out.push(Intention { label: "Replace concatenation with interpolation".into(), edits: vec![edit(node, text)] });
+    out.push(Intention::new("Replace concatenation with interpolation", &[], vec![edit(node, text)]));
 }
 
 /// `a == b` → `b == a` (and `<` ↔ `>`).
@@ -117,15 +135,15 @@ fn flip(doc: &Document, node: Node, out: &mut Vec<Intention>) {
         ">=" => "<=".into(),
         _ => return,
     };
-    out.push(Intention { label: format!("Flip '{}'", doc.text(op)), edits: vec![edit(node, format!("{} {flipped} {}", doc.text(r), doc.text(l)))] });
+    out.push(Intention::new("Flip '{}'", &[doc.text(op)], vec![edit(node, format!("{} {flipped} {}", doc.text(r), doc.text(l)))]));
 }
 
 fn array_syntax(doc: &Document, node: Node, out: &mut Vec<Intention>) {
     let text = doc.text(node);
     if let Some(rest) = text.strip_prefix("array(").or_else(|| text.strip_prefix("array (")).and_then(|t| t.strip_suffix(')')) {
-        out.push(Intention { label: "Convert to short array syntax".into(), edits: vec![edit(node, format!("[{rest}]"))] });
+        out.push(Intention::new("Convert to short array syntax", &[], vec![edit(node, format!("[{rest}]"))]));
     } else if let Some(rest) = text.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
-        out.push(Intention { label: "Convert to long array syntax".into(), edits: vec![edit(node, format!("array({rest})"))] });
+        out.push(Intention::new("Convert to long array syntax", &[], vec![edit(node, format!("array({rest})"))]));
     }
 }
 
@@ -165,7 +183,7 @@ fn arrow_to_closure(doc: &Document, node: Node, out: &mut Vec<Intention>) {
     let uses = if free.is_empty() { String::new() } else { format!(" use ({})", free.join(", ")) };
     let is_static = doc.text(node).starts_with("static");
     let text = format!("{}function {}{uses}{ret} {{ return {}; }}", if is_static { "static " } else { "" }, doc.text(params), doc.text(body));
-    out.push(Intention { label: "Convert to closure".into(), edits: vec![edit(node, text)] });
+    out.push(Intention::new("Convert to closure", &[], vec![edit(node, text)]));
 }
 
 /// A closure that only returns an expression → `fn(...) => expr`.
@@ -180,7 +198,7 @@ fn closure_to_arrow(doc: &Document, node: Node, out: &mut Vec<Intention>) {
     let Some(value) = statement.named_child(0) else { return };
     let ret = node.child_by_field_name("return_type").map(|r| format!(": {}", doc.text(r))).unwrap_or_default();
     let text = format!("fn{}{ret} => {}", doc.text(params), doc.text(value));
-    out.push(Intention { label: "Convert to arrow function".into(), edits: vec![edit(node, text)] });
+    out.push(Intention::new("Convert to arrow function", &[], vec![edit(node, text)]));
 }
 
 fn visibility(doc: &Document, node: Node, offset: usize, out: &mut Vec<Intention>) {
@@ -200,19 +218,19 @@ fn visibility(doc: &Document, node: Node, offset: usize, out: &mut Vec<Intention
             Some(m) => vec![edit(m, target.to_string())],
             None => vec![TextEdit { range: node.start_byte()..node.start_byte(), text: format!("{target} ") }],
         };
-        out.push(Intention { label: format!("Make {target}"), edits });
+        out.push(Intention::new("Make {}", &[target], edits));
     }
 }
 
 fn nullable(doc: &Document, node: Node, out: &mut Vec<Intention>) {
     let text = doc.text(node);
     if let Some(inner) = text.strip_prefix('?') {
-        out.push(Intention { label: format!("Replace with '{inner}|null'"), edits: vec![edit(node, format!("{inner}|null"))] });
+        out.push(Intention::new("Replace with '{}'", &[&format!("{inner}|null")], vec![edit(node, format!("{inner}|null"))]));
     } else {
         let parts: Vec<&str> = text.split('|').map(str::trim).collect();
         if parts.len() == 2 && parts.iter().any(|p| p.eq_ignore_ascii_case("null")) {
             let other = parts.iter().find(|p| !p.eq_ignore_ascii_case("null")).unwrap();
-            out.push(Intention { label: format!("Replace with '?{other}'"), edits: vec![edit(node, format!("?{other}"))] });
+            out.push(Intention::new("Replace with '{}'", &[&format!("?{other}")], vec![edit(node, format!("?{other}"))]));
         }
     }
 }
@@ -233,7 +251,7 @@ fn invert_if(doc: &Document, node: Node, out: &mut Vec<Intention>) {
     };
     let else_body = clauses.first().and_then(|c| c.child_by_field_name("body")).map(|b| doc.text(b).to_string()).unwrap_or_else(|| "{\n}".into());
     let text = format!("if ({negated}) {else_body} else {}", doc.text(body));
-    out.push(Intention { label: "Invert 'if' condition".into(), edits: vec![edit(node, text)] });
+    out.push(Intention::new("Invert 'if' condition", &[], vec![edit(node, text)]));
 }
 
 /// `\App\Models\User` in code → `User` plus `use App\Models\User;`.
@@ -249,7 +267,7 @@ fn import_fqn(doc: &Document, node: Node, out: &mut Vec<Intention>) {
         let Some(import) = crate::import_edit(doc, fqn) else { return };
         edits.push(import);
     }
-    out.push(Intention { label: format!("Import class '{short}'"), edits });
+    out.push(Intention::new("Import class '{}'", &[short], edits));
 }
 
 /// Remove an unused variable's assignment, keeping a call on the right side for its effects.
@@ -266,7 +284,7 @@ pub fn remove_unused_variable(doc: &Document, range: std::ops::Range<usize>) -> 
     } else {
         vec![TextEdit { range: assignment.byte_range(), text: doc.text(value).to_string() }]
     };
-    Some(Intention { label: format!("Remove unused variable '{}'", doc.text(var)), edits })
+    Some(Intention::new("Remove unused variable '{}'", &[doc.text(var)], edits))
 }
 
 #[cfg(test)]

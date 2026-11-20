@@ -8,6 +8,7 @@ use php_index::{Index, MemberKind};
 use tree_sitter::Node;
 
 use crate::Document;
+use crate::fill_template;
 use crate::types::{is_function_like, scope_class, type_of, visit};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -84,20 +85,7 @@ pub fn typos(doc: &Document, dict: &spell::Dictionary) -> Vec<Problem> {
 }
 
 fn problem(range: Range<usize>, severity: Severity, id: &'static str, template: &'static str, params: &[&str]) -> Problem {
-    Problem { range, severity, message: fill(template, params), id, template, params: params.iter().map(|p| (*p).to_string()).collect() }
-}
-
-/// Puts `params` into the `{}` holes left to right — the order the English sentence and every
-/// translation of it are written in.
-pub(crate) fn fill(template: &str, params: &[&str]) -> String {
-    let mut out = template.to_string();
-    for param in params {
-        match out.find("{}") {
-            Some(at) => out.replace_range(at..at + 2, param),
-            None => break,
-        }
-    }
-    out
+    Problem { range, severity, message: fill_template(template, params), id, template, params: params.iter().map(|p| (*p).to_string()).collect() }
 }
 
 /// Whether members of `class` can't be checked: magic method `magic`, mixins, facades

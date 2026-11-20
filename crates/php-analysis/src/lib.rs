@@ -38,6 +38,19 @@ pub use imports::{
     paste_edits, unresolved_classes, used_imports,
 };
 
+/// Fills the `{}` holes of `template` with `params`, left to right. Inspection and
+/// intention texts keep the template so the app can translate them into another word order.
+pub(crate) fn fill_template(template: &str, params: &[&str]) -> String {
+    let mut out = template.to_string();
+    for param in params {
+        match out.find("{}") {
+            Some(at) => out.replace_range(at..at + 2, param),
+            None => break,
+        }
+    }
+    out
+}
+
 /// A parsed file plus its declarations and name context.
 pub struct Document<'a> {
     pub path: &'a Path,

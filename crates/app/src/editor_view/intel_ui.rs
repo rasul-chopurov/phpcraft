@@ -343,14 +343,16 @@ impl EditorView {
                 && let Some(path) = &path
                 && let Some(Some(fix)) = self.intel.with_doc(path, &text, |doc, _| php_analysis::remove_unused_variable(doc, problem.range.clone()))
             {
-                items.push(MenuItem::new(fix.label, "", "💡", MenuAction::Edits(fix.edits.into_iter().map(|e| (e.range, e.text)).collect())));
+                let label = crate::i18n::intention(&fix);
+                items.push(MenuItem::new(label, "", "💡", MenuAction::Edits(fix.edits.into_iter().map(|e| (e.range, e.text)).collect())));
             }
             if problem.id == "typo" {
                 let word = text[problem.range.clone()].to_string();
                 for fix in self.intel.spelling_suggestions(&word) {
-                    items.push(MenuItem::new(format!("Change to '{fix}'"), "", "💡", MenuAction::Edits(vec![(problem.range.clone(), fix)])));
+                    items.push(MenuItem::new(crate::i18n::trf("Change to '{}'", &[&fix]), "", "💡", MenuAction::Edits(vec![(problem.range.clone(), fix)])));
                 }
-                items.push(MenuItem::new(format!("Save '{}' to project dictionary", word.to_lowercase()), "", "💡", MenuAction::SaveWord(word)));
+                let word_key = word.to_lowercase();
+                items.push(MenuItem::new(crate::i18n::trf("Save '{}' to project dictionary", &[&word_key]), "", "💡", MenuAction::SaveWord(word)));
             }
         }
         if self.buffer.is_php()
@@ -368,7 +370,8 @@ impl EditorView {
                 })
                 .unwrap_or_default();
             for intention in found {
-                items.push(MenuItem::new(intention.label, "", "💡", MenuAction::Edits(intention.edits.into_iter().map(|e| (e.range, e.text)).collect())));
+                let label = crate::i18n::intention(&intention);
+                items.push(MenuItem::new(label, "", "💡", MenuAction::Edits(intention.edits.into_iter().map(|e| (e.range, e.text)).collect())));
             }
         }
         let unresolved = self.current_diagnostics().to_vec();

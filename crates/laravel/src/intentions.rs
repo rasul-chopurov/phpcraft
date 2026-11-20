@@ -97,7 +97,7 @@ fn facade_to_injection(doc: &Document, offset: usize, out: &mut Vec<Intention>) 
     if let Some(import) = php_analysis::import_edit(doc, contract) {
         edits.push(import);
     }
-    out.push(Intention { label: format!("Inject {contract_short} instead of the {facade} facade"), edits });
+    out.push(Intention::new("Inject {} instead of the {} facade", &[contract_short, facade], edits));
 }
 
 fn rules_to_array(doc: &Document, offset: usize, out: &mut Vec<Intention>) {
@@ -115,7 +115,7 @@ fn rules_to_array(doc: &Document, offset: usize, out: &mut Vec<Intention>) {
     }
     let quote = &text[..1];
     let items: Vec<String> = inner.split('|').map(|r| format!("{quote}{}{quote}", r.trim())).collect();
-    out.push(Intention { label: "Convert validation rules to an array".into(), edits: vec![TextEdit { range: string.byte_range(), text: format!("[{}]", items.join(", ")) }] });
+    out.push(Intention::new("Convert validation rules to an array", &[], vec![TextEdit { range: string.byte_range(), text: format!("[{}]", items.join(", ")) }]));
 }
 
 fn scope_to_attribute(doc: &Document, offset: usize, out: &mut Vec<Intention>) {
@@ -145,7 +145,7 @@ fn scope_to_attribute(doc: &Document, offset: usize, out: &mut Vec<Intention>) {
     if let Some(import) = php_analysis::import_edit(doc, "Illuminate\\Database\\Eloquent\\Attributes\\Scope") {
         edits.push(import);
     }
-    out.push(Intention { label: "Convert to a #[Scope] method".into(), edits });
+    out.push(Intention::new("Convert to a #[Scope] method", &[], edits));
 }
 
 /// Laravel intentions at `offset`.
