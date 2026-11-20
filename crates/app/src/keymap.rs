@@ -53,6 +53,7 @@ const FIELD: Option<&str> = Some("TextField");
 const DIALOG: Option<&str> = Some("Dialog");
 const LIST: Option<&str> = Some("ListDialog");
 const ARTISAN: Option<&str> = Some("ArtisanDialog");
+const STRUCTURAL: Option<&str> = Some("StructuralSearch");
 const RUN_ANYTHING: Option<&str> = Some("RunAnythingDialog");
 const MENU: Option<&str> = Some("Editor && menu");
 const GHOST: Option<&str> = Some("Editor && ghost");
@@ -194,6 +195,7 @@ const DEFAULTS: &[Default] = &[
     per("cmd-alt-left", "alt-left", "workspace::NavigateBack", None),
     both("secondary-shift-f", "workspace::FindInFiles", None),
     both("secondary-shift-r", "workspace::ReplaceInFiles", None),
+    per("cmd-alt-f", "ctrl-alt-f", "workspace::StructuralSearch", None),
     per("cmd-shift-o", "ctrl-shift-n", "workspace::GoToFile", None),
     per("cmd-o", "ctrl-n", "workspace::GoToClass", None),
     per(
@@ -304,6 +306,8 @@ const DEFAULTS: &[Default] = &[
     both("up", "dialog::SelectPrev", ARTISAN),
     both("down", "dialog::SelectNext", ARTISAN),
     both("tab", "dialog::Complete", ARTISAN),
+    both("up", "dialog::SelectPrev", STRUCTURAL),
+    both("down", "dialog::SelectNext", STRUCTURAL),
     both("enter", "dialog::Confirm", LIST),
     both("escape", "dialog::Cancel", LIST),
     both("up", "dialog::SelectPrev", LIST),

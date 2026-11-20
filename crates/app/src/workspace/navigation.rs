@@ -10,8 +10,10 @@ use php_index::Location;
 
 use super::Workspace;
 use super::tools::{NewModel, OpenArtisan, OpenMake, OpenRouteSearch};
+use crate::i18n::{tr, trf};
 use crate::dialogs::{
     FindInFilesDialog, GoToLineDialog, NavItem, NavMode, NavSources, NavTarget, NavigateDialog,
+    StructuralSearchDialog,
 };
 use crate::editor_view::{OptimizeImports, ShowFind, ShowReplace};
 
@@ -20,6 +22,7 @@ actions!(
     [
         FindInFiles,
         ReplaceInFiles,
+        StructuralSearch,
         SearchEverywhere,
         GoToFile,
         GoToClass,
@@ -64,6 +67,18 @@ impl Workspace {
         self.open_find_in_files(true, window, cx);
     }
 
+    pub(super) fn structural_search(
+        &mut self,
+        _: &StructuralSearch,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let root = self.project.root().to_path_buf();
+        let seed = self.selected_text(cx);
+        let dialog = cx.new(|cx| StructuralSearchDialog::new(&root, seed, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
     fn open_find_in_files(&mut self, replace: bool, window: &mut Window, cx: &mut Context<Self>) {
         let root = self.project.root().to_path_buf();
         let seed = self.selected_text(cx);
@@ -81,6 +96,7 @@ impl Workspace {
         vec![
             action("Find in Files", "⇧⌘F", Box::new(FindInFiles)),
             action("Replace in Files", "⇧⌘R", Box::new(ReplaceInFiles)),
+            action("Structural Search", "⌥⌘F", Box::new(StructuralSearch)),
             action("Find", "⌘F", Box::new(ShowFind)),
             action("Replace", "⌘R", Box::new(ShowReplace)),
             action("Go to File", "⇧⌘O", Box::new(GoToFile)),
@@ -344,6 +360,50 @@ impl Workspace {
                     text,
                     running: false,
                     ok: true,
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Structural replace over the files the dialog found hits in.
+    pub(super) fn run_structural_replace(
+        &mut self,
+        pattern: String,
+        replacement: String,
+        paths: Vec<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        crate::local_history::record_disk(&paths, "Before Structural Replace");
+        let task = self.begin_task("Replacing by structure…", cx);
+        cx.spawn(async move |this, cx| {
+            let changed = paths.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let pattern = search::structural::Pattern::compile(&pattern)?;
+                    search::structural::replace_in_files(&paths, &pattern, &replacement)
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                this.end_task(task, cx);
+                let (text, ok) = match result {
+                    Ok((files, count)) => (trf("Replaced {} occurrence(s) in {} file(s).", &[&count.to_string(), &files.to_string()]), true),
+                    Err(err) => (trf("Structural replace failed: {}", &[&err]), false),
+                };
+                for path in &changed {
+                    if let Ok(source) = std::fs::read_to_string(path) {
+                        this.intel.update_file(path, &source);
+                    }
+                }
+                this.reload_clean_tabs(&changed, cx);
+                this.output = Some(super::tools::Output {
+                    title: tr("Structural Replace").to_string(),
+                    text,
+                    running: false,
+                    ok,
                 });
                 cx.notify();
             })

@@ -657,6 +657,17 @@
     "Type a command, a configuration name or a shell line": "Введите команду, имя конфигурации или строку для терминала",
     "↵ run · ⇥ complete an Artisan command · ⇧↵ save a configuration": "↵ запустить · ⇥ дополнить команду Artisan · ⇧↵ сохранить конфигурацию",
     "Run '{}' in the terminal": "Выполнить «{}» в терминале",
-    "{} → {}\nFiles updated: {}\n{}": "{} → {}\nОбновлено файлов: {}\n{}"
+    "{} → {}\nFiles updated: {}\n{}": "{} → {}\nОбновлено файлов: {}\n{}",
+    "Structural Search": "Структурный поиск",
+    "Structural Search…": "Структурный поиск…",
+    "Structure, e.g. $A$->where($B$)": "Структура, напр. $A$->where($B$)",
+    "Replace with, e.g. $A$->filter($B$)": "Заменить на, напр. $A$->filter($B$)",
+    "File mask, e.g. *.php": "Маска файлов, напр. *.php",
+    "No matches.": "Совпадений нет.",
+    "$A$ stands for any expression · ↵ opens a match · Replace All writes the files": "$A$ — любое выражение · ↵ открывает совпадение · «Заменить всё» записывает файлы",
+    "Structural Replace": "Структурная замена",
+    "Replacing by structure…": "Структурная замена…",
+    "Replaced {} occurrence(s) in {} file(s).": "Заменено вхождений: {} в файлах: {}.",
+    "Structural replace failed: {}": "Структурная замена не удалась: {}"
   }
 }

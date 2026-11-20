@@ -26,7 +26,7 @@
 - **Laravel**: `route()`, `view()`, `config()`, Blade, Eloquent, facades, validation rules, Livewire, Filament, Inertia; 44 code generators (⇧⌘,)
 - **Git**: Commit window, side-by-side diff, three-way merge window for conflicts (common ancestor, line-level auto-merge), log with graph, branches, blame
 - **Database**: MySQL, MariaDB, PostgreSQL, SQLite; tables open as editable tabs
-- **Workspace**: project tabs, split editors, Search Everywhere, terminal, run configurations, Run Anything (⌃⌃: configurations, Artisan commands, any shell line, with a history), Artisan,
+- **Workspace**: project tabs, split editors, Search Everywhere, terminal, run configurations, Run Anything (⌃⌃: configurations, Artisan commands, any shell line, with a history), structural search (⌥⌘F: `$A$` holes, project-wide replace), Artisan,
   session restore (tabs, panes, carets, scroll position, folded regions), reload of files changed on disk (a changed buffer and a deleted file both ask first), font zoom (⌘+ / ⌘− / ⌘+scroll),
   saved window layouts (View ▸ Window Layouts…), Russian UI (menu bar, tool windows,
   Search Everywhere, editor context menu)

@@ -1241,6 +1241,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::toggle_prefs_menu))
             .on_action(cx.listener(Self::find_in_files))
             .on_action(cx.listener(Self::replace_in_files))
+            .on_action(cx.listener(Self::structural_search))
             .on_action(cx.listener(Self::search_everywhere))
             .on_action(cx.listener(Self::go_to_file))
             .on_action(cx.listener(Self::go_to_class))

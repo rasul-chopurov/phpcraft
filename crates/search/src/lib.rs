@@ -1,5 +1,7 @@
-//! Text search: find/replace in a buffer, find/replace in files, and fuzzy matching for
-//! Go to File / Class / Symbol.
+//! Text search: find/replace in a buffer, find/replace in files, structural search,
+//! and fuzzy matching for Go to File / Class / Symbol.
+
+pub mod structural;
 
 use std::fs;
 use std::ops::Range;
@@ -8,7 +10,7 @@ use std::path::{Path, PathBuf};
 use regex::{Regex, RegexBuilder};
 
 /// Files larger than this are skipped by Find in Files.
-const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+pub(crate) const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TextQuery {
@@ -98,7 +100,7 @@ pub struct FileSearch {
     pub max_results: usize,
 }
 
-fn mask_matcher(root: &Path, mask: &str) -> Option<ignore::overrides::Override> {
+pub(crate) fn mask_matcher(root: &Path, mask: &str) -> Option<ignore::overrides::Override> {
     let globs: Vec<&str> = mask.split(',').map(str::trim).filter(|g| !g.is_empty()).collect();
     if globs.is_empty() {
         return None;

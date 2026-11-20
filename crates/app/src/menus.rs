@@ -81,6 +81,7 @@ pub fn set(cx: &mut App) {
                 Some(("Find Usages", "editor::FindUsages")),
                 Some(("Highlight Usages in File", "editor::HighlightUsages")),
                 Some(("Replace in Files…", "workspace::ReplaceInFiles")),
+                Some(("Structural Search…", "workspace::StructuralSearch")),
                 None,
                 Some(("Duplicate Line", "editor::DuplicateLine")),
                 Some(("Delete Line", "editor::DeleteLine")),

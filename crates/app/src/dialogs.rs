@@ -18,6 +18,7 @@ mod input;
 mod projects;
 mod run;
 mod run_anything;
+mod structural;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -48,6 +49,7 @@ pub use input::{FileOp, InputDialog};
 pub use projects::{ProjectDialog, avatar, project_name, tilde};
 pub use run::RunDialog;
 pub use run_anything::RunAnythingDialog;
+pub use structural::StructuralSearchDialog;
 
 use crate::text_field::{FieldEvent, TextField};
 use crate::theme;
@@ -89,6 +91,12 @@ pub enum DialogEvent {
     OpenLocationInSplit(php_index::Location),
     ReplaceInFiles {
         query: search::TextQuery,
+        replacement: String,
+        paths: Vec<std::path::PathBuf>,
+    },
+    /// Structural replace across `paths`; every file is rewritten with its own hits.
+    StructuralReplace {
+        pattern: String,
         replacement: String,
         paths: Vec<std::path::PathBuf>,
     },

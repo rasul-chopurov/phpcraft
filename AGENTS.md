@@ -86,7 +86,8 @@ bundled as data — its name appears only where that license requires attributio
 ## What exists (high level)
 
 Editor (multi-caret, folding, soft wrap, smart pairs, bookmarks, extend selection, templates,
-font zoom with ⌘+ / ⌘− / ⌘+scroll, draggable scrollbar with problem marks),
+font zoom with ⌘+ / ⌘− / ⌘+scroll, draggable scrollbar with problem marks), search (Find and
+Replace in Files, structural search with `$A$` holes, ⌥⌘F),
 PHP intelligence (completion with auto-import, goto, find usages, rename, move class, extract / introduce /
 inline / safe delete, generate, quick doc, parameter info, hierarchy, call hierarchy,
 inspections + PHPStan/Psalm/PHPCS, spell checking of comments and strings (`typo`, ⌥↵ suggestions / save to dictionary), intentions, bundled PHP stubs), Laravel (string navigation,
@@ -110,13 +111,12 @@ sync and import (VS Code / Zed).
   **0.4.3-alpha**: Update and Restart (self-update in place). **0.5.0-alpha**: three-way merge
   window, JS/TS module resolution with import rewriting, Move Class companions, Import Class,
   session restore with scroll and folds, external-change prompts, saved window layouts,
-  full Russian UI.
+  Run Anything, structural search, full Russian UI.
 - Releases are built for **macOS and Windows only** (the user paused Linux builds; the site
   doesn't list Linux). `Cargo.toml` version is `0.5.0-alpha`.
 
 ### Next steps: known gaps / ideas
 
-Structural Search & Replace,
 coverage needs Xdebug or PCOV in the user's project,
 UI localization (`i18n.rs`, Russian: menus, tool windows, dialogs and panels are translated;
 crate-level messages and the About/What's New bodies are next), Mermaid in Markdown preview,

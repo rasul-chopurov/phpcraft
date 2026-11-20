@@ -753,6 +753,16 @@ impl Workspace {
                 self.dismiss_modal(window, cx);
                 self.run_replace_in_files(query, replacement, paths, cx);
             }
+            DialogEvent::StructuralReplace {
+                pattern,
+                replacement,
+                paths,
+            } => {
+                let (pattern, replacement, paths) =
+                    (pattern.clone(), replacement.clone(), paths.clone());
+                self.dismiss_modal(window, cx);
+                self.run_structural_replace(pattern, replacement, paths, cx);
+            }
             DialogEvent::OpenRoute(route) => {
                 let location = self.intel.route_location(route);
                 self.dismiss_modal(window, cx);
