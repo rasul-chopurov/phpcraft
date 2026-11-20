@@ -122,5 +122,4 @@ UI localization (`i18n.rs`, Russian: menus, tool windows, dialogs and panels are
 inspection messages travel as templates so the app translates them, About is translated;
 what's left is intention and quick-fix labels), Mermaid in Markdown preview,
 DataGrip-level DB features (ER diagrams, explain, import/export), HTTP response preview,
-PR review comments inline in the diff, JS type information / hover docs, Russian labels for
-intentions and quick fixes (inspection messages already have templates).
+PR review comments inline in the diff, JS type information / hover docs.
