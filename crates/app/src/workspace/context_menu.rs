@@ -303,6 +303,13 @@ impl Workspace {
                 self.compare_file_with(&path, name, window, cx)
             }
             FileOp::PhpInterpreter(_) => crate::run_configs::set_php(self.project.root(), name).map(|_| None).map_err(|e| e.to_string()),
+            FileOp::BreakpointCondition { path, line } => {
+                let condition = if name.is_empty() { None } else { Some(name.to_string()) };
+                crate::breakpoints::set_condition(path, *line, condition);
+                self.refresh_breakpoints_in(path, cx);
+                self.breakpoints_changed();
+                Ok(None)
+            }
             FileOp::ComposerRequire | FileOp::ComposerRemove => {
                 let verb = if matches!(op, FileOp::ComposerRequire) { "require" } else { "remove" };
                 // Package names and constraints only: no shell syntax.

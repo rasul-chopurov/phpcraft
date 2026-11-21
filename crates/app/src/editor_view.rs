@@ -1459,6 +1459,7 @@ impl Element for EditorElement {
             let bookmark_lines = view.bookmark_lines();
             let test_lines = view.test_lines();
             let breakpoint_lines = view.breakpoint_lines();
+            let conditional_lines = view.conditional_breakpoint_lines();
             let execution_line = view.execution_line;
             let coverage = view.buffer.path().map(crate::test_results::coverage_for).unwrap_or_default();
             // Conflict sides as line ranges: (first line, last line, ours).
@@ -1771,11 +1772,22 @@ impl Element for EditorElement {
                     if execution_line == Some(line) {
                         gutter_quads.push(fill(Bounds::from_corners(point(bounds.left() + gutter_width, y), point(bounds.right(), y + line_height)), theme::accent().opacity(0.22)));
                     }
-                    // A breakpoint: a red dot over the line number.
+                    // A breakpoint: a red dot over the line number, a ring when it only stops
+                    // on a condition.
                     if breakpoint_lines.contains(&line) {
                         let d = line_height * 0.55;
                         let x = bounds.left() + gutter_width - fold_width - px(GUTTER_PADDING) - digit_width * digits as f32 + px(2.);
-                        gutter_quads.push(gpui::PaintQuad { corner_radii: gpui::Corners::all(d / 2.), ..fill(Bounds::new(point(x, y + (line_height - d) / 2.), size(d, d)), theme::error()) });
+                        let at = point(x, y + (line_height - d) / 2.);
+                        if conditional_lines.contains(&line) {
+                            gutter_quads.push(gpui::PaintQuad { corner_radii: gpui::Corners::all(d / 2.), ..fill(Bounds::new(at, size(d, d)), theme::error()) });
+                            let inner = d * 0.45;
+                            gutter_quads.push(gpui::PaintQuad {
+                                corner_radii: gpui::Corners::all(inner / 2.),
+                                ..fill(Bounds::new(point(x + (d - inner) / 2., at.y + (d - inner) / 2.), size(inner, inner)), theme::editor_bg())
+                            });
+                        } else {
+                            gutter_quads.push(gpui::PaintQuad { corner_radii: gpui::Corners::all(d / 2.), ..fill(Bounds::new(at, size(d, d)), theme::error()) });
+                        }
                     }
                     // ⇄ a route leads here (takes the column before ↑ / ↓).
                     if route_lines.contains(&line) {

@@ -32,6 +32,8 @@ pub enum FileOp {
     ExtractBlade { component: bool, path: PathBuf, range: std::ops::Range<usize>, text: String },
     /// Git ▸ Compare with Branch / Revision… for a file.
     CompareRevision(PathBuf),
+    /// Debug ▸ the PHP condition of a breakpoint (0-based line); empty clears it.
+    BreakpointCondition { path: PathBuf, line: usize },
 }
 
 pub struct InputDialog {
@@ -54,6 +56,9 @@ impl InputDialog {
             FileOp::PhpInterpreter(current) => Some(current.clone()),
             FileOp::ExtractBlade { .. } => Some(String::new()),
             FileOp::CompareRevision(_) => Some("main".into()),
+            FileOp::BreakpointCondition { path, line } => Some(
+                crate::breakpoints::for_file(path).into_iter().find(|(l, _)| l == line).and_then(|(_, c)| c).unwrap_or_default(),
+            ),
         };
         let focus_handle = cx.focus_handle();
         let field = initial.map(|text| {
@@ -72,7 +77,9 @@ impl InputDialog {
 
     fn confirm(&mut self, _: &Confirm, _: &mut Window, cx: &mut Context<Self>) {
         let text = self.field.as_ref().map(|f| f.read(cx).text().trim().to_string()).unwrap_or_default();
-        if self.field.is_some() && (text.is_empty() || text.contains("..")) {
+        // An empty condition is how a breakpoint loses its condition.
+        let may_be_empty = matches!(self.op, FileOp::BreakpointCondition { .. });
+        if self.field.is_some() && ((text.is_empty() && !may_be_empty) || text.contains("..")) {
             return;
         }
         cx.emit(DialogEvent::FileOp { op: self.op.clone(), name: text });
@@ -112,6 +119,9 @@ impl Render for InputDialog {
                 (tr("Extract View — name (e.g. partials.header)").to_string(), "Extract")
             }
             FileOp::CompareRevision(path) => (trf("Compare {} with branch, tag or commit", &[&name(path)]), "Compare"),
+            FileOp::BreakpointCondition { path, line } => {
+                (trf("Condition for the breakpoint in {} line {}", &[&name(path), &(line + 1).to_string()]), "Save")
+            }
         };
         card(420.)
             .key_context("Dialog")
@@ -122,6 +132,9 @@ impl Render for InputDialog {
             .children(self.field.clone().map(|f| div().p_3().child(f)))
             .when(matches!(self.op, FileOp::PhpInterpreter(_)), |d| {
                 d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child("php or a path · docker:<container>[:<workdir>] · sail · ssh:<host>[:<workdir>]"))
+            })
+            .when(matches!(self.op, FileOp::BreakpointCondition { .. }), |d| {
+                d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child(tr("PHP expression — the breakpoint stops only when it is true. An empty condition removes it.")))
             })
             .when(matches!(self.op, FileOp::NewFile(_)), |d| {
                 d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child(tr("Use / to create folders too, e.g. Http/Controllers/HomeController.php")))

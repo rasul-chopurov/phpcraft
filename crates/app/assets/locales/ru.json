@@ -701,6 +701,9 @@
     "Convert validation rules to an array": "Правила валидации в массив",
     "Convert to a #[Scope] method": "Преобразовать в метод #[Scope]",
     "Change to '{}'": "Заменить на '{}'",
-    "Save '{}' to project dictionary": "Сохранить '{}' в словарь проекта"
+    "Save '{}' to project dictionary": "Сохранить '{}' в словарь проекта",
+    "Condition for the breakpoint in {} line {}": "Условие для точки останова в {} строка {}",
+    "PHP expression — the breakpoint stops only when it is true. An empty condition removes it.": "Выражение PHP — точка останова сработает, только если оно истинно. Пустое условие удаляет его.",
+    "Breakpoints": "Точки останова"
   }
 }

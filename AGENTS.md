@@ -96,7 +96,7 @@ component/view, facade→DI / rules→array / scope→#[Scope] intentions), Twig
 with graph, branches, diff, blame, three-way merge window (BASE pane, line-level auto-merge), compare with revision / clipboard,
 interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes),
 Pull Requests (Git ▸ Pull Requests…: list, details, checkout, diff, comment via gh / glab),
-Xdebug debugger, Docker services, test runner with results and coverage, Composer menu, HTTP
+Xdebug debugger (conditional breakpoints, evaluate), Docker services, test runner with results and coverage, Composer menu, HTTP
 client (+ cURL / Postman / OpenAPI, history), database tools, SFTP deployment (auto upload),
 terminal (Run Anything with ⌃⌃: configurations, Artisan, typed shell lines), AI agents, settings
 sync and import (VS Code / Zed).

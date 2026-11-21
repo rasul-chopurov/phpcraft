@@ -16,12 +16,31 @@ impl EditorView {
         }
     }
 
+    /// Re-reads the stored breakpoints after another surface (the Debug window) changed
+    /// them; the anchors of the old ones go away, so lines follow the same store again.
+    pub fn refresh_breakpoints(&mut self, cx: &mut Context<Self>) {
+        for (id, _) in std::mem::take(&mut self.breakpoints) {
+            self.buffer.remove_anchor(id);
+        }
+        self.load_breakpoints();
+        cx.notify();
+    }
+
     /// Breakpoint lines, sorted.
     pub(super) fn breakpoint_lines(&self) -> Vec<usize> {
         let mut lines: Vec<usize> = self.breakpoints.iter().filter_map(|(id, _)| Some(self.buffer.char_to_line_col(self.buffer.anchor(*id)?).0)).collect();
         lines.sort();
         lines.dedup();
         lines
+    }
+
+    /// Lines whose breakpoint carries a condition: drawn as a ring instead of a dot.
+    pub(super) fn conditional_breakpoint_lines(&self) -> Vec<usize> {
+        self.breakpoints
+            .iter()
+            .filter(|(_, condition)| condition.is_some())
+            .filter_map(|(id, _)| self.buffer.anchor(*id).map(|a| self.buffer.char_to_line_col(a).0))
+            .collect()
     }
 
     fn save_breakpoints(&self) {

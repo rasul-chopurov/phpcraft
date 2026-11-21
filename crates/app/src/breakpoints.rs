@@ -41,9 +41,26 @@ pub fn set_file(path: &Path, lines: &[(usize, Option<String>)]) {
     with_store(|list| {
         list.retain(|b| b.path != path);
         list.extend(lines.iter().map(|(line, condition)| Breakpoint { path: path.to_path_buf(), line: *line, condition: condition.clone() }));
-        if let Ok(json) = serde_json::to_string_pretty(list) {
-            let _ = std::fs::create_dir_all(crate::config::dir());
-            let _ = std::fs::write(file(), json);
-        }
+        save(list);
     });
+}
+
+/// Sets (or clears, with `None`) the condition of the breakpoint at `line`. The breakpoint
+/// itself is added when it is not there yet, so a condition can be written before the line
+/// is marked.
+pub fn set_condition(path: &Path, line: usize, condition: Option<String>) {
+    with_store(|list| {
+        match list.iter_mut().find(|b| b.path == path && b.line == line) {
+            Some(b) => b.condition = condition,
+            None => list.push(Breakpoint { path: path.to_path_buf(), line, condition }),
+        }
+        save(list);
+    });
+}
+
+fn save(list: &[Breakpoint]) {
+    if let Ok(json) = serde_json::to_string_pretty(list) {
+        let _ = std::fs::create_dir_all(crate::config::dir());
+        let _ = std::fs::write(file(), json);
+    }
 }

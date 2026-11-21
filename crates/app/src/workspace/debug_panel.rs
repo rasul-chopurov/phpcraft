@@ -144,6 +144,35 @@ impl Workspace {
         }
     }
 
+    /// Re-reads the breakpoints of `path` in every open editor after their conditions were
+    /// edited somewhere else (the Debug window).
+    pub(crate) fn refresh_breakpoints_in(&mut self, path: &std::path::Path, cx: &mut Context<Self>) {
+        for editor in self.tabs.iter().chain(self.panes.iter().flatten().flat_map(|p| p.tabs.iter())) {
+            editor.update(cx, |e, cx| {
+                if e.buffer.path() == Some(path) {
+                    e.refresh_breakpoints(cx);
+                }
+            });
+        }
+    }
+
+    /// Asks for the PHP condition of a breakpoint (an empty answer removes it).
+    fn edit_breakpoint_condition(&mut self, path: PathBuf, line: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let op = crate::dialogs::FileOp::BreakpointCondition { path, line };
+        let dialog = cx.new(|cx| crate::dialogs::InputDialog::new(op, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// Removes the breakpoint at `line` from the store and from the open editors.
+    fn remove_breakpoint(&mut self, path: &std::path::Path, line: usize, cx: &mut Context<Self>) {
+        let mut lines = crate::breakpoints::for_file(path);
+        lines.retain(|(l, _)| *l != line);
+        crate::breakpoints::set_file(path, &lines);
+        self.refresh_breakpoints_in(path, cx);
+        self.breakpoints_changed();
+        cx.notify();
+    }
+
     /// Sends the current breakpoints to a running session.
     pub(crate) fn breakpoints_changed(&mut self) {
         if let Some(debug) = &self.debug {
@@ -311,6 +340,58 @@ impl Workspace {
         if let Some(p) = &debug.paused {
             self.variable_rows(&p.variables, 0, &mut rows, cx);
         }
+        let breakpoints = {
+            let root = self.project.root().to_path_buf();
+            let mut rows = Vec::new();
+            for b in crate::breakpoints::all() {
+                let rel = b.path.strip_prefix(&root).unwrap_or(&b.path).display().to_string();
+                let path = b.path.clone();
+                let line = b.line;
+                let id = gpui::SharedString::from(format!("bp-{rel}-{line}"));
+                rows.push(
+                    div()
+                        .id(id)
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .px_2()
+                        .py_0p5()
+                        .hover(|d| d.bg(theme::hover()))
+                        .child(div().text_color(theme::text()).child(format!("{rel}:{}", line + 1)))
+                        .child(div().text_color(theme::muted()).child(b.condition.clone().unwrap_or_default()))
+                        .child(div().flex_1())
+                        .child(
+                            div()
+                                .id(gpui::SharedString::from(format!("bp-edit-{rel}-{line}")))
+                                .px_1()
+                                .rounded_sm()
+                                .cursor_pointer()
+                                .hover(|d| d.bg(theme::active_row()))
+                                .child("✎")
+                                .on_click(cx.listener({
+                                    let path = path.clone();
+                                    move |this, _, window, cx| this.edit_breakpoint_condition(path.clone(), line, window, cx)
+                                })),
+                        )
+                        .child(
+                            div()
+                                .id(gpui::SharedString::from(format!("bp-del-{rel}-{line}")))
+                                .px_1()
+                                .rounded_sm()
+                                .cursor_pointer()
+                                .hover(|d| d.bg(theme::active_row()))
+                                .child("✕")
+                                .on_click(cx.listener({
+                                    let path = path.clone();
+                                    move |this, _, _, cx| this.remove_breakpoint(&path, line, cx)
+                                })),
+                        )
+                        .into_any_element(),
+                );
+            }
+            if rows.is_empty() { None } else { Some(div().flex().flex_col().children(rows)) }
+        };
+
         let results = debug.results.iter().take(20).map(|(expr, result)| {
             let value = match result {
                 Ok(p) => p.display(),
@@ -329,7 +410,26 @@ impl Workspace {
                     .flex_1()
                     .min_h(px(0.))
                     .flex()
-                    .child(div().id("debug-frames").w(px(280.)).h_full().overflow_y_scroll().border_r_1().border_color(theme::border()).children(frames))
+                    .child(
+                        div()
+                            .w(px(280.))
+                            .h_full()
+                            .flex()
+                            .flex_col()
+                            .border_r_1()
+                            .border_color(theme::border())
+                            .child(div().id("debug-frames").flex_1().min_h(px(0.)).overflow_y_scroll().children(frames))
+                            .children(breakpoints.map(|list| {
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .max_h(px(180.))
+                                    .border_t_1()
+                                    .border_color(theme::border())
+                                    .child(div().px_2().py_1().text_size(px(11.)).text_color(theme::muted()).child(tr("Breakpoints")))
+                                    .child(div().id("debug-breakpoints").flex_1().min_h(px(0.)).overflow_y_scroll().child(list))
+                            })),
+                    )
                     .child(
                         div()
                             .flex_1()
