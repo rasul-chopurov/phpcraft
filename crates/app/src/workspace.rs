@@ -1104,6 +1104,9 @@ impl Render for Workspace {
         div()
             .key_context("Workspace")
             .track_focus(&self.focus_handle)
+            // The window default text colour is black; every panel that does not set its own
+            // takes this one instead.
+            .text_color(theme::ui_text())
             // Files dropped from Finder / Explorer open in the editor; folders open as projects.
             .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| this.drop_paths(paths.paths(), window, cx)))
             .on_action(cx.listener(Self::close_tab))

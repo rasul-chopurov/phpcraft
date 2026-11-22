@@ -656,8 +656,8 @@ impl Workspace {
                                 }
                                 cx.notify();
                             })))
-                            .child(div().flex_1())
                             .child(crate::dialogs::button("commit", "Commit", true).on_click(cx.listener(|this, _, w, cx| this.commit_changes(&CommitChanges, w, cx))))
+                            .child(div().flex_1())
                             .child(crate::dialogs::button("commit-push", "Commit and Push", false).on_click(cx.listener(|this, _, w, cx| this.commit_and_push(&CommitAndPush, w, cx)))),
                     ),
             )

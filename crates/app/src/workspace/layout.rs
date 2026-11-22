@@ -527,6 +527,9 @@ impl Workspace {
             .bg(theme::panel_bg())
             .border_color(theme::border_strong())
             .text_size(px(13.))
+            // Everything inside a tool window inherits this; without it plain labels fall
+            // back to the window default (black) and vanish on the dark panel.
+            .text_color(theme::ui_text())
             .children(header)
             .child(div().flex_1().w_full().min_h(px(0.)).flex().flex_col().child(content))
             .child(self.resize_handle(side));

@@ -238,9 +238,11 @@ pub(crate) fn button(id: &'static str, text: &'static str, primary: bool) -> gpu
         .py_1()
         .rounded_sm()
         .cursor_pointer()
+        // Both branches name their text colour: a div without one inherits the window's
+        // default, which is black — invisible on a dark panel.
         .when(primary, |d| d.bg(theme::accent()).text_color(gpui::white()))
         .when(!primary, |d| {
-            d.border_1().border_color(theme::border_strong())
+            d.border_1().border_color(theme::border_strong()).text_color(theme::ui_text())
         })
         .hover(|d| d.opacity(0.85))
         .child(crate::i18n::tr(text))
