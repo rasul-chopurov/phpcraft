@@ -169,8 +169,7 @@ pub fn record_history(root: &Path, line: &str) -> std::io::Result<()> {
 }
 
 fn write(root: &Path, file: &File) -> std::io::Result<()> {
-    let path = file_path(root);
-    std::fs::create_dir_all(path.parent().unwrap())?;
+    let path = crate::config::project_dir(root).join("run.json");
     std::fs::write(path, serde_json::to_string_pretty(file).unwrap_or_default())
 }
 

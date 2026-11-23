@@ -3,7 +3,7 @@
 //! `~/.config/phpcraft` (Linux).
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +11,22 @@ pub fn dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("phpcraft")
+}
+
+/// The per-project folder (`.phpcraft` under `root`), created on demand.
+///
+/// It holds machine-local state — the session, run configurations, the PHP
+/// interpreter, the project dictionary — so it writes its own `.gitignore`
+/// and never turns up as untracked files in the user's repository.
+pub fn project_dir(root: &Path) -> PathBuf {
+    let dir = root.join(".phpcraft");
+    if fs::create_dir_all(&dir).is_ok() {
+        let ignore = dir.join(".gitignore");
+        if !ignore.exists() {
+            let _ = fs::write(ignore, "*\n");
+        }
+    }
+    dir
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,4 +204,26 @@ pub fn forget_project(root: &std::path::Path) {
     let mut projects = recent_projects();
     projects.retain(|p| p != root);
     let _ = fs::write(dir().join("recent_projects.json"), serde_json::to_string_pretty(&projects).unwrap_or_default());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn the_project_folder_keeps_itself_out_of_git() {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir()
+            .join(format!("phpcraft-project-dir-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        let dir = project_dir(&root);
+        assert!(dir.is_dir());
+        assert_eq!(fs::read_to_string(dir.join(".gitignore")).unwrap(), "*\n");
+
+        // An edited ignore file is left alone, so the folder can be shared on request.
+        fs::write(dir.join(".gitignore"), "!run.json\n").unwrap();
+        project_dir(&root);
+        assert_eq!(fs::read_to_string(dir.join(".gitignore")).unwrap(), "!run.json\n");
+        let _ = fs::remove_dir_all(&root);
+    }
 }

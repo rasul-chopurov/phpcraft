@@ -169,6 +169,7 @@ impl Workspace {
             Some(existing) => *existing = source.clone(),
             None => self.db.sources.push(source.clone()),
         }
+        crate::config::project_dir(&root);
         let _ = datasource::save(&root, &self.db.sources);
         self.db.selected = Some(source.id.clone());
         self.load_tables(&source.id, cx);
@@ -178,6 +179,7 @@ impl Workspace {
     fn remove_selected_source(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self.db.selected.clone() else { return };
         self.db.sources.retain(|s| s.id != id);
+        crate::config::project_dir(self.project.root());
         let _ = datasource::save(self.project.root(), &self.db.sources);
         self.db.tables.remove(&id);
         self.db.selected = self.db.sources.first().map(|s| s.id.clone());

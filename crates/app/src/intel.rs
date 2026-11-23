@@ -581,6 +581,7 @@ impl Intel {
 
     /// Adds a word to the project dictionary (`.phpcraft/dictionary.txt`).
     pub fn save_to_dictionary(&self, word: &str) {
+        crate::config::project_dir(&self.root);
         if let Err(err) = self.dictionary.write().unwrap().save_word(word) {
             eprintln!("dictionary: {err}");
         }

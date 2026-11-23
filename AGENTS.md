@@ -71,7 +71,9 @@ bundled as data — its name appears only where that license requires attributio
 - Spawned processes: `process::command`. PHP: `laravel::php_binary()`.
 - Per-project files live in `.phpcraft/` (session.json, run.json, laravel.json, debug.json,
   deployment.json, shelf/, http/, junit.xml…); app-wide in `config::dir()` (settings, keymap,
-  bookmarks, breakpoints, index caches, unpacked stubs).
+  bookmarks, breakpoints, index caches, unpacked stubs). The per-project folder is created
+  through `config::project_dir()`, which also writes a `.gitignore` of `*` inside it, so the
+  user's repository never sees it.
 - Verify with `cargo test --workspace` (≈150 tests) and `cargo build -p phpcraft` without
   warnings. For UI checks run `./target/debug/phpcraft <file>` and screenshot the window by id
   (a Swift `CGWindowListCopyWindowInfo` helper); background windows don't repaint, so state that

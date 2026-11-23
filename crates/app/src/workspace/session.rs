@@ -91,10 +91,7 @@ impl Workspace {
             session.panes.push(pane);
         }
         session.pinned = self.pinned.iter().map(|p| p.display().to_string()).collect();
-        let file = file(self.project.root());
-        if let Some(dir) = file.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
+        let file = crate::config::project_dir(self.project.root()).join("session.json");
         if let Ok(text) = serde_json::to_string_pretty(&session) {
             let _ = std::fs::write(file, text);
         }

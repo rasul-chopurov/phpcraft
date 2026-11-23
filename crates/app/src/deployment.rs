@@ -47,8 +47,7 @@ pub fn load(root: &Path) -> Deployment {
 }
 
 pub fn save(root: &Path, deployment: &Deployment) -> std::io::Result<()> {
-    let path = file(root);
-    std::fs::create_dir_all(path.parent().unwrap())?;
+    let path = crate::config::project_dir(root).join("deployment.json");
     std::fs::write(path, serde_json::to_string_pretty(deployment).unwrap_or_default())
 }
 

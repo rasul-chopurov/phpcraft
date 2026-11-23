@@ -2,5 +2,9 @@
 /graft
 .DS_Store
 
+# Per-project state (session, run configurations) — the app writes its own
+# .phpcraft/.gitignore, this keeps the folder out even if one is missing.
+.phpcraft/
+
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
