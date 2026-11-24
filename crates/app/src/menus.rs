@@ -209,6 +209,7 @@ pub fn set(cx: &mut App) {
                 Some(("New Eloquent Model…", "workspace::NewModel")),
                 Some(("New Eloquent Model from Database Table…", "workspace::ModelFromTable")),
                 Some(("New Pivot Table…", "workspace::NewPivotTable")),
+                Some(("New Module…", "workspace::NewModule")),
                 None,
                 Some(("Route Search…", "workspace::OpenRouteSearch")),
                 Some(("Run Artisan Command…", "workspace::OpenArtisan")),

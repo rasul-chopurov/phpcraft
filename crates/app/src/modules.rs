@@ -24,8 +24,32 @@ fn read_statuses(root: &Path) -> serde_json::Map<String, serde_json::Value> {
         .unwrap_or_default()
 }
 
+/// The package is set up: its statuses file, its folder, or the dependency itself.
 pub fn has_modules(root: &Path) -> bool {
     root.join("Modules").is_dir()
+        || root.join("modules_statuses.json").is_file()
+        || std::fs::read_to_string(root.join("composer.json")).is_ok_and(|t| t.contains("nwidart/laravel-modules"))
+}
+
+/// The module name as laravel-modules spells it (`blog`, `my-blog` → `Blog`, `MyBlog`), or `None`
+/// when the text cannot name a module (empty, punctuation, a leading digit).
+pub fn studly(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() || !trimmed.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_')) {
+        return None;
+    }
+    let mut out = String::new();
+    for word in trimmed.split(|c: char| matches!(c, ' ' | '-' | '_')) {
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            out.extend(first.to_uppercase());
+            out.push_str(chars.as_str());
+        }
+    }
+    match out.chars().next() {
+        Some(c) if !c.is_ascii_digit() => Some(out),
+        _ => None,
+    }
 }
 
 pub fn list(root: &Path) -> Vec<ModuleInfo> {
@@ -64,6 +88,16 @@ pub fn set_enabled(root: &Path, name: &str, enabled: bool) -> std::io::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_become_studly_and_refuse_punctuation() {
+        assert_eq!(studly("blog").as_deref(), Some("Blog"));
+        assert_eq!(studly(" my-blog ").as_deref(), Some("MyBlog"));
+        assert_eq!(studly("crm_v2").as_deref(), Some("CrmV2"));
+        assert_eq!(studly(""), None);
+        assert_eq!(studly("../evil"), None);
+        assert_eq!(studly("1st"), None);
+    }
 
     #[test]
     fn lists_and_toggles() {

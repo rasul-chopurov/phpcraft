@@ -310,6 +310,13 @@ impl Workspace {
                 self.breakpoints_changed();
                 Ok(None)
             }
+            FileOp::NewModule => match crate::modules::studly(name) {
+                Some(folder) => {
+                    self.create_module(folder, window, cx);
+                    Ok(None)
+                }
+                None => Err(crate::i18n::tr("A module name has letters and digits only, e.g. Blog or CrmV2").to_string()),
+            },
             FileOp::ComposerRequire | FileOp::ComposerRemove => {
                 let verb = if matches!(op, FileOp::ComposerRequire) { "require" } else { "remove" };
                 // Package names and constraints only: no shell syntax.

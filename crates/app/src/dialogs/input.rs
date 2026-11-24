@@ -34,6 +34,8 @@ pub enum FileOp {
     CompareRevision(PathBuf),
     /// Debug ▸ the PHP condition of a breakpoint (0-based line); empty clears it.
     BreakpointCondition { path: PathBuf, line: usize },
+    /// Laravel ▸ New Module: the name laravel-modules turns into `Modules/<StudlyName>`.
+    NewModule,
 }
 
 pub struct InputDialog {
@@ -56,6 +58,7 @@ impl InputDialog {
             FileOp::PhpInterpreter(current) => Some(current.clone()),
             FileOp::ExtractBlade { .. } => Some(String::new()),
             FileOp::CompareRevision(_) => Some("main".into()),
+            FileOp::NewModule => Some(String::new()),
             FileOp::BreakpointCondition { path, line } => Some(
                 crate::breakpoints::for_file(path).into_iter().find(|(l, _)| l == line).and_then(|(_, c)| c).unwrap_or_default(),
             ),
@@ -122,6 +125,7 @@ impl Render for InputDialog {
             FileOp::BreakpointCondition { path, line } => {
                 (trf("Condition for the breakpoint in {} line {}", &[&name(path), &(line + 1).to_string()]), "Save")
             }
+            FileOp::NewModule => (tr("New Module — name (e.g. Blog)").to_string(), "Create"),
         };
         card(420.)
             .key_context("Dialog")
@@ -135,6 +139,9 @@ impl Render for InputDialog {
             })
             .when(matches!(self.op, FileOp::BreakpointCondition { .. }), |d| {
                 d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child(tr("PHP expression — the breakpoint stops only when it is true. An empty condition removes it.")))
+            })
+            .when(matches!(self.op, FileOp::NewModule), |d| {
+                d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child(tr("laravel-modules runs `php artisan module:make` and creates Modules/<Name> with its provider, routes and config.")))
             })
             .when(matches!(self.op, FileOp::NewFile(_)), |d| {
                 d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child(tr("Use / to create folders too, e.g. Http/Controllers/HomeController.php")))

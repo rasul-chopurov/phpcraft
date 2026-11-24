@@ -23,7 +23,7 @@
   Import Class (Code ▸ Import Class…, editor context menu), Optimize Imports, copy/paste carries `use`
   statements into the target file, Move Class (F6) to another namespace with its references
 - **JS/TS & Vue**: go to declaration, find usages, rename and completion across ES modules, JSX/TSX, `require`, the `<script>` blocks of Vue/Svelte components, aliases from `tsconfig.json` `paths` / `baseUrl` and Vite's `resolve.alias`, and import rewriting when a file is renamed
-- **Laravel**: `route()`, `view()`, `config()`, Blade, Eloquent, facades, validation rules, Livewire, Filament, Inertia; 44 code generators (⇧⌘,)
+- **Laravel**: `route()`, `view()`, `config()`, Blade, Eloquent, facades, validation rules, Livewire, Filament, Inertia; 44 code generators (⇧⌘,) that also target laravel-modules; the Modules window lists them, enables/disables them and creates new ones (`module:make`)
 - **Git**: Commit window, side-by-side diff, three-way merge window for conflicts (common ancestor, line-level auto-merge), log with graph, branches, blame
 - **Database**: MySQL, MariaDB, PostgreSQL, SQLite; tables open as editable tabs
 - **Workspace**: project tabs, split editors, Search Everywhere, terminal, run configurations, Run Anything (⌃⌃: configurations, Artisan commands, any shell line, with a history), structural search (⌥⌘F: `$A$` holes, project-wide replace), Artisan,

@@ -10,6 +10,7 @@ use crate::dialogs::{
     ArtisanDialog, ArtisanRunDialog, DialogEvent, HelperCodeDialog, KeymapDialog,
     LaravelSettingsDialog, MakeChooser, MakeDialog, RouteSearchDialog, SettingsDialog, ThemeDialog,
 };
+use crate::i18n::{tr, trf};
 use crate::icons::{Icon, icon};
 use crate::theme;
 use laravel::make::MakeKind;
@@ -23,6 +24,7 @@ actions!(
         OpenRouteSearch,
         NewModel,
         NewPivotTable,
+        NewModule,
         ToggleLaravelMenu,
         OpenLaravelSettings,
         GenerateHelperCode,
@@ -839,6 +841,70 @@ impl Workspace {
                 // Generators and migrations may have created files.
                 this.rows = this.project.rows();
                 cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Laravel ▸ New Module…: asks for a name, then lets laravel-modules build the module.
+    pub(super) fn new_module(&mut self, _: &NewModule, window: &mut Window, cx: &mut Context<Self>) {
+        if !crate::modules::has_modules(self.project.root()) {
+            self.output = Some(Output {
+                title: tr("Modules").to_string(),
+                text: tr("laravel-modules is not installed. Run composer require nwidart/laravel-modules first (Tools ▸ Composer ▸ Require…).").to_string(),
+                running: false,
+                ok: false,
+            });
+            cx.notify();
+            return;
+        }
+        let dialog = cx.new(|cx| crate::dialogs::InputDialog::new(crate::dialogs::FileOp::NewModule, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// `php artisan module:make <folder>`, then shows the module's `module.json`.
+    ///
+    /// The package owns the stub layout, so the generator is its own command instead of a copy
+    /// that would drift from the installed version.
+    pub(super) fn create_module(&mut self, folder: String, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        if root.join("Modules").join(&folder).exists() {
+            self.output = Some(Output {
+                title: tr("Modules").to_string(),
+                text: trf("Modules/{} already exists.", &[&folder]),
+                running: false,
+                ok: false,
+            });
+            cx.notify();
+            return;
+        }
+        let line = format!("module:make {folder}");
+        let task = self.begin_task(format!("php artisan {line}"), cx);
+        let handle = window.window_handle();
+        self.output = Some(Output { title: format!("php artisan {line}"), text: String::new(), running: true, ok: true });
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let run_root = root.clone();
+            let run_line = line.clone();
+            let (text, ok) = cx.background_executor().spawn(async move { laravel::artisan::run(&run_root, &run_line) }).await;
+            cx.update_window(handle, |_, window, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.end_task(task, cx);
+                    this.output = Some(Output { title: format!("php artisan {line}"), text, running: false, ok });
+                    this.rows = this.project.rows();
+                    this.files_cache = None;
+                    this.rescan(cx);
+                    if ok {
+                        let manifest = root.join("Modules").join(&folder).join("module.json");
+                        if manifest.is_file() {
+                            this.project.reveal(&manifest);
+                            this.layout.show(super::layout::ToolWindow::Modules);
+                            this.open_file(&manifest, window, cx);
+                        }
+                    }
+                    cx.notify();
+                });
             })
             .ok();
         })

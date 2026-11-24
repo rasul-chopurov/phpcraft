@@ -729,6 +729,13 @@
     "Matches {} · ⌥⇧⌘X": "Совпадает с {} · ⌥⇧⌘X",
     "Uploading to {}…": "Загрузка на {}…",
     "Deployment: Upload to Server…": "Развёртывание: загрузить на сервер…",
-    "Deployment: Download from Server…": "Развёртывание: скачать с сервера…"
+    "Deployment: Download from Server…": "Развёртывание: скачать с сервера…",
+    "New Module…": "Новый модуль…",
+    "New Module — name (e.g. Blog)": "Новый модуль — имя (напр. Blog)",
+    "laravel-modules runs `php artisan module:make` and creates Modules/<Name> with its provider, routes and config.": "laravel-modules выполнит `php artisan module:make` и создаст Modules/<Name> с провайдером, маршрутами и конфигом.",
+    "A module name has letters and digits only, e.g. Blog or CrmV2": "Имя модуля — только буквы и цифры, напр. Blog или CrmV2",
+    "Modules/{} already exists.": "Modules/{} уже существует.",
+    "laravel-modules is not installed. Run composer require nwidart/laravel-modules first (Tools ▸ Composer ▸ Require…).": "laravel-modules не установлен. Сначала выполните composer require nwidart/laravel-modules (Tools ▸ Composer ▸ Require…).",
+    "No modules in Modules/ yet — create one with New Module…": "В Modules/ пока нет модулей — создайте первый через «Новый модуль…»"
   }
 }

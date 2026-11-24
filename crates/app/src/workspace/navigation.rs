@@ -115,6 +115,7 @@ impl Workspace {
             action("New Eloquent Model", "", Box::new(NewModel)),
             action("Route Search", "⌃⇧R", Box::new(OpenRouteSearch)),
             action("Run Artisan Command", "⌃⇧X", Box::new(OpenArtisan)),
+            action("New Module…", "", Box::new(super::tools::NewModule)),
             action("Settings", "⌘,", Box::new(super::tools::OpenSettings)),
             action("Settings Sync: Push to GitHub", "", Box::new(super::tools::SyncPush)),
             action("Settings Sync: Pull from GitHub", "", Box::new(super::tools::SyncPull)),

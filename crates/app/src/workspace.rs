@@ -953,13 +953,49 @@ impl Workspace {
                 )
         });
         div()
-            .id("modules-list")
+            .id("modules-panel")
             .flex_1()
-            .overflow_y_scroll()
-            .py_1()
-            .text_size(px(13.))
-            .when(empty, |d| d.child(div().p_3().text_color(theme::muted()).child("No modules in Modules/.")))
-            .children(rows.collect::<Vec<_>>())
+            .flex_col()
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .pt_2()
+                    .child(
+                        div()
+                            .id("modules-new")
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .px_2()
+                            .h(px(22.))
+                            .rounded_md()
+                            .cursor_pointer()
+                            .text_size(px(12.))
+                            .text_color(theme::link())
+                            .hover(|d| d.bg(theme::hover()))
+                            .child("+")
+                            .child(crate::i18n::tr("New Module…"))
+                            .on_click(cx.listener(|this, _, window, cx| this.new_module(&tools::NewModule, window, cx))),
+                    )
+                    .child(div().flex_1()),
+            )
+            .child(
+                div()
+                    .id("modules-list")
+                    .flex_1()
+                    .min_h(px(0.))
+                    .overflow_y_scroll()
+                    .py_1()
+                    .text_size(px(13.))
+                    .when(empty, |d| {
+                        d.child(div().p_3().text_color(theme::muted()).child(crate::i18n::tr("No modules in Modules/ yet — create one with New Module…")))
+                    })
+                    .children(rows.collect::<Vec<_>>()),
+            )
     }
 
     /// Opens (or focuses) a database table editor tab.
@@ -1202,6 +1238,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_route_search))
             .on_action(cx.listener(Self::new_model))
             .on_action(cx.listener(Self::new_pivot_table))
+            .on_action(cx.listener(Self::new_module))
             .on_action(cx.listener(Self::toggle_laravel_menu))
             .on_action(cx.listener(Self::open_laravel_settings))
             .on_action(cx.listener(Self::generate_helper_code))

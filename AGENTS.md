@@ -94,7 +94,8 @@ PHP intelligence (completion with auto-import, goto, find usages, rename, move c
 inline / safe delete, generate, quick doc, parameter info, hierarchy, call hierarchy,
 inspections + PHPStan/Psalm/PHPCS, spell checking of comments and strings (`typo`, ⌥↵ suggestions / save to dictionary), intentions, bundled PHP stubs), Laravel (string navigation,
 Blade sections/stacks/props, routes in the gutter, generators incl. DTO / Nova, extract blade
-component/view, facade→DI / rules→array / scope→#[Scope] intentions), Twig, Git (commit, log
+component/view, facade→DI / rules→array / scope→#[Scope] intentions, the Modules window for
+laravel-modules with enable/disable and `module:make`), Twig, Git (commit, log
 with graph, branches, diff, blame, three-way merge window (BASE pane, line-level auto-merge), compare with revision / clipboard,
 interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes),
 Pull Requests (Git ▸ Pull Requests…: list, details, checkout, diff, comment via gh / glab),
