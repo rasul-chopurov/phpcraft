@@ -157,6 +157,10 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn new(project: Project, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        // Opens the project folder (`.phpcraft`) with its own `.gitignore`, so settings the
+        // libraries write later — laravel.json, datasources.json, the dictionary — stay out
+        // of the user's repository even if they create the folder themselves.
+        crate::config::project_dir(project.root());
         let rows = project.rows();
         let intel = Intel::new(project.root());
         let scanning = intel.clone();

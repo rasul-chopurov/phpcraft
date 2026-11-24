@@ -91,6 +91,11 @@ impl Dictionary {
         if let Some(file) = &self.file {
             if let Some(dir) = file.parent() {
                 std::fs::create_dir_all(dir)?;
+                // The folder is machine-local state: keep it out of the user's repository.
+                let ignore = dir.join(".gitignore");
+                if !ignore.exists() {
+                    let _ = std::fs::write(ignore, "*\n");
+                }
             }
             let mut words: Vec<&str> = self.project.iter().map(String::as_str).chain([word.as_str()]).collect();
             words.sort_unstable();

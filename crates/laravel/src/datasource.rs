@@ -171,9 +171,8 @@ pub fn load(root: &Path) -> Vec<DataSource> {
 }
 
 pub fn save(root: &Path, sources: &[DataSource]) -> std::io::Result<()> {
-    let path = file(root);
-    std::fs::create_dir_all(path.parent().unwrap())?;
-    std::fs::write(path, serde_json::to_string_pretty(sources).unwrap_or_default())
+    crate::settings::ensure_state_dir(root);
+    std::fs::write(file(root), serde_json::to_string_pretty(sources).unwrap_or_default())
 }
 
 /// PDO work: connects with the DSN, then runs one operation. Input arrives as JSON on stdin.

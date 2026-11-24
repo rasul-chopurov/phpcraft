@@ -140,6 +140,19 @@ fn settings_path(root: &Path) -> PathBuf {
     root.join(".phpcraft/laravel.json")
 }
 
+/// The project folder (`.phpcraft` under `root`), created on demand together with a
+/// `.gitignore` of `*`, so these machine-local files never show up in the user's repository.
+pub(crate) fn ensure_state_dir(root: &Path) -> PathBuf {
+    let dir = root.join(".phpcraft");
+    if fs::create_dir_all(&dir).is_ok() {
+        let ignore = dir.join(".gitignore");
+        if !ignore.exists() {
+            let _ = fs::write(ignore, "*\n");
+        }
+    }
+    dir
+}
+
 impl LaravelSettings {
     pub fn load(root: &Path) -> Self {
         fs::read_to_string(settings_path(root))
@@ -149,11 +162,8 @@ impl LaravelSettings {
     }
 
     pub fn save(&self, root: &Path) -> std::io::Result<()> {
-        let path = settings_path(root);
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        fs::write(path, serde_json::to_string_pretty(self).unwrap_or_default())
+        ensure_state_dir(root);
+        fs::write(settings_path(root), serde_json::to_string_pretty(self).unwrap_or_default())
     }
 
     /// The Laravel application root.
@@ -188,6 +198,7 @@ mod tests {
         settings.model.templates.insert(Extra::Controller, "Api\\${MODEL}ApiController".into());
         settings.model.timezones = true;
         settings.save(&root).unwrap();
+        assert_eq!(fs::read_to_string(root.join(".phpcraft/.gitignore")).unwrap(), "*\n");
         let loaded = LaravelSettings::load(&root);
         assert_eq!(loaded, settings);
         assert_eq!(loaded.model.name_for(Extra::Controller, "Post", "posts"), "Api\\PostApiController");

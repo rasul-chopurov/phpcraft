@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn controller_runs_a_session() {
         let root = std::env::temp_dir().join(format!("phpcraft-debug-{}", std::process::id()));
-        std::fs::create_dir_all(root.join(".phpcraft")).unwrap();
+        crate::config::project_dir(&root);
         let port = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap().local_addr().unwrap().port();
         std::fs::write(root.join(".phpcraft/debug.json"), format!(r#"{{"port": {port}, "mappings": {{"/srv/app": "."}}}}"#)).unwrap();
         let breakpoint = crate::breakpoints::Breakpoint { path: root.join("index.php"), line: 2, condition: None };
