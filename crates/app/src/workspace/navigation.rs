@@ -416,7 +416,7 @@ impl Workspace {
         self.reload_clean_tabs(paths, cx);
     }
 
-    fn reload_clean_tabs(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+    pub(super) fn reload_clean_tabs(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
         for tab in &self.tabs {
             let path = tab.read(cx).buffer.path().map(|p| p.to_path_buf());
             if let Some(path) = path.filter(|p| paths.contains(p)) {

@@ -260,6 +260,11 @@ const DEFAULTS: &[Default] = &[
     per("ctrl-v", "alt-`", "workspace::VcsOperations", Some("Workspace && !Terminal")),
     both("escape", "dialog::Cancel", Some("TerminalRename")),
     per("cmd-alt-shift-x", "ctrl-alt-shift-x", "workspace::UploadToServer", None),
+    // The same three, but asking which server first.
+    per("cmd-alt-shift-u", "ctrl-alt-shift-u", "workspace::UploadToServerPick", None),
+    per("cmd-alt-shift-d", "ctrl-alt-shift-d", "workspace::DownloadFromServer", None),
+    per("cmd-shift-alt-d", "ctrl-shift-alt-d", "workspace::DownloadFromServerPick", None),
+    per("cmd-alt-shift-a", "ctrl-alt-shift-a", "workspace::ToggleAutoUpload", None),
     per("cmd-t", "ctrl-shift-t", "workspace::NewTerminal", Some("Terminal")),
     per("cmd-w", "ctrl-shift-w", "workspace::CloseTerminal", Some("Terminal")),
     per("ctrl-r", "shift-f10", "workspace::RunLast", None),

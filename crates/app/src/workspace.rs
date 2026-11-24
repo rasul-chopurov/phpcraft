@@ -526,6 +526,11 @@ impl Workspace {
             .on_action(cx.listener(Self::tree_expand))
             .on_action(cx.listener(Self::tree_search))
             .on_action(cx.listener(Self::tree_cancel))
+            // A remote file dropped on the tree is downloaded to its mapped local path.
+            .drag_over::<remote_panel::DraggedRemote>(|d, _, _, _| d.bg(theme::selection()))
+            .on_drop(cx.listener(|this, dragged: &remote_panel::DraggedRemote, window, cx| {
+                this.download_dropped(dragged.clone(), window, cx)
+            }))
             .children(self.render_tree_search(cx))
             .child(
                 gpui::uniform_list(
@@ -578,6 +583,11 @@ impl Workspace {
                     this.selected_path = Some(path.clone());
                     this.open_tree_menu(path.clone(), is_dir, event.position, cx);
                 })
+            })
+            // Drag a row (or a folder) onto the Remote panel to upload it.
+            .on_drag(remote_panel::DraggedPaths(vec![row.entry.path.clone()]), {
+                let name = row.entry.name.clone();
+                move |_, _, _, cx| cx.new(|_| remote_panel::PathDrag(name.clone()))
             })
         )
     }
@@ -632,19 +642,29 @@ impl Workspace {
                 .on_mouse_down(MouseButton::Right, cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| this.open_tab_menu(ix, event.position, cx)))
         });
         div()
-            .id("tabs")
             .flex()
             .flex_none()
             .h(px(32.))
             .w_full()
-            .overflow_x_scroll()
+            .items_center()
             .bg(theme::panel_bg())
             .border_b_1()
             .border_color(theme::border())
             .text_size(px(13.))
-            .children(tabs)
-            .children(self.render_diff_tab(cx))
-            .children(self.render_table_tabs(cx))
+            .child(
+                div()
+                    .id("tabs")
+                    .flex()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .h_full()
+                    .overflow_x_scroll()
+                    .children(tabs)
+                    .children(self.render_diff_tab(cx))
+                    .children(self.render_table_tabs(cx)),
+            )
+            // The SFTP chip rides at the right of the tab bar while an SFTP file is open.
+            .when_some(self.render_remote_chip(cx), |d, chip| d.child(div().flex_none().pr_2().child(chip)))
     }
 
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1215,6 +1235,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::focus_next_pane))
             .on_action(cx.listener(Self::run_sql))
             .on_action(cx.listener(Self::upload_to_server))
+            .on_action(cx.listener(Self::upload_pick))
+            .on_action(cx.listener(Self::download_pick))
             .on_action(cx.listener(Self::run_http_request))
             .on_action(cx.listener(Self::new_http_request))
             .on_action(cx.listener(Self::run_sql_file))

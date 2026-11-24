@@ -2,9 +2,11 @@
 //! `.phpcraft/deployment.json`, a remote file browser, upload/download of project files and an
 //! SSH session in the terminal. Transfers go through the system OpenSSH `sftp`.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
-use gpui::{AppContext, Context, Entity, SharedString, Window, actions, div, prelude::*, px};
+use gpui::{AnyElement, AppContext, Context, Entity, SharedString, Window, actions, div, prelude::*, px};
 
 use super::Workspace;
 use crate::deployment::{self, Deployment, RemoteEntry, Server};
@@ -12,9 +14,64 @@ use crate::icons::{Icon, icon};
 use crate::run_configs::{Kind, RunConfig};
 use crate::text_field::TextField;
 use crate::theme;
-use crate::i18n::tr;
+use crate::i18n::{tr, trf};
 
-actions!(workspace, [UploadToServer, DownloadFromServer, ToggleAutoUpload]);
+actions!(workspace, [UploadToServer, UploadToServerPick, DownloadFromServer, DownloadFromServerPick, ToggleAutoUpload]);
+
+/// A file dragged out of the project tree; the remote browser uploads what it accepts.
+#[derive(Clone)]
+pub(super) struct DraggedPaths(pub Vec<PathBuf>);
+
+/// A file dragged out of the remote browser; the project tree downloads what it accepts.
+#[derive(Clone)]
+pub(super) struct DraggedRemote {
+    pub server: String,
+    pub remote: String,
+    pub name: String,
+}
+
+struct RemoteDrag(String);
+
+impl gpui::Render for RemoteDrag {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .bg(theme::panel_bg())
+            .border_1()
+            .border_color(theme::accent())
+            .text_size(px(12.))
+            .text_color(theme::ui_text())
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(icon(Icon::globe, 12., theme::accent()))
+            .child(self.0.clone())
+    }
+}
+
+/// What a project file looks like while it is dragged towards the server browser.
+pub(super) struct PathDrag(pub String);
+
+impl gpui::Render for PathDrag {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .bg(theme::panel_bg())
+            .border_1()
+            .border_color(theme::accent())
+            .text_size(px(12.))
+            .text_color(theme::ui_text())
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(icon(Icon::upload, 12., theme::accent()))
+            .child(self.0.clone())
+    }
+}
 
 /// How the server is logged into.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -72,6 +129,10 @@ pub(super) struct RemoteState {
     selected_entry: Option<String>,
     /// Bumped by every listing request; only the latest one's result is shown.
     generation: u64,
+    /// When each file last went up, so the editor could tell whether it is still current.
+    uploaded: HashMap<PathBuf, SystemTime>,
+    /// The file on its way up right now.
+    uploading: Option<PathBuf>,
 }
 
 fn secret(cx: &mut Context<Workspace>, placeholder: &'static str, text: &str) -> Entity<TextField> {
@@ -243,26 +304,228 @@ impl Workspace {
 
     fn upload_path(&mut self, local: PathBuf, cx: &mut Context<Self>) {
         let Some(server) = self.server().or_else(|| self.remote.deployment.default_server().cloned()) else {
-            self.set_status("Add a server first", false, cx);
+            self.set_status(tr("Add an SFTP server first"), false, cx);
             return;
         };
+        self.upload_to(&server.id, vec![local], None, cx);
+    }
+
+    /// Uploads files (folders expand to what they hold) to one server over one connection.
+    /// Files from outside the project land in the browser's current folder.
+    pub(super) fn upload_to(&mut self, server_id: &str, paths: Vec<PathBuf>, dir: Option<String>, cx: &mut Context<Self>) {
+        let Some(server) = self.remote.deployment.servers.iter().find(|s| s.id == server_id).cloned() else {
+            self.set_status(tr("That server is no longer configured"), false, cx);
+            return;
+        };
+        if paths.is_empty() {
+            return;
+        }
         let root = self.project.root().to_path_buf();
         let password = deployment::password(&root, &server.id);
-        self.set_status(format!("Uploading {}…", local.display()), true, cx);
+        let dir = dir.unwrap_or_else(|| self.remote.cwd.clone());
+        let pairs: Vec<(PathBuf, String)> =
+            paths.iter().map(|path| (path.clone(), deployment::remote_for(&server, &root, path, &dir))).collect();
+        let count = pairs.len();
+        let server_name = server.name.clone();
+        self.remote.uploading = paths.first().cloned();
+        self.set_status(trf("Uploading {} file(s) to {}…", &[&count.to_string(), &server_name]), true, cx);
         cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move { deployment::upload(&server, &password, &root, &local) }).await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(remote) => {
-                    this.set_status(format!("Uploaded to {remote}"), true, cx);
-                    if !this.remote.cwd.is_empty() {
-                        let cwd = this.remote.cwd.clone();
-                        this.browse(cwd, cx);
+            let result = cx.background_spawn(async move { deployment::upload_many(&server, &password, &pairs) }).await;
+            let _ = this.update(cx, |this, cx| {
+                this.remote.uploading = None;
+                match result {
+                    Ok(files) => {
+                        for path in &paths {
+                            if let Ok(stamp) = std::fs::metadata(path).and_then(|m| m.modified()) {
+                                this.remote.uploaded.insert(path.clone(), stamp);
+                            }
+                        }
+                        this.set_status(trf("Uploaded {} file(s) to {}", &[&files.to_string(), &server_name]), true, cx);
+                        if !this.remote.cwd.is_empty() {
+                            let cwd = this.remote.cwd.clone();
+                            this.browse(cwd, cx);
+                        }
                     }
+                    Err(err) => this.set_status(err, false, cx),
                 }
-                Err(err) => this.set_status(err, false, cx),
             });
         })
         .detach();
+    }
+
+    /// "Upload to Server…": asks which host, then uploads the open file to it.
+    pub(super) fn open_server_picker(&mut self, upload: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.ensure_remote(cx);
+        if self.remote.deployment.servers.is_empty() {
+            self.set_status(tr("Add an SFTP server first"), false, cx);
+            return;
+        }
+        let servers = self.remote.deployment.servers.clone();
+        let default = self.remote.deployment.default.clone();
+        let dialog = cx.new(|cx| crate::dialogs::ServersDialog::new(servers, upload, default, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// The server list chose a host for the open file.
+    pub(super) fn server_picked(&mut self, id: String, upload: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if upload {
+            self.save_all(cx);
+            match self.active_file(cx) {
+                Some(path) => self.upload_to(&id, vec![path], None, cx),
+                None => self.set_status(tr("Open a file to upload"), false, cx),
+            }
+        } else {
+            self.download_to(id, window, cx)
+        }
+    }
+
+    /// Makes `id` the server automatic upload and the editor chip work with.
+    pub(super) fn default_server_changed(&mut self, id: String, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let mut config = deployment::load(&root);
+        let name = config.servers.iter().find(|s| s.id == id).map(|s| s.name.clone()).unwrap_or_default();
+        config.default = Some(id);
+        self.remote.deployment = config.clone();
+        self.remote.selected = config.default.clone();
+        match deployment::save(&root, &config) {
+            Ok(()) => self.set_status(trf("Automatic upload now goes to {}", &[&name]), true, cx),
+            Err(e) => self.set_status(e.to_string(), false, cx),
+        }
+    }
+
+    /// Downloads the open file from a chosen server.
+    pub(super) fn download_to(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(local) = self.active_file(cx) else {
+            self.set_status(tr("Open a file to download"), false, cx);
+            return;
+        };
+        let Some(server) = self.remote.deployment.servers.iter().find(|s| s.id == id).cloned() else {
+            self.set_status(tr("That server is no longer configured"), false, cx);
+            return;
+        };
+        let Some(remote) = deployment::remote_path(&server, self.project.root(), &local) else {
+            self.set_status(tr("Only files inside the project can be downloaded"), false, cx);
+            return;
+        };
+        let password = deployment::password(self.project.root(), &server.id);
+        let window_handle = window.window_handle();
+        self.set_status(trf("Downloading {}…", &[&remote]), true, cx);
+        cx.spawn(async move |this, cx| {
+            let target = local.clone();
+            let pairs = vec![(remote.clone(), target)];
+            let result = cx.background_spawn(async move { deployment::download_many(&server, &password, &pairs).map(|_| remote) }).await;
+            let _ = cx.update_window(window_handle, |_, window, cx| {
+                let _ = this.update(cx, |this, cx| match result {
+                    Ok(remote) => {
+                        this.set_status(trf("Downloaded {}", &[&remote]), true, cx);
+                        this.reload_clean_tabs(&[local.clone()], cx);
+                        this.open_file(&local, window, cx);
+                    }
+                    Err(err) => this.set_status(err, false, cx),
+                });
+            });
+        })
+        .detach();
+    }
+
+    /// Files dropped on the remote browser: upload them to the server shown there.
+    pub(super) fn upload_dropped(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        self.ensure_remote(cx);
+        let Some(server) = self.server().or_else(|| self.remote.deployment.default_server().cloned()) else {
+            self.set_status(tr("Add an SFTP server first"), false, cx);
+            return;
+        };
+        let dir = self.remote.cwd.clone();
+        self.upload_to(&server.id, paths, Some(dir), cx);
+    }
+
+    /// A remote file dropped on the project tree: download it to its mapped local path.
+    pub(super) fn download_dropped(&mut self, dragged: DraggedRemote, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(server) = self.remote.deployment.servers.iter().find(|s| s.id == dragged.server).cloned() else {
+            self.set_status(tr("That server is no longer configured"), false, cx);
+            return;
+        };
+        let local = self.local_for(&server, &dragged.remote);
+        let password = deployment::password(self.project.root(), &server.id);
+        let window_handle = window.window_handle();
+        let remote = dragged.remote.clone();
+        self.set_status(trf("Downloading {}…", &[&remote]), true, cx);
+        cx.spawn(async move |this, cx| {
+            let target = local.clone();
+            let pairs = vec![(remote.clone(), target)];
+            let result = cx.background_spawn(async move { deployment::download_many(&server, &password, &pairs).map(|_| remote) }).await;
+            let _ = cx.update_window(window_handle, |_, window, cx| {
+                let _ = this.update(cx, |this, cx| match result {
+                    Ok(remote) => {
+                        this.set_status(trf("Downloaded {}", &[&remote]), true, cx);
+                        this.open_file(&local, window, cx);
+                    }
+                    Err(err) => this.set_status(err, false, cx),
+                });
+            });
+        })
+        .detach();
+    }
+
+    /// The SFTP chip in the editor's tab bar: the server the open file goes to and whether it
+    /// is up to date there. Clicking uploads; ⌥-click, the caret or a right-click asks which
+    /// server.
+    pub(super) fn render_remote_chip(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let path = self.active_file(cx)?;
+        let server = self.server().or_else(|| self.remote.deployment.default_server().cloned())?;
+        deployment::remote_path(&server, self.project.root(), &path)?;
+        let uploading = self.remote.uploading.as_deref() == Some(path.as_path());
+        let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        let changed = self.remote.uploaded.get(&path).is_some_and(|up| stamp.is_none_or(|s| s > *up));
+        let (color, tip) = if uploading {
+            (theme::accent(), trf("Uploading to {}…", &[&server.name]))
+        } else if self.remote.uploaded.get(&path).is_none() {
+            (theme::muted(), trf("Not uploaded to {} yet · ⌥⇧⌘X", &[&server.name]))
+        } else if changed {
+            (theme::accent(), trf("Changed since the last upload to {} · ⌥⇧⌘X", &[&server.name]))
+        } else {
+            (theme::success(), trf("Matches {} · ⌥⇧⌘X", &[&server.name]))
+        };
+        let id = server.id.clone();
+        let local = path.clone();
+        Some(
+            div()
+                .id("remote-chip")
+                .flex()
+                .items_center()
+                .gap_1()
+                .h(px(22.))
+                .px_2()
+                .rounded_md()
+                .cursor_pointer()
+                .border_1()
+                .border_color(theme::border())
+                .text_size(px(11.5))
+                .text_color(theme::muted())
+                .hover(|d| d.bg(theme::hover()))
+                .tooltip(super::layout::tooltip(tip))
+                .child(icon(Icon::upload, 12., color))
+                .child(SharedString::from(server.name.clone()))
+                .child(div().text_color(color).child(if uploading { "…" } else { "●" }))
+                .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                    if event.modifiers().alt {
+                        this.open_server_picker(true, window, cx);
+                    } else {
+                        this.upload_to(&id, vec![local.clone()], None, cx);
+                    }
+                }))
+                .on_mouse_down(gpui::MouseButton::Right, cx.listener(move |this, _, window, cx| this.open_server_picker(true, window, cx)))
+                .child(
+                    div()
+                        .id("remote-chip-more")
+                        .px_1()
+                        .rounded_sm()
+                        .hover(|d| d.bg(theme::active_row()))
+                        .child("⌄")
+                        .on_click(cx.listener(move |this, _, window, cx| this.open_server_picker(true, window, cx))),
+                )
+                .into_any_element(),
+        )
     }
 
     fn active_file(&self, cx: &gpui::App) -> Option<PathBuf> {
@@ -276,6 +539,16 @@ impl Workspace {
             Some(path) => self.upload_path(path, cx),
             None => self.set_status("Open a file to upload", false, cx),
         }
+    }
+
+    /// "Upload to…": pick the host for the open file.
+    pub(super) fn upload_pick(&mut self, _: &UploadToServerPick, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_server_picker(true, window, cx);
+    }
+
+    /// "Download from…": pick the host to pull the open file from.
+    pub(super) fn download_pick(&mut self, _: &DownloadFromServerPick, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_server_picker(false, window, cx);
     }
 
     pub(super) fn download_from_server(&mut self, _: &DownloadFromServer, window: &mut Window, cx: &mut Context<Self>) {
@@ -540,6 +813,12 @@ impl Workspace {
                 .child(tool("remote-download", Icon::download, "Download current file from server").on_click(cx.listener(|this, _, window, cx| {
                     this.download_from_server(&DownloadFromServer, window, cx)
                 })))
+                .child(tool("remote-upload-pick", Icon::upload, "Upload current file to…  ⌥⇧⌘U").on_click(cx.listener(|this, _, window, cx| {
+                    this.open_server_picker(true, window, cx)
+                })))
+                .child(tool("remote-download-pick", Icon::download, "Download current file from…  ⇧⌥⌘D").on_click(cx.listener(|this, _, window, cx| {
+                    this.open_server_picker(false, window, cx)
+                })))
             });
 
         let servers = self.remote.deployment.servers.iter().map(|server| {
@@ -576,7 +855,18 @@ impl Workspace {
                 .child(crate::dialogs::button("remote-first", "Add SFTP server", true).on_click(cx.listener(|this, _, _, cx| this.edit_server(None, cx))))
                 .into_any_element()
         } else {
-            let mut list = div().id("remote-files").flex_1().overflow_y_scroll().flex().flex_col().py_1();
+            let mut list = div()
+                .id("remote-files")
+                .flex_1()
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .py_1()
+                // Dropping here uploads: from the project tree or from the Finder.
+                .drag_over::<DraggedPaths>(|d, _, _, _| d.bg(theme::selection()))
+                .on_drop(cx.listener(|this, paths: &DraggedPaths, _, cx| this.upload_dropped(paths.0.clone(), cx)))
+                .drag_over::<gpui::ExternalPaths>(|d, _, _, _| d.bg(theme::selection()))
+                .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| this.upload_dropped(paths.paths().to_vec(), cx)));
             if self.remote.cwd != "/" && !self.remote.cwd.is_empty() {
                 list = list.child(
                     div()
@@ -620,6 +910,13 @@ impl Workspace {
                                 .child(file_icon)
                                 .child(div().flex_1().overflow_hidden().whitespace_nowrap().child(entry.name.clone()))
                                 .when(!is_dir, |d| d.child(div().text_size(px(11.)).text_color(theme::muted()).child(entry.size.clone())))
+                                .when(!is_dir, |d| {
+                                    let server = self.remote.selected.clone().unwrap_or_default();
+                                    let remote = join(&self.remote.cwd, &entry.name);
+                                    d.on_drag(DraggedRemote { server, remote, name: entry.name.clone() }, |drag, _, _, cx| {
+                                        cx.new(|_| RemoteDrag(drag.name.clone()))
+                                    })
+                                })
                                 .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
                                     if is_dir {
                                         let dir = join(&this.remote.cwd, &name);

@@ -678,6 +678,16 @@ impl Workspace {
                 let (id, delete_only) = (id.clone(), *delete_only);
                 self.unshelve(&id, delete_only, window, cx);
             }
+            DialogEvent::ServerPicked { id, upload } => {
+                let (id, upload) = (id.clone(), *upload);
+                self.dismiss_modal(window, cx);
+                self.server_picked(id, upload, window, cx);
+            }
+            DialogEvent::DefaultServer(id) => {
+                let id = id.clone();
+                self.dismiss_modal(window, cx);
+                self.default_server_changed(id, cx);
+            }
             DialogEvent::SaveWindowLayout(name) => {
                 let name = name.clone();
                 self.save_window_layout(&name, window, cx);

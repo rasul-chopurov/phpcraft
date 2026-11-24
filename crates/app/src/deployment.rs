@@ -237,6 +237,84 @@ pub fn download(server: &Server, password: &str, remote: &str, local: &Path) -> 
     run(server, password, &download_batch(remote, local)).map(|_| ())
 }
 
+/// Every file under `path`; a file yields itself, a folder is walked (skipping `.git`).
+///
+/// Dragging a folder onto the remote browser uploads what is inside it, the way a
+/// file manager would, without a second round trip per file.
+pub fn files_under(path: &Path) -> Vec<PathBuf> {
+    fn walk(path: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(path) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|name| name == ".git") {
+                    continue;
+                }
+                walk(&path, out);
+            } else if path.is_file() {
+                out.push(path);
+            }
+        }
+    }
+    if path.is_file() {
+        return vec![path.to_path_buf()];
+    }
+    let mut out = Vec::new();
+    walk(path, &mut out);
+    out.sort();
+    out
+}
+
+/// The remote path of `local`: inside the project it keeps its place under `remote_root`,
+/// outside it lands in `dir` (the folder the file was dropped on).
+pub fn remote_for(server: &Server, root: &Path, local: &Path, dir: &str) -> String {
+    remote_path(server, root, local).unwrap_or_else(|| {
+        let name = local.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".into());
+        let dir = if dir.trim().is_empty() { server.remote_root.clone() } else { dir.to_string() };
+        if dir.ends_with('/') { format!("{dir}{name}") } else { format!("{dir}/{name}") }
+    })
+}
+
+/// Uploads several files over one connection: a folder expands to the files it holds.
+/// Returns how many files went up.
+pub fn upload_many(server: &Server, password: &str, pairs: &[(PathBuf, String)]) -> Result<usize, String> {
+    let mut batch = String::new();
+    let mut count = 0;
+    for (local, remote) in pairs {
+        for file in files_under(local) {
+            let remote = if file.as_path() == local.as_path() {
+                remote.clone()
+            } else {
+                let rel = file.strip_prefix(local).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+                format!("{}/{}", remote.trim_end_matches('/'), rel)
+            };
+            batch.push_str(&upload_batch(&file, &remote));
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return Err("Nothing to upload".into());
+    }
+    run(server, password, &batch)?;
+    Ok(count)
+}
+
+/// Downloads several remote files over one connection, creating the local folders.
+pub fn download_many(server: &Server, password: &str, pairs: &[(String, PathBuf)]) -> Result<usize, String> {
+    let mut batch = String::new();
+    for (remote, local) in pairs {
+        if let Some(parent) = local.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        batch.push_str(&download_batch(remote, local));
+    }
+    if pairs.is_empty() {
+        return Ok(0);
+    }
+    run(server, password, &batch)?;
+    Ok(pairs.len())
+}
+
 pub fn list(server: &Server, password: &str, dir: &str) -> Result<Vec<RemoteEntry>, String> {
     run(server, password, &format!("ls -la {}\n", quote(dir))).map(|out| parse_ls(&out))
 }
@@ -255,5 +333,37 @@ mod tests {
         let ls = "sftp> ls -la /var/www\ndrwxr-xr-x    5 www  www   4096 Nov  1 10:00 .\ndrwxr-xr-x    5 www  www   4096 Nov  1 10:00 ..\n-rw-r--r--    1 www  www    120 Nov  1 10:00 /var/www/index.php\ndrwxr-xr-x    2 www  www   4096 Nov  1 10:00 /var/www/app\n";
         let entries = parse_ls(ls);
         assert_eq!(entries.iter().map(|e| (e.name.as_str(), e.is_dir)).collect::<Vec<_>>(), [("app", true), ("index.php", false)]);
+    }
+
+    #[test]
+    fn folders_expand_to_their_files_and_dropped_files_keep_their_name() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "phpcraft-upload-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src/Models")).unwrap();
+        std::fs::create_dir_all(dir.join(".git/objects")).unwrap();
+        std::fs::write(dir.join("src/Models/User.php"), "<?php").unwrap();
+        std::fs::write(dir.join("README.md"), "# app").unwrap();
+        std::fs::write(dir.join(".git/HEAD"), "ref").unwrap();
+
+        let files: Vec<String> = files_under(&dir)
+            .iter()
+            .map(|p| p.strip_prefix(&dir).unwrap().to_string_lossy().replace('\\', "/"))
+            .collect();
+        assert_eq!(files, ["README.md", "src/Models/User.php"]);
+        // A single file is itself, not a folder to walk.
+        assert_eq!(files_under(&dir.join("README.md")), vec![dir.join("README.md")]);
+
+        let server = Server { remote_root: "/var/www/app".into(), ..Default::default() };
+        let root = Path::new("/p");
+        assert_eq!(remote_for(&server, root, Path::new("/p/app/User.php"), "/var/www/app"), "/var/www/app/app/User.php");
+        assert_eq!(remote_for(&server, root, Path::new("/tmp/notes.txt"), "/var/www/app/notes"), "/var/www/app/notes/notes.txt");
+        assert_eq!(remote_for(&server, root, Path::new("/tmp/notes.txt"), ""), "/var/www/app/notes.txt");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

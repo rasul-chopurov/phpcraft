@@ -99,7 +99,8 @@ with graph, branches, diff, blame, three-way merge window (BASE pane, line-level
 interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes),
 Pull Requests (Git ▸ Pull Requests…: list, details, checkout, diff, comment via gh / glab),
 Xdebug debugger (conditional breakpoints, evaluate), Docker services, test runner with results and coverage, Composer menu, HTTP
-client (+ cURL / Postman / OpenAPI, history), database tools, SFTP deployment (auto upload),
+client (+ cURL / Postman / OpenAPI, history), database tools, SFTP deployment (auto upload, per-server picker, drag and drop in both
+ directions, an upload chip in the tab bar),
 terminal (Run Anything with ⌃⌃: configurations, Artisan, typed shell lines), AI agents, settings
 sync and import (VS Code / Zed).
 

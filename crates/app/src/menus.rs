@@ -283,7 +283,9 @@ pub fn set(cx: &mut App) {
                 ))),
                 Some(MenuItem::separator()),
                 item(cx, "Deployment: Upload to Server", "workspace::UploadToServer"),
+                item(cx, "Deployment: Upload to Server…", "workspace::UploadToServerPick"),
                 item(cx, "Deployment: Download from Server", "workspace::DownloadFromServer"),
+                item(cx, "Deployment: Download from Server…", "workspace::DownloadFromServerPick"),
                 item(cx, "Deployment: Automatic Upload (on / off)", "workspace::ToggleAutoUpload"),
             ]
             .into_iter()

@@ -30,6 +30,9 @@
   session restore (tabs, panes, carets, scroll position, folded regions), reload of files changed on disk (watched by the OS, a changed buffer and a deleted file both ask first), font zoom (⌘+ / ⌘− / ⌘+scroll),
   saved window layouts (View ▸ Window Layouts…), Russian UI (menu bar, tool windows,
   Search Everywhere, editor context menu)
+- **Deployment**: SFTP servers with a per-server picker (⌥⇧⌘U / ⇧⌥⌘D), automatic upload on
+  save, drag and drop in both directions (project tree ↔ server browser), and an upload chip in
+  the tab bar that shows whether the open file is up to date on the server
 - **AI**: Claude, Codex, OpenCode and Gemini via ACP or API key
 
 ## Install

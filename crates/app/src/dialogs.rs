@@ -18,6 +18,7 @@ mod input;
 mod projects;
 mod run;
 mod run_anything;
+mod servers;
 mod structural;
 
 use std::path::Path;
@@ -49,6 +50,7 @@ pub use input::{FileOp, InputDialog};
 pub use projects::{ProjectDialog, avatar, project_name, tilde};
 pub use run::RunDialog;
 pub use run_anything::RunAnythingDialog;
+pub use servers::ServersDialog;
 pub use structural::StructuralSearchDialog;
 
 use crate::text_field::{FieldEvent, TextField};
@@ -100,6 +102,11 @@ pub enum DialogEvent {
         replacement: String,
         paths: Vec<std::path::PathBuf>,
     },
+    /// A [`ServersDialog`] picked a server for the current file: upload to it, or download
+    /// from it.
+    ServerPicked { id: String, upload: bool },
+    /// A [`ServersDialog`] made a server the target of automatic upload.
+    DefaultServer(String),
     /// The project file list was computed; the workspace caches it.
     FilesListed(Arc<Vec<NavItem>>),
     RunAction(Box<dyn gpui::Action>),
