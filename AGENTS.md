@@ -113,9 +113,11 @@ sync and import (VS Code / Zed).
   **0.4.3-alpha**: Update and Restart (self-update in place). **0.5.0-alpha**: three-way merge
   window, JS/TS module resolution with import rewriting, Move Class companions, Import Class,
   session restore with scroll and folds, external-change prompts, saved window layouts,
-  Run Anything, structural search, full Russian UI.
+  Run Anything, structural search, full Russian UI. **0.5.1-alpha**: conditional breakpoints in
+  the Debug window, white labels on every dialog button in the dark themes, the per-project
+  `.phpcraft` folder kept out of git.
 - Releases are built for **macOS and Windows only** (the user paused Linux builds; the site
-  doesn't list Linux). `Cargo.toml` version is `0.5.0-alpha`.
+  doesn't list Linux). `Cargo.toml` version is `0.5.1-alpha`.
 
 ### Next steps: known gaps / ideas
 
