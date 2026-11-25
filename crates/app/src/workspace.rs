@@ -1158,8 +1158,8 @@ impl Render for Workspace {
                 .gap_2()
                 .bg(theme::editor_bg())
                 .text_color(theme::muted())
-                .child("Откройте файл в дереве проекта")
-                .child("⌘W закрыть вкладку · ⌃Tab следующая · ⌘S сохранить"),
+                .child(crate::i18n::tr("Open a file in the project tree"))
+                .child(crate::i18n::tr("⌘W close the tab · ⌃Tab next tab · ⌘S save")),
         };
         div()
             .key_context("Workspace")
