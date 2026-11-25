@@ -149,6 +149,7 @@ const DEFAULTS: &[Default] = &[
     both("f7", "workspace::DebugStepInto", None),
     both("shift-f8", "workspace::DebugStepOut", None),
     both("enter", "workspace::DebugEvaluate", Some("DebugEval")),
+    both("enter", "workspace::DebugWatchAdd", Some("DebugWatch")),
     per("ctrl-alt-i", "ctrl-alt-shift-i", "editor::AutoIndentLines", ED),
     both("shift-f2", "editor::PrevProblem", ED),
     per("cmd-6", "alt-6", "workspace::ShowProblems", None),

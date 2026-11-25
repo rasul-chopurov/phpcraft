@@ -776,6 +776,9 @@
     "Laravel: Eloquent Model…": "Laravel: модель Eloquent…",
     "Open a file in the project tree": "Откройте файл в дереве проекта",
     "⌘W close the tab · ⌃Tab next tab · ⌘S save": "⌘W закрыть вкладку · ⌃Tab следующая · ⌘S сохранить",
-    "Load more": "Загрузить ещё"
+    "Load more": "Загрузить ещё",
+    "Watches": "Наблюдения",
+    "Add a watch expression (Enter)": "Добавить выражение для наблюдения (Enter)",
+    "evaluating…": "вычисляется…"
   }
 }

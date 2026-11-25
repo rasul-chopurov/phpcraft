@@ -34,6 +34,9 @@
   save, drag and drop in both directions (project tree ↔ server browser), folder download,
   rename and delete on the server, an upload chip in the tab bar that shows whether the open
   file is up to date, and `.git`/`vendor`/`node_modules` left out of uploads
+- **Debugging**: Xdebug with path mappings (`.phpcraft/debug.json`), breakpoints with PHP
+  conditions listed in the Debug window, watch expressions that are re-evaluated on every
+  stop, step over / into / out, and an evaluate field for the current frame
 - **AI**: Claude, Codex, OpenCode and Gemini via ACP or API key
 
 ## Install

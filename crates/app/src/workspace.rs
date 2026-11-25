@@ -1223,6 +1223,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::debug_step_out))
             .on_action(cx.listener(Self::debug_stop))
             .on_action(cx.listener(Self::debug_evaluate))
+            .on_action(cx.listener(Self::debug_watch_add))
             .on_action(cx.listener(Self::debug_context))
             .on_action(cx.listener(Self::go_to_bookmark_0))
             .on_action(cx.listener(Self::go_to_bookmark_1))

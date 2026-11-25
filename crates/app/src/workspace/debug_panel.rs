@@ -17,7 +17,7 @@ use crate::i18n::tr;
 
 actions!(
     workspace,
-    [ToggleDebugListen, DebugResume, DebugStepOver, DebugStepInto, DebugStepOut, DebugStop, DebugEvaluate, DebugContext]
+    [ToggleDebugListen, DebugResume, DebugStepOver, DebugStepInto, DebugStepOut, DebugStop, DebugEvaluate, DebugWatchAdd, DebugContext]
 );
 
 struct Paused {
@@ -38,6 +38,11 @@ pub(super) struct DebugState {
     open: HashSet<String>,
     eval: Entity<TextField>,
     eval_focus: FocusHandle,
+    /// Expressions re-evaluated on every stop, and what they came back with.
+    watches: Vec<String>,
+    watch_values: HashMap<String, Result<Property, String>>,
+    watch: Entity<TextField>,
+    watch_focus: FocusHandle,
     results: Vec<(String, Result<Property, String>)>,
     message: Option<String>,
     _pump: Task<()>,
@@ -59,6 +64,8 @@ impl Workspace {
             }
         });
         let eval = cx.new(|cx| TextField::new(tr("Evaluate expression (Enter)"), cx));
+        let watch = cx.new(|cx| TextField::new(tr("Add a watch expression (Enter)"), cx));
+        let watches = crate::debugger::DebugConfig::load(self.project.root()).watches;
         self.debug = Some(DebugState {
             controller,
             listening: None,
@@ -68,6 +75,10 @@ impl Workspace {
             open: HashSet::new(),
             eval,
             eval_focus: cx.focus_handle(),
+            watches,
+            watch_values: HashMap::new(),
+            watch,
+            watch_focus: cx.focus_handle(),
             results: Vec::new(),
             message: None,
             _pump: pump,
@@ -104,6 +115,10 @@ impl Workspace {
                 debug.open.clear();
                 debug.paused = Some(Paused { file: file.clone(), line, frames, variables, frame: 0 });
                 debug.message = None;
+                debug.watch_values.clear();
+                for watch in debug.watches.clone() {
+                    debug.controller.send(Command::Evaluate(watch));
+                }
                 self.show_execution_point(&file, line, window, cx);
                 self.layout.show(ToolWindow::Debug);
             }
@@ -117,10 +132,17 @@ impl Workspace {
             Event::Expanded(property) => {
                 debug.loaded.insert(property.fullname.clone(), property.children);
             }
-            Event::Evaluated { expression, result } => debug.results.insert(0, (expression, result)),
+            Event::Evaluated { expression, result } => {
+                if debug.watches.contains(&expression) {
+                    debug.watch_values.insert(expression, result);
+                } else {
+                    debug.results.insert(0, (expression, result));
+                }
+            }
             Event::Finished => {
                 debug.connected = false;
                 debug.paused = None;
+                debug.watch_values.clear();
                 debug.message = Some("PHP finished. Still listening.".into());
                 self.clear_execution_line(cx);
             }
@@ -237,6 +259,38 @@ impl Workspace {
         debug.controller.send(Command::Evaluate(expression));
         let field = debug.eval.clone();
         field.update(cx, |f, cx| f.set_text("", cx));
+    }
+
+    /// Watches: adds the expression typed in the field, keeps it, and evaluates it now.
+    pub(super) fn debug_watch_add(&mut self, _: &DebugWatchAdd, _: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let Some(debug) = self.debug.as_mut() else { return };
+        let expression = debug.watch.read(cx).text().trim().to_string();
+        if expression.is_empty() {
+            return;
+        }
+        debug.watch.update(cx, |f, cx| f.set_text("", cx));
+        if !debug.watches.contains(&expression) {
+            debug.watches.push(expression.clone());
+        }
+        if debug.paused.is_some() {
+            debug.controller.send(Command::Evaluate(expression));
+        }
+        let mut config = crate::debugger::DebugConfig::load(&root);
+        config.watches = debug.watches.clone();
+        let _ = config.save(&root);
+        cx.notify();
+    }
+
+    fn remove_watch(&mut self, name: &str, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let Some(debug) = self.debug.as_mut() else { return };
+        debug.watches.retain(|w| w != name);
+        debug.watch_values.remove(name);
+        let mut config = crate::debugger::DebugConfig::load(&root);
+        config.watches = debug.watches.clone();
+        let _ = config.save(&root);
+        cx.notify();
     }
 
     /// Run ▸ Debug: listens, then runs the context configuration with Xdebug on.
@@ -392,6 +446,45 @@ impl Workspace {
             if rows.is_empty() { None } else { Some(div().flex().flex_col().children(rows)) }
         };
 
+        let watch_rows = debug
+            .watches
+            .iter()
+            .map(|name| {
+                let value = match debug.watch_values.get(name) {
+                    Some(Ok(property)) => property.display(),
+                    Some(Err(err)) => err.clone(),
+                    None if paused => tr("evaluating…").to_string(),
+                    None => String::new(),
+                };
+                let id = gpui::SharedString::from(format!("watch-{name}"));
+                div()
+                    .id(gpui::SharedString::from(format!("watch-row-{name}")))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .py_0p5()
+                    .hover(|d| d.bg(theme::hover()))
+                    .child(div().text_color(theme::syntax(php_syntax::Highlight::Variable)).child(name.clone()))
+                    .child(div().text_color(theme::text()).child(value))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .id(id)
+                            .px_1()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .hover(|d| d.bg(theme::active_row()))
+                            .child("✕")
+                            .on_click(cx.listener({
+                                let name = name.clone();
+                                move |this, _, _, cx| this.remove_watch(&name, cx)
+                            })),
+                    )
+                    .into_any_element()
+            })
+            .collect::<Vec<_>>();
+
         let results = debug.results.iter().take(20).map(|(expr, result)| {
             let value = match result {
                 Ok(p) => p.display(),
@@ -436,6 +529,31 @@ impl Workspace {
                             .h_full()
                             .flex()
                             .flex_col()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .max_h(px(170.))
+                                    .border_b_1()
+                                    .border_color(theme::border())
+                                    .child(div().px_2().py_1().text_size(px(11.)).text_color(theme::muted()).child(tr("Watches")))
+                                    .child(
+                                        div()
+                                            .id("debug-watches")
+                                            .flex_1()
+                                            .min_h(px(0.))
+                                            .overflow_y_scroll()
+                                            .font_family(theme::editor_font())
+                                            .children(watch_rows),
+                                    )
+                                    .child(
+                                        div()
+                                            .key_context("DebugWatch")
+                                            .track_focus(&debug.watch_focus)
+                                            .p_1()
+                                            .child(debug.watch.clone()),
+                                    ),
+                            )
                             .child(div().id("debug-vars").flex_1().min_h(px(0.)).overflow_y_scroll().font_family(theme::editor_font()).children(rows))
                             .child(
                                 div()

@@ -18,6 +18,8 @@ pub struct DebugConfig {
     pub port: u16,
     /// Server path → project path (relative to the project root, or absolute).
     pub mappings: BTreeMap<String, String>,
+    /// Expressions the Debug window evaluates on every stop, in the order they were added.
+    pub watches: Vec<String>,
 }
 
 impl DebugConfig {
@@ -27,6 +29,12 @@ impl DebugConfig {
             config.port = 9003;
         }
         config
+    }
+
+    /// Writes the file back so the watches outlive the session.
+    pub fn save(&self, root: &Path) -> std::io::Result<()> {
+        let dir = crate::config::project_dir(root);
+        std::fs::write(dir.join("debug.json"), serde_json::to_string_pretty(self).unwrap_or_default() + "\n")
     }
 }
 
@@ -341,11 +349,32 @@ mod tests {
     #[test]
     fn maps_paths_both_ways() {
         let root = Path::new("/Users/me/shop");
-        let config = DebugConfig { port: 9003, mappings: BTreeMap::from([("/var/www/html".to_string(), ".".to_string())]) };
+        let config = DebugConfig { port: 9003, mappings: BTreeMap::from([("/var/www/html".to_string(), ".".to_string())]), ..Default::default() };
         let map = PathMap::new(root, &config);
         assert_eq!(map.to_local("file:///var/www/html/app/User.php"), Path::new("/Users/me/shop/app/User.php"));
         assert_eq!(map.to_remote(Path::new("/Users/me/shop/app/User.php")), "file:///var/www/html/app/User.php");
         // Outside every mapping: unchanged.
         assert_eq!(map.to_local("file:///tmp/x.php"), Path::new("/tmp/x.php"));
+    }
+
+    #[test]
+    fn watches_survive_a_round_trip() {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "phpcraft-debug-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+
+        let mut config = DebugConfig::load(&root);
+        config.watches = vec!["$user->id".into(), "count($items)".into()];
+        config.save(&root).unwrap();
+
+        let back = DebugConfig::load(&root);
+        assert_eq!(back.watches, vec!["$user->id".to_string(), "count($items)".to_string()]);
+        assert_eq!(back.port, 9003);
+        std::fs::remove_dir_all(&root).ok();
     }
 }

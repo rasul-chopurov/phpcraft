@@ -100,7 +100,7 @@ laravel-modules with enable/disable, `module:make` (default, `--plain`, `--api`,
 with graph, branches, diff, blame, three-way merge window (BASE pane, line-level auto-merge), compare with revision / clipboard,
 interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes),
 Pull Requests (Git ▸ Pull Requests…: list, details, checkout, diff, comment via gh / glab),
-Xdebug debugger (conditional breakpoints, evaluate), Docker services, test runner with results and coverage, Composer menu, HTTP
+Xdebug debugger (conditional breakpoints, watch expressions, evaluate), Docker services, test runner with results and coverage, Composer menu, HTTP
 client (+ cURL / Postman / OpenAPI, history), database tools, SFTP deployment (auto upload, per-server picker, drag and drop in both
  directions, folder download, rename/delete on the server, an upload chip in the tab bar, and the
  `.git`/`vendor`/`node_modules` folders never leaving the machine),
