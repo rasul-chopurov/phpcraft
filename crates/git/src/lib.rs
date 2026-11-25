@@ -207,15 +207,18 @@ impl Repo {
         (!name.is_empty()).then_some(name)
     }
 
+    /// Untracked folders stay one entry (they end with `/`): listing every file inside them
+    /// costs a directory walk per poll, which an ignored `node_modules` turns into thousands of
+    /// records.
     pub fn status(&self) -> Result<Vec<FileStatus>, String> {
-        let output = self.git(&["status", "--porcelain=v1", "-z", "--untracked-files=all"])?;
+        let output = self.git(&["status", "--porcelain=v1", "-z", "--untracked-files=normal"])?;
         Ok(parse_status(&output))
     }
 
     /// Status, branch and ahead/behind from one process: the `--branch` header carries all
     /// three, which saves two `git` starts on every poll (noticeable on Windows).
     pub fn status_branch(&self) -> Result<(Vec<FileStatus>, Option<String>, Option<(usize, usize)>), String> {
-        let output = self.git(&["status", "--porcelain=v1", "--branch", "-z", "--untracked-files=all"])?;
+        let output = self.git(&["status", "--porcelain=v1", "--branch", "-z", "--untracked-files=normal"])?;
         Ok(parse_status_branch(&output))
     }
 

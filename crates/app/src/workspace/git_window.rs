@@ -4,8 +4,10 @@
 use gpui::{AnyElement, Context, Hsla, PathBuilder, Pixels, SharedString, canvas, div, point, prelude::*, px};
 
 use super::Workspace;
-use super::git_panel::{GitTab, ToggleGitLog};
+use super::git_panel::{GitTab, LoadMoreLog, ToggleGitLog};
+
 use crate::dialogs::GitCommand;
+use crate::i18n::tr;
 use crate::theme;
 
 const ROW: f32 = 22.;
@@ -109,6 +111,12 @@ impl Workspace {
             });
         })
         .detach();
+    }
+
+    /// Another page of the history.
+    pub(super) fn load_more_log(&mut self, _: &LoadMoreLog, cx: &mut Context<Self>) {
+        self.git.log_limit += super::git_panel::DEFAULT_LOG_LIMIT;
+        self.refresh_log(cx);
     }
 
     fn filter_branch(&mut self, branch: String, cx: &mut Context<Self>) {
@@ -320,6 +328,25 @@ impl Workspace {
                     .child(div().text_color(theme::muted()).child(format!("{} commits", self.git.log.len()))),
             )
             .child(rows)
+            .child(
+                div().flex().justify_center().py_1().when(self.git.log.len() >= self.git.log_limit, |d| {
+                    d.child(
+                        div()
+                            .id("log-more")
+                            .px_3()
+                            .h(px(22.))
+                            .flex()
+                            .items_center()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .text_size(px(11.))
+                            .text_color(theme::muted())
+                            .hover(|d| d.bg(theme::hover()).text_color(theme::ui_text()))
+                            .child(tr("Load more"))
+                            .on_click(cx.listener(|this, _, _, cx| this.load_more_log(&LoadMoreLog, cx))),
+                    )
+                }),
+            )
     }
 
     fn render_commit_details(&self, cx: &mut Context<Self>) -> impl IntoElement {

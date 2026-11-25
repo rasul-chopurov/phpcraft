@@ -25,6 +25,9 @@ pub struct Intel {
     dictionary: RwLock<spell::Dictionary>,
     /// Module aliases for JS/TS, read from tsconfig and vite.config once per project.
     js_resolve: std::sync::OnceLock<js_analysis::Resolve>,
+    /// `git show HEAD:<path>` results, keyed by the HEAD commit they were read at: opening a
+    /// tab must not start a process when HEAD hasn't moved.
+    git_base: std::sync::Mutex<std::collections::HashMap<PathBuf, (Option<String>, Option<String>)>>,
 }
 
 /// PHP's built-in functions, asked from the `php` binary once (in the background: until then,
@@ -69,6 +72,7 @@ impl Intel {
             routes: Default::default(),
             dictionary: RwLock::new(spell::Dictionary::load(root)),
             js_resolve: Default::default(),
+            git_base: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -160,9 +164,42 @@ impl Intel {
     }
 
     /// The file at HEAD, for gutter change markers. New/untracked files yield `None`.
+    /// The HEAD version of a file, from the cache while HEAD is where it was.
     pub fn git_base(&self, path: &Path) -> Option<String> {
         let repo = self.repo.as_ref()?;
-        repo.show("HEAD", &repo.relative(path)?)
+        let head = self.head_mark(repo);
+        let mut cache = self.git_base.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((mark, text)) = cache.get(path)
+            && *mark == head
+        {
+            return text.clone();
+        }
+        let text = repo.show("HEAD", &repo.relative(path)?);
+        if cache.len() > 500 {
+            cache.clear();
+        }
+        cache.insert(path.to_path_buf(), (head, text.clone()));
+        text
+    }
+
+    /// Where HEAD points, without running git: the branch ref file, or the commit itself.
+    ///
+    /// A ref kept in `packed-refs` falls back to that file's stamp — git rewrites it whenever
+    /// the refs move, so a stale answer is only possible within the same second.
+    fn head_mark(&self, repo: &git::Repo) -> Option<String> {
+        let git_dir = repo.root().join(".git");
+        let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
+        let head = head.trim();
+        let Some(reference) = head.strip_prefix("ref: ") else {
+            return Some(head.to_string());
+        };
+        match std::fs::read_to_string(git_dir.join(reference)) {
+            Ok(sha) => Some(format!("{reference}:{}", sha.trim())),
+            Err(_) => std::fs::metadata(git_dir.join("packed-refs"))
+                .and_then(|m| m.modified())
+                .ok()
+                .map(|stamp| format!("{reference}:{stamp:?}")),
+        }
     }
 
     pub fn git_blame(&self, path: &Path) -> Option<Vec<git::BlameLine>> {

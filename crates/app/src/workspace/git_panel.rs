@@ -13,7 +13,7 @@ use crate::text_field::TextField;
 use crate::theme;
 use crate::i18n::{tr, trf};
 
-actions!(workspace, [ShowProject, ShowCommit, ToggleGitLog, OpenBranches, CommitChanges, CommitAndPush, GitPull, GitPush]);
+actions!(workspace, [ShowProject, ShowCommit, ToggleGitLog, LoadMoreLog, OpenBranches, CommitChanges, CommitAndPush, GitPull, GitPush]);
 
 pub(super) struct GitState {
     pub status: Vec<git::FileStatus>,
@@ -26,6 +26,8 @@ pub(super) struct GitState {
     pub groups_collapsed: HashSet<&'static str>,
     pub amend: bool,
     pub log: Vec<git::Commit>,
+    /// How many commits the last `git log` asked for; "Load more" grows it.
+    pub log_limit: usize,
     pub log_graph: Vec<git::GraphRow>,
     pub log_selected: Option<usize>,
     pub log_files: Vec<(git::Change, String)>,
@@ -61,6 +63,7 @@ impl GitState {
             message: cx.new(|cx| crate::editor_view::EditorView::plain(intel, workspace, cx)),
             amend: false,
             log: Vec::new(),
+            log_limit: DEFAULT_LOG_LIMIT,
             log_graph: Vec::new(),
             log_selected: None,
             log_files: Vec::new(),
@@ -97,6 +100,9 @@ fn change_color(change: git::Change) -> gpui::Hsla {
         git::Change::Modified | git::Change::Renamed => theme::accent(),
     }
 }
+
+/// First page of the history; the window grows it on demand.
+pub(crate) const DEFAULT_LOG_LIMIT: usize = 300;
 
 impl Workspace {
     /// Polls `git status` every few seconds while the window is open.
@@ -165,10 +171,11 @@ impl Workspace {
             branch: self.git.filter_branch.clone(),
             path: self.git.filter_path.read(cx).text().to_string(),
         };
+        let limit = self.git.log_limit;
         cx.spawn(async move |this, cx| {
             let (log, branches) = cx
                 .background_executor()
-                .spawn(async move { (repo.log_filtered(&filter, 1000).unwrap_or_default(), repo.branches().unwrap_or_default()) })
+                .spawn(async move { (repo.log_filtered(&filter, limit).unwrap_or_default(), repo.branches().unwrap_or_default()) })
                 .await;
             this.update(cx, |this, cx| {
                 this.git.log_graph = git::graph(&log);
@@ -478,9 +485,17 @@ impl Workspace {
     pub(super) fn render_commit_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let file_row = |ix: usize, file: &git::FileStatus, cx: &mut Context<Self>| {
                 let included = !self.git.excluded.contains(&file.path);
-                let (dir, name) = file.path.rsplit_once('/').map_or(("", file.path.as_str()), |(d, n)| (d, n));
+                // An untracked folder arrives as `dir/`: show it by name and open it in the tree.
+                let folder = file.path.ends_with('/');
+                let trimmed = file.path.trim_end_matches('/');
+                let (dir, name) = if folder {
+                    trimmed.rsplit_once('/').map_or(("", trimmed), |(d, n)| (d, n))
+                } else {
+                    file.path.rsplit_once('/').map_or(("", file.path.as_str()), |(d, n)| (d, n))
+                };
                 let path = file.path.clone();
                 let toggle_path = file.path.clone();
+                let trimmed_for_click = trimmed.to_string();
                 div()
                     .id(("change", ix))
                     .mx_1()
@@ -506,10 +521,22 @@ impl Workspace {
                             })),
                     )
                     .child(div().w(px(12.)).text_size(px(11.)).text_color(change_color(file.change)).child(file.change.letter()))
-                    .child(div().text_color(change_color(file.change)).child(SharedString::from(name.to_string())))
+                    .child(
+                        div()
+                            .text_color(change_color(file.change))
+                            .child(SharedString::from(if folder { format!("{name}/") } else { name.to_string() })),
+                    )
                     .child(div().flex_1().overflow_hidden().whitespace_nowrap().text_size(px(11.)).text_color(theme::muted()).child(SharedString::from(dir.to_string())))
                     .on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
-                        if event.click_count() >= 2 {
+                        if folder {
+                            // Nothing to diff: show the folder where it lives.
+                            if let Some(full) = this.intel.repo().map(|r| r.root().join(trimmed_for_click.clone())) {
+                                this.project.reveal(&full);
+                                this.rows = this.project.rows();
+                                this.layout.show(super::layout::ToolWindow::Project);
+                                cx.notify();
+                            }
+                        } else if event.click_count() >= 2 {
                             let full = this.intel.repo().map(|r| r.root().join(&path));
                             if let Some(full) = full {
                                 this.open_file(&full, window, cx);
