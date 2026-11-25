@@ -237,7 +237,10 @@ pub fn download(server: &Server, password: &str, remote: &str, local: &Path) -> 
     run(server, password, &download_batch(remote, local)).map(|_| ())
 }
 
-/// Every file under `path`; a file yields itself, a folder is walked (skipping `.git`).
+/// Folders that never travel to a server: they are machine-local or rebuilt on the host.
+pub const SKIP_DIRS: &[&str] = &[".git", ".idea", ".phpcraft", "node_modules", "vendor"];
+
+/// Every file under `path`; a file yields itself, a folder is walked (skipping [`SKIP_DIRS`]).
 ///
 /// Dragging a folder onto the remote browser uploads what is inside it, the way a
 /// file manager would, without a second round trip per file.
@@ -247,7 +250,7 @@ pub fn files_under(path: &Path) -> Vec<PathBuf> {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                if path.file_name().is_some_and(|name| name == ".git") {
+                if path.file_name().is_some_and(|name| SKIP_DIRS.iter().any(|skip| name == *skip)) {
                     continue;
                 }
                 walk(&path, out);
@@ -319,6 +322,119 @@ pub fn list(server: &Server, password: &str, dir: &str) -> Result<Vec<RemoteEntr
     run(server, password, &format!("ls -la {}\n", quote(dir))).map(|out| parse_ls(&out))
 }
 
+/// `dir/name` without doubling the slash.
+fn remote_join(dir: &str, name: &str) -> String {
+    if dir.is_empty() {
+        name.to_string()
+    } else {
+        format!("{}/{}", dir.trim_end_matches('/'), name)
+    }
+}
+
+/// Splits the answer of a batch of `ls -la` lines into `(folder, entries)` pairs.
+///
+/// sftp echoes every command as `sftp> …` before its output, so the folder of each block is
+/// the one that was asked for — the alternative would be parsing absolute paths out of the
+/// listing, which breaks on names with spaces.
+fn parse_ls_batch(output: &str) -> Vec<(String, Vec<RemoteEntry>)> {
+    let mut blocks: Vec<(String, String)> = Vec::new();
+    for line in output.lines() {
+        if let Some(rest) = line.strip_prefix("sftp> ") {
+            let command = rest.trim_start_matches('-');
+            let dir = command.strip_prefix("ls -la ").unwrap_or(command).trim();
+            let dir = dir.trim_matches('"').replace("\\\"", "\"").replace("\\\\", "\\");
+            blocks.push((dir, String::new()));
+        } else if let Some((_, text)) = blocks.last_mut() {
+            text.push_str(line);
+            text.push('\n');
+        }
+    }
+    blocks.into_iter().map(|(dir, text)| (dir, parse_ls(&text))).collect()
+}
+
+/// Lists several folders over one connection.
+fn ls_many(server: &Server, password: &str, dirs: &[String]) -> Result<Vec<(String, Vec<RemoteEntry>)>, String> {
+    if dirs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut batch = String::new();
+    for dir in dirs {
+        // `-` keeps one unreadable folder from ending the batch.
+        batch.push_str(&format!("-ls -la {}\n", quote(dir)));
+    }
+    run(server, password, &batch).map(|out| parse_ls_batch(&out))
+}
+
+/// Every folder and file under `remote_dir`, walking one level per connection.
+pub fn tree_under(server: &Server, password: &str, remote_dir: &str) -> Result<(Vec<String>, Vec<String>), String> {
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+    let mut frontier = vec![remote_dir.to_string()];
+    while !frontier.is_empty() {
+        let mut next = Vec::new();
+        for (dir, entries) in ls_many(server, password, &frontier)? {
+            for entry in entries {
+                let path = remote_join(&dir, &entry.name);
+                if entry.is_dir {
+                    if SKIP_DIRS.contains(&entry.name.as_str()) {
+                        continue;
+                    }
+                    dirs.push(path.clone());
+                    next.push(path);
+                } else {
+                    files.push(path);
+                }
+            }
+        }
+        frontier = next;
+    }
+    Ok((dirs, files))
+}
+
+/// Downloads a remote folder into `local_dir`, keeping its shape. Returns the files written.
+pub fn download_tree(server: &Server, password: &str, remote_dir: &str, local_dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let (_, files) = tree_under(server, password, remote_dir)?;
+    let base = remote_dir.trim_end_matches('/');
+    let mut batch = String::new();
+    let mut locals = Vec::new();
+    for remote in &files {
+        let rel = remote.strip_prefix(base).unwrap_or(remote).trim_start_matches('/');
+        let local = local_dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+        if let Some(parent) = local.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        batch.push_str(&download_batch(remote, &local));
+        locals.push(local);
+    }
+    if !locals.is_empty() {
+        run(server, password, &batch)?;
+    }
+    Ok(locals)
+}
+
+/// Deletes a file, or a folder with everything under it (files first, then the folders).
+pub fn delete_remote_path(server: &Server, password: &str, path: &str, is_dir: bool) -> Result<usize, String> {
+    if !is_dir {
+        run(server, password, &format!("rm {}\n", quote(path)))?;
+        return Ok(1);
+    }
+    let (dirs, files) = tree_under(server, password, path)?;
+    let mut batch = String::new();
+    for file in &files {
+        batch.push_str(&format!("-rm {}\n", quote(file)));
+    }
+    for dir in dirs.iter().rev() {
+        batch.push_str(&format!("-rmdir {}\n", quote(dir)));
+    }
+    batch.push_str(&format!("rmdir {}\n", quote(path)));
+    run(server, password, &batch)?;
+    Ok(files.len() + dirs.len() + 1)
+}
+
+pub fn rename_remote(server: &Server, password: &str, from: &str, to: &str) -> Result<(), String> {
+    run(server, password, &format!("rename {} {}\n", quote(from), quote(to))).map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,6 +480,37 @@ mod tests {
         assert_eq!(remote_for(&server, root, Path::new("/p/app/User.php"), "/var/www/app"), "/var/www/app/app/User.php");
         assert_eq!(remote_for(&server, root, Path::new("/tmp/notes.txt"), "/var/www/app/notes"), "/var/www/app/notes/notes.txt");
         assert_eq!(remote_for(&server, root, Path::new("/tmp/notes.txt"), ""), "/var/www/app/notes.txt");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn listing_batches_split_by_the_folder_they_were_asked_for() {
+        let output = "sftp> -ls -la \"/var/www/my app\"\ndrwxr-xr-x    2 www  www   4096 Nov  1 10:00 /var/www/my app/css\n-rw-r--r--    1 www  www    120 Nov  1 10:00 /var/www/my app/index.php\nsftp> -ls -la /var/www/my app/css\n-rw-r--r--    1 www  www     12 Nov  1 10:00 /var/www/my app/css/app.css\n";
+        let blocks = parse_ls_batch(output);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].0, "/var/www/my app");
+        assert_eq!(blocks[0].1.iter().map(|e| (e.name.as_str(), e.is_dir)).collect::<Vec<_>>(), [("css", true), ("index.php", false)]);
+        assert_eq!(blocks[1].0, "/var/www/my app/css");
+        assert_eq!(blocks[1].1.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["app.css"]);
+        assert_eq!(remote_join("/var/www", "app"), "/var/www/app");
+        assert_eq!(remote_join("", "app"), "app");
+    }
+
+    #[test]
+    fn rebuilt_folders_do_not_travel_with_a_drag() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!("phpcraft-skip-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("vendor/laravel")).unwrap();
+        std::fs::create_dir_all(dir.join("node_modules")).unwrap();
+        std::fs::create_dir_all(dir.join("app")).unwrap();
+        std::fs::write(dir.join("vendor/laravel/autoload.php"), "").unwrap();
+        std::fs::write(dir.join("node_modules/index.js"), "").unwrap();
+        std::fs::write(dir.join("app/User.php"), "").unwrap();
+        let files: Vec<String> =
+            files_under(&dir).iter().map(|p| p.strip_prefix(&dir).unwrap().to_string_lossy().replace('\\', "/")).collect();
+        assert_eq!(files, ["app/User.php"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

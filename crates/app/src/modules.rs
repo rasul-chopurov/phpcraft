@@ -52,6 +52,39 @@ pub fn studly(input: &str) -> Option<String> {
     }
 }
 
+/// The layout `module:make` creates: the package's default, or one of its `--plain` / `--api` /
+/// `--web` presets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleKind {
+    Standard,
+    Plain,
+    Api,
+    Web,
+}
+
+impl ModuleKind {
+    pub const ALL: [ModuleKind; 4] = [ModuleKind::Standard, ModuleKind::Plain, ModuleKind::Api, ModuleKind::Web];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ModuleKind::Standard => "Default",
+            ModuleKind::Plain => "Plain",
+            ModuleKind::Api => "API",
+            ModuleKind::Web => "Web",
+        }
+    }
+
+    /// The switch `module:make` understands; the package's config decides the default.
+    pub fn flag(self) -> &'static str {
+        match self {
+            ModuleKind::Standard => "",
+            ModuleKind::Plain => " --plain",
+            ModuleKind::Api => " --api",
+            ModuleKind::Web => " --web",
+        }
+    }
+}
+
 pub fn list(root: &Path) -> Vec<ModuleInfo> {
     let statuses = read_statuses(root);
     let mut modules: Vec<ModuleInfo> = std::fs::read_dir(root.join("Modules"))

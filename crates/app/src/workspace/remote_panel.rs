@@ -16,7 +16,16 @@ use crate::text_field::TextField;
 use crate::theme;
 use crate::i18n::{tr, trf};
 
-actions!(workspace, [UploadToServer, UploadToServerPick, DownloadFromServer, DownloadFromServerPick, ToggleAutoUpload]);
+actions!(workspace, [
+    UploadToServer,
+    UploadToServerPick,
+    DownloadFromServer,
+    DownloadFromServerPick,
+    DownloadSelected,
+    RenameSelected,
+    DeleteSelected,
+    ToggleAutoUpload
+]);
 
 /// A file dragged out of the project tree; the remote browser uploads what it accepts.
 #[derive(Clone)]
@@ -574,6 +583,143 @@ impl Workspace {
         .detach();
     }
 
+    /// The entry the list has selected, if it is still there.
+    fn selected_remote(&self) -> Option<(String, bool)> {
+        let name = self.remote.selected_entry.clone()?;
+        let entries = self.remote.entries.as_ref()?.as_ref().ok()?;
+        entries.iter().find(|e| e.name == name).map(|e| (join(&self.remote.cwd, &e.name), e.is_dir))
+    }
+
+    /// Downloads the selected file — or the whole selected folder — into its mapped place in
+    /// the project.
+    pub(super) fn download_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(server) = self.server() else { return };
+        let Some((remote, is_dir)) = self.selected_remote() else {
+            self.set_status(tr("Select a file or a folder first"), false, cx);
+            return;
+        };
+        let local = self.local_for(&server, &remote);
+        let password = deployment::password(self.project.root(), &server.id);
+        let window_handle = window.window_handle();
+        self.set_status(trf("Downloading {}…", &[&remote]), true, cx);
+        cx.spawn(async move |this, cx| {
+            let target = local.clone();
+            let result = cx.background_spawn(async move {
+                if is_dir {
+                    deployment::download_tree(&server, &password, &remote, &target).map(|files| files.len())
+                } else {
+                    deployment::download(&server, &password, &remote, &target).map(|_| 1)
+                }
+            }).await;
+            let _ = cx.update_window(window_handle, |_, window, cx| {
+                let _ = this.update(cx, |this, cx| match result {
+                    Ok(count) => {
+                        this.set_status(trf("Downloaded {} file(s)", &[&count.to_string()]), true, cx);
+                        this.rows = this.project.rows();
+                        this.files_cache = None;
+                        this.rescan(cx);
+                        if !is_dir {
+                            this.open_file(&local, window, cx);
+                        }
+                        cx.notify();
+                    }
+                    Err(err) => this.set_status(err, false, cx),
+                });
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn download_selected_action(&mut self, _: &DownloadSelected, window: &mut Window, cx: &mut Context<Self>) {
+        self.download_selected(window, cx)
+    }
+
+    pub(super) fn rename_selected_action(&mut self, _: &RenameSelected, window: &mut Window, cx: &mut Context<Self>) {
+        self.rename_selected(window, cx)
+    }
+
+    pub(super) fn delete_selected_action(&mut self, _: &DeleteSelected, window: &mut Window, cx: &mut Context<Self>) {
+        self.delete_selected(window, cx)
+    }
+
+    /// Asks for a new name for the selected entry.
+    pub(super) fn rename_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(server) = self.server() else { return };
+        let Some((remote, _)) = self.selected_remote() else {
+            self.set_status(tr("Select a file or a folder first"), false, cx);
+            return;
+        };
+        let op = crate::dialogs::FileOp::RenameRemote { server: server.id, from: remote };
+        let dialog = cx.new(|cx| crate::dialogs::InputDialog::new(op, window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    pub(super) fn remote_renamed(&mut self, server_id: String, from: String, name: String, cx: &mut Context<Self>) {
+        let Some(server) = self.remote.deployment.servers.iter().find(|s| s.id == server_id).cloned() else {
+            self.set_status(tr("That server is no longer configured"), false, cx);
+            return;
+        };
+        let dir = parent(&from);
+        let to = if dir == "/" { format!("/{name}") } else { format!("{dir}/{name}") };
+        let password = deployment::password(self.project.root(), &server.id);
+        self.set_status(trf("Renaming {}…", &[&from]), true, cx);
+        cx.spawn(async move |this, cx| {
+            let done = cx.background_spawn(async move { deployment::rename_remote(&server, &password, &from, &to).map(|_| to) }).await;
+            let _ = this.update(cx, |this, cx| match done {
+                Ok(to) => {
+                    this.set_status(trf("Renamed to {}", &[&to]), true, cx);
+                    let cwd = this.remote.cwd.clone();
+                    this.browse(cwd, cx);
+                }
+                Err(err) => this.set_status(err, false, cx),
+            });
+        })
+        .detach();
+    }
+
+    /// Asks before deleting the selected file or folder from the server.
+    pub(super) fn delete_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((remote, is_dir)) = self.selected_remote() else {
+            self.set_status(tr("Select a file or a folder first"), false, cx);
+            return;
+        };
+        let message = if is_dir {
+            trf("Delete the folder {} and everything in it from the server?", &[&remote])
+        } else {
+            trf("Delete {} from the server?", &[&remote])
+        };
+        let dialog = cx.new(|cx| {
+            crate::dialogs::ConfirmPrompt::new(format!("remote-delete:{remote}"), tr("Delete from Server"), message, "Delete", window, cx)
+        });
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// The answer to [`Self::delete_selected`]: remove the path, then show the folder again.
+    pub(super) fn remote_delete(&mut self, remote: String, cx: &mut Context<Self>) {
+        let Some(server) = self.server() else { return };
+        let is_dir = self
+            .remote
+            .entries
+            .as_ref()
+            .and_then(|entries| entries.as_ref().ok())
+            .and_then(|entries| entries.iter().find(|e| join(&self.remote.cwd, &e.name) == remote))
+            .is_some_and(|e| e.is_dir);
+        let password = deployment::password(self.project.root(), &server.id);
+        self.set_status(trf("Deleting {}…", &[&remote]), true, cx);
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_spawn(async move { deployment::delete_remote_path(&server, &password, &remote, is_dir) }).await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(_) => {
+                    this.set_status(tr("Deleted"), true, cx);
+                    let cwd = this.remote.cwd.clone();
+                    this.browse(cwd, cx);
+                }
+                Err(err) => this.set_status(err, false, cx),
+            });
+        })
+        .detach();
+    }
+
     fn open_ssh(&mut self, cx: &mut Context<Self>) {
         let Some(server) = self.server() else { return };
         // Every field is quoted for the local shell; the remote command is quoted again for the
@@ -819,6 +965,17 @@ impl Workspace {
                 .child(tool("remote-download-pick", Icon::download, "Download current file from…  ⇧⌥⌘D").on_click(cx.listener(|this, _, window, cx| {
                     this.open_server_picker(false, window, cx)
                 })))
+                .when(self.remote.selected_entry.is_some(), |d| {
+                    d.child(tool("remote-download-entry", Icon::download, "Download selected  ⇧⌥⌘G").on_click(cx.listener(|this, _, window, cx| {
+                        this.download_selected(window, cx)
+                    })))
+                    .child(tool("remote-rename-entry", Icon::settings, "Rename on the server…  F2").on_click(cx.listener(|this, _, window, cx| {
+                        this.rename_selected(window, cx)
+                    })))
+                    .child(tool("remote-delete-entry", Icon::minus, "Delete from the server…").on_click(cx.listener(|this, _, window, cx| {
+                        this.delete_selected(window, cx)
+                    })))
+                })
             });
 
         let servers = self.remote.deployment.servers.iter().map(|server| {

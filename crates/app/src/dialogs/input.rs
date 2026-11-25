@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use gpui::{App, Context, Entity, EventEmitter, FocusHandle, Focusable, Window, div, prelude::*, px};
+use gpui::{App, Context, Entity, EventEmitter, FocusHandle, Focusable, SharedString, Window, div, prelude::*, px};
 
 use super::{Cancel, Confirm, DialogEvent, button, card};
 use crate::i18n::{tr, trf};
@@ -34,8 +34,11 @@ pub enum FileOp {
     CompareRevision(PathBuf),
     /// Debug ▸ the PHP condition of a breakpoint (0-based line); empty clears it.
     BreakpointCondition { path: PathBuf, line: usize },
-    /// Laravel ▸ New Module: the name laravel-modules turns into `Modules/<StudlyName>`.
-    NewModule,
+    /// Laravel ▸ New Module: the name laravel-modules turns into `Modules/<StudlyName>`, plus
+    /// the module type its `config/modules.php` otherwise picks.
+    NewModule { kind: crate::modules::ModuleKind },
+    /// Remote ▸ Rename on the server: the entry keeps its folder, only its name changes.
+    RenameRemote { server: String, from: String },
 }
 
 pub struct InputDialog {
@@ -58,7 +61,8 @@ impl InputDialog {
             FileOp::PhpInterpreter(current) => Some(current.clone()),
             FileOp::ExtractBlade { .. } => Some(String::new()),
             FileOp::CompareRevision(_) => Some("main".into()),
-            FileOp::NewModule => Some(String::new()),
+            FileOp::NewModule { .. } => Some(String::new()),
+            FileOp::RenameRemote { from, .. } => Some(from.rsplit('/').next().unwrap_or(from).to_string()),
             FileOp::BreakpointCondition { path, line } => Some(
                 crate::breakpoints::for_file(path).into_iter().find(|(l, _)| l == line).and_then(|(_, c)| c).unwrap_or_default(),
             ),
@@ -125,7 +129,10 @@ impl Render for InputDialog {
             FileOp::BreakpointCondition { path, line } => {
                 (trf("Condition for the breakpoint in {} line {}", &[&name(path), &(line + 1).to_string()]), "Save")
             }
-            FileOp::NewModule => (tr("New Module — name (e.g. Blog)").to_string(), "Create"),
+            FileOp::NewModule { .. } => (tr("New Module — name (e.g. Blog)").to_string(), "Create"),
+            FileOp::RenameRemote { from, .. } => {
+                (trf("Rename '{}' on the server to", &[from.rsplit('/').next().unwrap_or(from)]), "Rename")
+            }
         };
         card(420.)
             .key_context("Dialog")
@@ -140,8 +147,34 @@ impl Render for InputDialog {
             .when(matches!(self.op, FileOp::BreakpointCondition { .. }), |d| {
                 d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child(tr("PHP expression — the breakpoint stops only when it is true. An empty condition removes it.")))
             })
-            .when(matches!(self.op, FileOp::NewModule), |d| {
-                d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child(tr("laravel-modules runs `php artisan module:make` and creates Modules/<Name> with its provider, routes and config.")))
+            .when(matches!(self.op, FileOp::NewModule { .. }), |d| {
+                let current = match &self.op {
+                    FileOp::NewModule { kind } => *kind,
+                    _ => crate::modules::ModuleKind::Standard,
+                };
+                let chips = crate::modules::ModuleKind::ALL.map(|kind| {
+                    let wanted = kind;
+                    let on = kind == current;
+                    div()
+                        .id(SharedString::from(format!("module-kind-{}", kind.label())))
+                        .px_2()
+                        .py_0p5()
+                        .rounded_md()
+                        .cursor_pointer()
+                        .border_1()
+                        .border_color(if on { theme::accent() } else { theme::border() })
+                        .when(on, |d| d.bg(theme::selection()))
+                        .text_color(if on { theme::ui_text() } else { theme::muted() })
+                        .child(tr(kind.label()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let FileOp::NewModule { kind } = &mut this.op {
+                                *kind = wanted;
+                            }
+                            cx.notify();
+                        }))
+                });
+                d.child(div().px_3().pb_2().flex().gap_1().children(chips))
+                    .child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child(tr("laravel-modules runs `php artisan module:make` and creates Modules/<Name> with its provider, routes and config.")))
             })
             .when(matches!(self.op, FileOp::NewFile(_)), |d| {
                 d.child(div().px_3().text_size(px(12.)).text_color(theme::muted()).child(tr("Use / to create folders too, e.g. Http/Controllers/HomeController.php")))

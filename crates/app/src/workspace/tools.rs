@@ -583,7 +583,15 @@ impl Workspace {
         if let DialogEvent::Confirmed(id) = event {
             let id = id.clone();
             self.dismiss_modal(window, cx);
-            self.answer_disk(&id, window, cx);
+            // A confirmation carries its own id: the module and the remote file ask the same way
+            // the on-disk questions do.
+            if let Some(name) = id.strip_prefix("module-delete:") {
+                self.delete_module_now(name.to_string(), window, cx);
+            } else if let Some(remote) = id.strip_prefix("remote-delete:") {
+                self.remote_delete(remote.to_string(), cx);
+            } else {
+                self.answer_disk(&id, window, cx);
+            }
             return;
         }
         match event {
@@ -859,15 +867,61 @@ impl Workspace {
             cx.notify();
             return;
         }
-        let dialog = cx.new(|cx| crate::dialogs::InputDialog::new(crate::dialogs::FileOp::NewModule, window, cx));
+        let op = crate::dialogs::FileOp::NewModule { kind: crate::modules::ModuleKind::Standard };
+        let dialog = cx.new(|cx| crate::dialogs::InputDialog::new(op, window, cx));
         self.show_modal(dialog, window, cx);
+    }
+
+    /// Laravel ▸ Delete Module…: asks, then lets laravel-modules remove the folder.
+    pub(super) fn delete_module(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        let message = trf("Delete the module {}? laravel-modules runs `php artisan module:delete`, which removes Modules/{}.", &[&name, &name]);
+        let id = format!("module-delete:{name}");
+        let dialog = cx.new(|cx| crate::dialogs::ConfirmPrompt::new(id, tr("Delete Module"), message, "Delete", window, cx));
+        self.show_modal(dialog, window, cx);
+    }
+
+    /// The answer to [`Self::delete_module`].
+    pub(super) fn delete_module_now(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.project.root().to_path_buf();
+        let line = format!("module:delete {name}");
+        let task = self.begin_task(format!("php artisan {line}"), cx);
+        let handle = window.window_handle();
+        self.output = Some(Output { title: format!("php artisan {line}"), text: String::new(), running: true, ok: true });
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let run_root = root.clone();
+            let run_line = line.clone();
+            let (text, ok) = cx.background_executor().spawn(async move { laravel::artisan::run(&run_root, &run_line) }).await;
+            cx.update_window(handle, |_, window, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.end_task(task, cx);
+                    this.output = Some(Output { title: format!("php artisan {line}"), text, running: false, ok });
+                    this.rows = this.project.rows();
+                    this.files_cache = None;
+                    this.rescan(cx);
+                    if ok {
+                        // The tab of a file that just went away has nothing left to show.
+                        let gone: Vec<usize> = (0..this.tabs.len())
+                            .rev()
+                            .filter(|&i| this.tabs[i].read(cx).buffer.path().is_some_and(|p| !p.exists()))
+                            .collect();
+                        for i in gone {
+                            this.close_tab_at(i, window, cx);
+                        }
+                    }
+                    cx.notify();
+                });
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// `php artisan module:make <folder>`, then shows the module's `module.json`.
     ///
     /// The package owns the stub layout, so the generator is its own command instead of a copy
     /// that would drift from the installed version.
-    pub(super) fn create_module(&mut self, folder: String, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn create_module(&mut self, folder: String, kind: crate::modules::ModuleKind, window: &mut Window, cx: &mut Context<Self>) {
         let root = self.project.root().to_path_buf();
         if root.join("Modules").join(&folder).exists() {
             self.output = Some(Output {
@@ -879,7 +933,7 @@ impl Workspace {
             cx.notify();
             return;
         }
-        let line = format!("module:make {folder}");
+        let line = format!("module:make {folder}{}", kind.flag());
         let task = self.begin_task(format!("php artisan {line}"), cx);
         let handle = window.window_handle();
         self.output = Some(Output { title: format!("php artisan {line}"), text: String::new(), running: true, ok: true });

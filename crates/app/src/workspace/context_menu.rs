@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui::{AppContext, ClipboardItem, Context, Focusable, MouseButton, Pixels, Point, SharedString, Window, div, prelude::*, px};
+use gpui::{AppContext, ClipboardItem, Context, Focusable, MouseButton, Pixels, Point, Window, div, prelude::*, px};
 
 use super::Workspace;
 use crate::dialogs::{ConfirmDialog, DialogEvent, FileOp, GitCommand, InputDialog};
@@ -40,6 +40,8 @@ pub(super) enum MenuCommand {
     /// Opens a submenu next to the item at this index.
     Submenu(usize, Vec<Option<(&'static str, &'static str, MenuCommand, bool)>>),
     Action(&'static str),
+    /// Laravel ▸ Delete Module… for the folder `Modules/<name>`.
+    DeleteModule(String),
 }
 
 type Items = Vec<Option<(&'static str, &'static str, MenuCommand, bool)>>;
@@ -81,7 +83,11 @@ impl Workspace {
         let dir = if is_dir { path.to_path_buf() } else { path.parent().unwrap_or(path).to_path_buf() };
         let p = path.to_path_buf();
         let changed = self.git_changed(path);
-        vec![
+        let module = path.strip_prefix(self.project.root()).ok().and_then(|rel| {
+            let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+            (parts.first().map(String::as_str) == Some("Modules")).then(|| parts.get(1).cloned())
+        });
+        let mut items = vec![
             Some(("New", "›", MenuCommand::Submenu(0, new_items(&dir)), true)),
             None,
             Some(("Open in Right Split", "", MenuCommand::OpenInSplit(p.clone()), !is_dir)),
@@ -100,7 +106,17 @@ impl Workspace {
             Some(("Git: Show Diff", "", MenuCommand::ShowDiff(p.clone()), changed)),
             Some(("Git: Rollback…", "", MenuCommand::Rollback(p.clone()), changed)),
             Some(("Reload from Disk", "", MenuCommand::ReloadFromDisk(p), !is_dir)),
-        ]
+        ];
+        if let Some(module) = module {
+            items.push(None);
+            if is_dir {
+                items.push(Some(("Laravel: New Module…", "", MenuCommand::Action("workspace::NewModule"), true)));
+            }
+            if let Some(name) = module.filter(|_| is_dir) {
+                items.push(Some(("Laravel: Delete Module…", "", MenuCommand::DeleteModule(name), true)));
+            }
+        }
+        items
     }
 
     /// Shows a context menu with `items` at `position`.
@@ -150,6 +166,7 @@ impl Workspace {
             MenuCommand::File(FileOp::FromTemplate(dir, template)) if !template.needs_name() => {
                 self.apply_file_op(FileOp::FromTemplate(dir, template), "", window, cx);
             }
+            MenuCommand::DeleteModule(name) => self.delete_module(name, window, cx),
             MenuCommand::File(op) => {
                 let dialog = cx.new(|cx| InputDialog::new(op, window, cx));
                 self.show_modal(dialog, window, cx);
@@ -310,13 +327,17 @@ impl Workspace {
                 self.breakpoints_changed();
                 Ok(None)
             }
-            FileOp::NewModule => match crate::modules::studly(name) {
+            FileOp::NewModule { kind } => match crate::modules::studly(name) {
                 Some(folder) => {
-                    self.create_module(folder, window, cx);
+                    self.create_module(folder, *kind, window, cx);
                     Ok(None)
                 }
                 None => Err(crate::i18n::tr("A module name has letters and digits only, e.g. Blog or CrmV2").to_string()),
             },
+            FileOp::RenameRemote { server, from } => {
+                self.remote_renamed(server.clone(), from.clone(), name.to_string(), cx);
+                Ok(None)
+            }
             FileOp::ComposerRequire | FileOp::ComposerRemove => {
                 let verb = if matches!(op, FileOp::ComposerRequire) { "require" } else { "remove" };
                 // Package names and constraints only: no shell syntax.
@@ -373,8 +394,8 @@ impl Workspace {
                         .rounded_md()
                         .when(enabled, |d| d.cursor_pointer().text_color(theme::ui_text()).hover(|d| d.bg(theme::selection())))
                         .when(!enabled, |d| d.text_color(theme::muted()))
-                        .child(SharedString::from(*label))
-                        .child(div().text_color(theme::muted()).child(SharedString::from(*hint)))
+                        .child(crate::i18n::tr(label))
+                        .child(div().text_color(theme::muted()).child(crate::i18n::tr(hint)))
                         .when(enabled, |d| {
                             let hover_command = command.clone();
                             d.on_click(cx.listener(move |this, _, window, cx| this.run_menu_command(command.clone(), window, cx)))

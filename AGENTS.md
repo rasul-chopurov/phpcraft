@@ -95,13 +95,15 @@ inline / safe delete, generate, quick doc, parameter info, hierarchy, call hiera
 inspections + PHPStan/Psalm/PHPCS, spell checking of comments and strings (`typo`, ⌥↵ suggestions / save to dictionary), intentions, bundled PHP stubs), Laravel (string navigation,
 Blade sections/stacks/props, routes in the gutter, generators incl. DTO / Nova, extract blade
 component/view, facade→DI / rules→array / scope→#[Scope] intentions, the Modules window for
-laravel-modules with enable/disable and `module:make`), Twig, Git (commit, log
+laravel-modules with enable/disable, `module:make` (default, `--plain`, `--api`, `--web`) and
+`module:delete`), Twig, Git (commit, log
 with graph, branches, diff, blame, three-way merge window (BASE pane, line-level auto-merge), compare with revision / clipboard,
 interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes),
 Pull Requests (Git ▸ Pull Requests…: list, details, checkout, diff, comment via gh / glab),
 Xdebug debugger (conditional breakpoints, evaluate), Docker services, test runner with results and coverage, Composer menu, HTTP
 client (+ cURL / Postman / OpenAPI, history), database tools, SFTP deployment (auto upload, per-server picker, drag and drop in both
- directions, an upload chip in the tab bar),
+ directions, folder download, rename/delete on the server, an upload chip in the tab bar, and the
+ `.git`/`vendor`/`node_modules` folders never leaving the machine),
 terminal (Run Anything with ⌃⌃: configurations, Artisan, typed shell lines), AI agents, settings
 sync and import (VS Code / Zed).
 

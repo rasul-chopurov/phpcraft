@@ -262,6 +262,8 @@ const DEFAULTS: &[Default] = &[
     per("cmd-alt-shift-x", "ctrl-alt-shift-x", "workspace::UploadToServer", None),
     // The same three, but asking which server first.
     per("cmd-alt-shift-u", "ctrl-alt-shift-u", "workspace::UploadToServerPick", None),
+    per("cmd-alt-shift-g", "ctrl-alt-shift-g", "workspace::DownloadSelected", None),
+    per("cmd-alt-shift-e", "ctrl-alt-shift-e", "workspace::RenameSelected", None),
     per("cmd-alt-shift-d", "ctrl-alt-shift-d", "workspace::DownloadFromServer", None),
     per("cmd-shift-alt-d", "ctrl-shift-alt-d", "workspace::DownloadFromServerPick", None),
     per("cmd-alt-shift-a", "ctrl-alt-shift-a", "workspace::ToggleAutoUpload", None),

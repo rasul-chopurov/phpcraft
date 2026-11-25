@@ -23,7 +23,7 @@
   Import Class (Code ▸ Import Class…, editor context menu), Optimize Imports, copy/paste carries `use`
   statements into the target file, Move Class (F6) to another namespace with its references
 - **JS/TS & Vue**: go to declaration, find usages, rename and completion across ES modules, JSX/TSX, `require`, the `<script>` blocks of Vue/Svelte components, aliases from `tsconfig.json` `paths` / `baseUrl` and Vite's `resolve.alias`, and import rewriting when a file is renamed
-- **Laravel**: `route()`, `view()`, `config()`, Blade, Eloquent, facades, validation rules, Livewire, Filament, Inertia; 44 code generators (⇧⌘,) that also target laravel-modules; the Modules window lists them, enables/disables them and creates new ones (`module:make`)
+- **Laravel**: `route()`, `view()`, `config()`, Blade, Eloquent, facades, validation rules, Livewire, Filament, Inertia; 44 code generators (⇧⌘,) that also target laravel-modules; the Modules window lists them, enables/disables them and creates new ones (`module:make` with the package's default, plain, api or web layout) or deletes them
 - **Git**: Commit window, side-by-side diff, three-way merge window for conflicts (common ancestor, line-level auto-merge), log with graph, branches, blame
 - **Database**: MySQL, MariaDB, PostgreSQL, SQLite; tables open as editable tabs
 - **Workspace**: project tabs, split editors, Search Everywhere, terminal, run configurations, Run Anything (⌃⌃: configurations, Artisan commands, any shell line, with a history), structural search (⌥⌘F: `$A$` holes, project-wide replace), Artisan,
@@ -31,8 +31,9 @@
   saved window layouts (View ▸ Window Layouts…), Russian UI (menu bar, tool windows,
   Search Everywhere, editor context menu)
 - **Deployment**: SFTP servers with a per-server picker (⌥⇧⌘U / ⇧⌥⌘D), automatic upload on
-  save, drag and drop in both directions (project tree ↔ server browser), and an upload chip in
-  the tab bar that shows whether the open file is up to date on the server
+  save, drag and drop in both directions (project tree ↔ server browser), folder download,
+  rename and delete on the server, an upload chip in the tab bar that shows whether the open
+  file is up to date, and `.git`/`vendor`/`node_modules` left out of uploads
 - **AI**: Claude, Codex, OpenCode and Gemini via ACP or API key
 
 ## Install
