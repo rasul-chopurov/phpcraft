@@ -212,6 +212,13 @@ impl Repo {
         Ok(parse_status(&output))
     }
 
+    /// Status, branch and ahead/behind from one process: the `--branch` header carries all
+    /// three, which saves two `git` starts on every poll (noticeable on Windows).
+    pub fn status_branch(&self) -> Result<(Vec<FileStatus>, Option<String>, Option<(usize, usize)>), String> {
+        let output = self.git(&["status", "--porcelain=v1", "--branch", "-z", "--untracked-files=all"])?;
+        Ok(parse_status_branch(&output))
+    }
+
     /// Local branches, then remote ones (`origin/main`).
     pub fn branches(&self) -> Result<(Vec<String>, Vec<String>), String> {
         let local = self.git(&["branch", "--format=%(refname:short)"])?;
@@ -500,6 +507,43 @@ fn parse_status(output: &str) -> Vec<FileStatus> {
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
     files
+}
+
+/// Splits the `## branch...upstream [ahead N, behind M]` header off a `--branch` status and
+/// parses the rest like [`parse_status`].
+fn parse_status_branch(output: &str) -> (Vec<FileStatus>, Option<String>, Option<(usize, usize)>) {
+    let mut branch = None;
+    let mut ahead = None;
+    let mut rest = String::with_capacity(output.len());
+    for record in output.split('\0') {
+        if record.is_empty() {
+            continue;
+        }
+        let Some(header) = record.strip_prefix("## ") else {
+            rest.push_str(record);
+            rest.push('\0');
+            continue;
+        };
+        let name = header.strip_prefix("No commits yet on ").unwrap_or(header).split("...").next().unwrap_or("").trim();
+        if !name.is_empty() && name != "HEAD" && name != "HEAD (no branch)" {
+            branch = Some(name.to_string());
+        }
+        if let Some(start) = header.find('[') {
+            let inner = header[start + 1..].trim_end_matches(']');
+            let (mut plus, mut minus) = (0usize, 0usize);
+            for part in inner.split(',') {
+                let part = part.trim();
+                if let Some(n) = part.strip_prefix("ahead ") {
+                    plus = n.trim().parse().unwrap_or(0);
+                }
+                if let Some(n) = part.strip_prefix("behind ") {
+                    minus = n.trim().parse().unwrap_or(0);
+                }
+            }
+            ahead = Some((plus, minus));
+        }
+    }
+    (parse_status(&rest), branch, ahead)
 }
 
 fn parse_blame(output: &str) -> Vec<BlameLine> {
@@ -1140,6 +1184,24 @@ mod tests {
     fn run(dir: &Path, args: &[&str]) {
         let status = Command::new("git").args(args).current_dir(dir).output().unwrap();
         assert!(status.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&status.stderr));
+    }
+
+    #[test]
+    fn status_branch_reads_the_header_and_the_files() {
+        let output = "## main...origin/main [ahead 2, behind 1]\0 M src/app.php\0?? notes.txt\0";
+        let (files, branch, ahead) = parse_status_branch(output);
+        assert_eq!(branch.as_deref(), Some("main"));
+        assert_eq!(ahead, Some((2, 1)));
+        assert_eq!(files.iter().map(|f| (f.path.as_str(), f.change, f.staged)).collect::<Vec<_>>(), [
+            ("notes.txt", Change::Untracked, false),
+            ("src/app.php", Change::Modified, false)
+        ]);
+        // A fresh repository and a detached head have no branch name.
+        let (_, branch, ahead) = parse_status_branch("## No commits yet on trunk\0A  a.txt\0");
+        assert_eq!(branch.as_deref(), Some("trunk"));
+        assert_eq!(ahead, None);
+        let (_, branch, _) = parse_status_branch("## HEAD (no branch)\0");
+        assert_eq!(branch, None);
     }
 
     fn commit(hash: &str, parents: &[&str]) -> Commit {

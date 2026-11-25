@@ -125,9 +125,17 @@ impl Workspace {
     pub(super) fn refresh_git(&mut self, cx: &mut Context<Self>) {
         let Some(repo) = self.intel.repo().cloned() else { return };
         cx.spawn(async move |this, cx| {
+            // One `git status --branch` carries the files, the branch and how far the branch is
+            // from its upstream: three processes per poll turned into one, which is what makes
+            // polling cheap on Windows.
             let (status, branch, ahead) = cx
                 .background_executor()
-                .spawn(async move { (repo.status().unwrap_or_default(), repo.current_branch(), repo.ahead_behind()) })
+                .spawn(async move {
+                    match repo.status_branch() {
+                        Ok((status, branch, ahead)) => (status, branch, ahead),
+                        Err(_) => (Vec::new(), None, None),
+                    }
+                })
                 .await;
             this.update(cx, |this, cx| {
                 let changed = this.git.status != status || this.git.branch != branch || this.git.ahead_behind != ahead;

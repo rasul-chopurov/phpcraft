@@ -238,46 +238,56 @@ impl Workspace {
             .child(div().id("branch-tree").flex_1().overflow_y_scroll().px_1().children(rows))
     }
 
+    /// One row of the log: the graph lanes, subject, refs, author and date.
+    fn commit_row(&self, ix: usize, width: usize, cx: &mut Context<Self>) -> Option<gpui::Stateful<gpui::Div>> {
+        let commit = self.git.log.get(ix)?;
+        let graph = self.git.log_graph.get(ix).cloned().unwrap_or_default();
+        let selected = self.git.log_selected == Some(ix);
+        let merge = commit.parents.len() > 1;
+        Some(
+            div()
+                .id(("commit", ix))
+                .flex()
+                .items_center()
+                .gap_2()
+                .pr_2()
+                .h(px(ROW))
+                .cursor_pointer()
+                .when(selected, |d| d.bg(theme::selection()))
+                .hover(|d| d.bg(theme::hover()))
+                .child(graph_cell(graph, width))
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .gap_2()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .child(div().text_color(if merge { theme::muted() } else { theme::ui_text() }).child(commit.subject.clone()))
+                        .when(!commit.refs.is_empty(), |d| {
+                            d.child(div().text_size(px(11.)).text_color(theme::accent()).child(commit.refs.replace("HEAD -> ", "")))
+                        }),
+                )
+                .child(div().w(px(150.)).flex_none().overflow_hidden().whitespace_nowrap().text_color(theme::muted()).child(commit.author.clone()))
+                .child(div().w(px(110.)).flex_none().text_color(theme::muted()).child(commit.date.clone()))
+                .on_click(cx.listener(move |this, _, _, cx| this.select_commit(ix, cx)))
+                .on_mouse_down(gpui::MouseButton::Right, cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| this.open_commit_menu(ix, event.position, cx))),
+        )
+    }
+
     fn render_log_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let width = self.git.log_graph.iter().map(|r| r.width).max().unwrap_or(1).min(12);
-        let rows: Vec<_> = self
-            .git
-            .log
-            .iter()
-            .zip(self.git.log_graph.iter().cloned())
-            .enumerate()
-            .map(|(ix, (commit, graph))| {
-                let selected = self.git.log_selected == Some(ix);
-                let merge = commit.parents.len() > 1;
-                div()
-                    .id(("commit", ix))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .pr_2()
-                    .h(px(ROW))
-                    .cursor_pointer()
-                    .when(selected, |d| d.bg(theme::selection()))
-                    .hover(|d| d.bg(theme::hover()))
-                    .child(graph_cell(graph, width))
-                    .child(
-                        div()
-                            .flex_1()
-                            .flex()
-                            .gap_2()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .child(div().text_color(if merge { theme::muted() } else { theme::ui_text() }).child(commit.subject.clone()))
-                            .when(!commit.refs.is_empty(), |d| {
-                                d.child(div().text_size(px(11.)).text_color(theme::accent()).child(commit.refs.replace("HEAD -> ", "")))
-                            }),
-                    )
-                    .child(div().w(px(150.)).flex_none().overflow_hidden().whitespace_nowrap().text_color(theme::muted()).child(commit.author.clone()))
-                    .child(div().w(px(110.)).flex_none().text_color(theme::muted()).child(commit.date.clone()))
-                    .on_click(cx.listener(move |this, _, _, cx| this.select_commit(ix, cx)))
-                    .on_mouse_down(gpui::MouseButton::Right, cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| this.open_commit_menu(ix, event.position, cx)))
-            })
-            .collect();
+        // Only the rows on screen are built: a thousand-commit history used to cost a thousand
+        // rows (and a graph canvas each) on every frame, which is what made the window drag on
+        // Windows.
+        let rows = gpui::uniform_list(
+            "log-rows",
+            self.git.log.len(),
+            cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                range.filter_map(|ix| this.commit_row(ix, width, cx)).collect::<Vec<_>>()
+            }),
+        )
+        .flex_1();
         let branch_chip = (!self.git.filter_branch.is_empty()).then(|| {
             div()
                 .id("filter-branch")
@@ -309,7 +319,7 @@ impl Workspace {
                     .child(div().flex_1())
                     .child(div().text_color(theme::muted()).child(format!("{} commits", self.git.log.len()))),
             )
-            .child(div().id("log-rows").flex_1().overflow_y_scroll().children(rows))
+            .child(rows)
     }
 
     fn render_commit_details(&self, cx: &mut Context<Self>) -> impl IntoElement {
