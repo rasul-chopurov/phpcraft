@@ -26,6 +26,8 @@
 - **Laravel**: `route()`, `view()`, `config()`, Blade, Eloquent, facades, validation rules, Livewire, Filament, Inertia; 44 code generators (⇧⌘,) that also target laravel-modules; the Modules window lists them, enables/disables them and creates new ones (`module:make` with the package's default, plain, api or web layout) or deletes them
 - **Git**: Commit window, side-by-side diff, three-way merge window for conflicts (common ancestor, line-level auto-merge), log with graph, branches, blame
 - **Database**: MySQL, MariaDB, PostgreSQL, SQLite; tables open as editable tabs
+- **HTTP client**: `.http` files with environments, cURL / Postman / OpenAPI import and a history,
+  and a response panel that colours JSON, XML and HTML, copies the body and saves it to a file
 - **Workspace**: project tabs, split editors, Search Everywhere, terminal, run configurations, Run Anything (⌃⌃: configurations, Artisan commands, any shell line, with a history), structural search (⌥⌘F: `$A$` holes, project-wide replace), Artisan,
   session restore (tabs, panes, carets, scroll position, folded regions), reload of files changed on disk (watched by the OS, a changed buffer and a deleted file both ask first), font zoom (⌘+ / ⌘− / ⌘+scroll),
   saved window layouts (View ▸ Window Layouts…), Russian UI (menu bar, tool windows,

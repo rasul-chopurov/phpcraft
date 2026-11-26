@@ -779,6 +779,20 @@
     "Load more": "Загрузить ещё",
     "Watches": "Наблюдения",
     "Add a watch expression (Enter)": "Добавить выражение для наблюдения (Enter)",
-    "evaluating…": "вычисляется…"
+    "evaluating…": "вычисляется…",
+    "Copied as cURL.": "Скопировано как cURL.",
+    "Copy a curl command first (the clipboard has no `curl …`).": "Сначала скопируйте команду curl (в буфере нет `curl …`).",
+    "HTTP Client import": "Импорт HTTP-клиента",
+    "Import OpenAPI (JSON)": "Импорт OpenAPI (JSON)",
+    "Import Postman Collection": "Импорт коллекции Postman",
+    "Merge conflicts in a three-pane window…": "Конфликты слияния — в трёхпанельном окне…",
+    "No request at the caret: put it on a `GET https://…` line.": "Курсор не на запросе: поставьте его на строку `GET https://…`.",
+    "No requests sent yet.": "Запросов пока не было.",
+    "Preview shortened to {} KB · Save keeps the whole body": "Предпросмотр сокращён до {} КБ · «Сохранить…» запишет всё тело",
+    "Response saved to {}": "Ответ сохранён в {}",
+    "Run request  {}": "Выполнить запрос  {}",
+    "Save…": "Сохранить…",
+    "Sending…": "Отправка…",
+    "{} request(s)": "запросов: {}"
   }
 }

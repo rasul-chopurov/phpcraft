@@ -101,7 +101,8 @@ with graph, branches, diff, blame, three-way merge window (BASE pane, line-level
 interactive rebase, cherry-pick, revert, undo commit, shelve, worktrees, remotes),
 Pull Requests (Git ▸ Pull Requests…: list, details, checkout, diff, comment via gh / glab),
 Xdebug debugger (conditional breakpoints, watch expressions, evaluate), Docker services, test runner with results and coverage, Composer menu, HTTP
-client (+ cURL / Postman / OpenAPI, history), database tools, SFTP deployment (auto upload, per-server picker, drag and drop in both
+client (+ cURL / Postman / OpenAPI, history, a response panel with highlighted JSON/XML/HTML and
+saving), database tools, SFTP deployment (auto upload, per-server picker, drag and drop in both
  directions, folder download, rename/delete on the server, an upload chip in the tab bar, and the
  `.git`/`vendor`/`node_modules` folders never leaving the machine),
 terminal (Run Anything with ⌃⌃: configurations, Artisan, typed shell lines), AI agents, settings
@@ -131,5 +132,5 @@ coverage needs Xdebug or PCOV in the user's project,
 UI localization (`i18n.rs`, Russian: menus, tool windows, dialogs and panels are translated;
 inspection messages and intention labels travel as templates so the app translates them, About
 is translated), Mermaid in Markdown preview,
-DataGrip-level DB features (ER diagrams, explain, import/export), HTTP response preview,
+DataGrip-level DB features (ER diagrams, explain, import/export),
 PR review comments inline in the diff, JS type information / hover docs.

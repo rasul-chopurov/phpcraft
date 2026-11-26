@@ -8,6 +8,7 @@ mod agent_panel;
 mod db_panel;
 mod remote_panel;
 mod http_panel;
+mod http_response;
 mod sql_panel;
 mod tree_search;
 mod git_menu;
@@ -111,6 +112,8 @@ pub struct Workspace {
     tables: Vec<Entity<crate::table_view::TableView>>,
     table_active: Option<usize>,
     output: Option<tools::Output>,
+    /// The answer of the last `.http` request, shown above the status bar until it is closed.
+    http_view: Option<http_response::HttpView>,
     artisan_commands: tools::CommandCache,
     laravel_menu_open: bool,
     prefs_menu_open: bool,
@@ -230,6 +233,7 @@ impl Workspace {
             tables: Vec::new(),
             table_active: None,
             output: None,
+            http_view: None,
             artisan_commands: None,
             laravel_menu_open: false,
             prefs_menu_open: false,
@@ -1371,6 +1375,7 @@ impl Render for Workspace {
                                 row.insert(focused, focused_pane);
                                 div().flex_1().min_h(px(0.)).flex().children(row)
                             })
+                            .children(self.render_http_response(cx))
                             .children(self.render_output(cx))
                             .child(
                                 div()

@@ -232,19 +232,6 @@ pub fn send(request: &Request) -> Result<Response, String> {
     Ok(Response { status: status.as_u16(), reason: status.canonical_reason().unwrap_or("").to_string(), headers, body, elapsed: started.elapsed() })
 }
 
-/// The response as text: status, headers, then the body (JSON pretty-printed).
-pub fn format_response(request: &Request, response: &Response) -> String {
-    let mut out = format!("{} {}\n\nHTTP {} {} · {} ms · {} bytes\n", request.method, request.url, response.status, response.reason, response.elapsed.as_millis(), response.body.len());
-    for (k, v) in &response.headers {
-        out.push_str(&format!("{k}: {v}\n"));
-    }
-    out.push('\n');
-    let is_json = response.headers.iter().any(|(k, v)| k.eq_ignore_ascii_case("content-type") && v.contains("json"));
-    let pretty = is_json.then(|| serde_json::from_str::<serde_json::Value>(&response.body).ok().and_then(|v| serde_json::to_string_pretty(&v).ok())).flatten();
-    out.push_str(pretty.as_deref().unwrap_or(&response.body));
-    out
-}
-
 /// Starter content for a new `.http` file.
 pub const TEMPLATE: &str = "### Get users\nGET {{host}}/api/users\nAccept: application/json\n\n### Create a user\nPOST {{host}}/api/users\nContent-Type: application/json\n\n{\n  \"name\": \"Ann\"\n}\n";
 
