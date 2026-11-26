@@ -19,7 +19,7 @@ bundled as data — its name appears only where that license requires attributio
 | Crate | What it is |
 |---|---|
 | `app` | The application (binary `phpcraft`): windows, editor view, workspace, dialogs, menus, keymap |
-| `editor` | Text buffer: rope, multi-caret selections, undo/redo groups, anchors, smart pairs, indentation, extend selection |
+| `editor` | Text buffer: rope, multi-caret selections, undo/redo groups, anchors, smart pairs, indentation, extend selection, incremental re-highlighting (one tree-sitter edit per keystroke) |
 | `php-syntax` | tree-sitter grammars + highlighting (PHP, HTML, JS/TS, CSS, JSON, YAML), hand-written highlighters (Blade overlay, Twig, SQL, Markdown, .env…), fold ranges, node ranges |
 | `php-index` | Project symbol index (classes, members, functions), binary cache, bundled PHP stubs (`stubs.bin.gz`, `stubs.rs`, Apache-2.0) |
 | `js-analysis` | JS/TS intelligence: declarations, imports and re-exports, module resolution (tsconfig `paths`/`baseUrl`, Vite `resolve.alias`, `@/`), Vue/Svelte `<script>` blocks (goto, usages, rename, completion, import rewriting on rename) |

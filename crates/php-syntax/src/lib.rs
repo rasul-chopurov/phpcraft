@@ -7,13 +7,14 @@ mod ranges;
 pub mod twig;
 
 pub use ranges::{Fold, fold_ranges, node_ranges};
+pub use tree_sitter::Tree;
 
 use std::ops::Range;
 use std::path::Path;
 use std::sync::OnceLock;
 
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
+use tree_sitter::{Language, Parser, Query, QueryCursor};
 
 /// Highlight category names shared by the classic dark themes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -138,7 +139,12 @@ pub fn language() -> Language {
 }
 
 pub fn parse(source: &str) -> Option<Tree> {
-    // One parser per thread: creating a parser per file shows up when indexing vendor/.
+    with_parser(|parser| parser.parse(source, None)).flatten()
+}
+
+/// Runs `f` with this thread's PHP parser, which is created once so that highlighting and
+/// indexing do not pay for a new parser per file.
+fn with_parser<R>(f: impl FnOnce(&mut Parser) -> R) -> Option<R> {
     thread_local! {
         static PARSER: std::cell::RefCell<Option<Parser>> = const { std::cell::RefCell::new(None) };
     }
@@ -149,8 +155,36 @@ pub fn parse(source: &str) -> Option<Tree> {
             parser.set_language(&language()).ok()?;
             *slot = Some(parser);
         }
-        slot.as_mut()?.parse(source, None)
+        Some(f(slot.as_mut()?))
     })
+}
+
+/// One replacement between two versions of a source: the bytes `start..old_end` became
+/// `new_end - start` bytes. Points are zero-based `(row, byte column)`, the way tree-sitter
+/// measures them.
+pub struct Edit {
+    pub start: usize,
+    pub old_end: usize,
+    pub new_end: usize,
+    pub start_point: (usize, usize),
+    pub old_end_point: (usize, usize),
+    pub new_end_point: (usize, usize),
+}
+
+/// Re-parses `source` after `edit`, letting the parser reuse the parts of `tree` the edit did
+/// not touch. Typing in a 3000-line file parses the changed block instead of the whole file.
+pub fn reparse(tree: &Tree, edit: &Edit, source: &str) -> Option<Tree> {
+    let mut tree = tree.clone();
+    let point = |(row, column): (usize, usize)| tree_sitter::Point { row, column };
+    tree.edit(&tree_sitter::InputEdit {
+        start_byte: edit.start,
+        old_end_byte: edit.old_end,
+        new_end_byte: edit.new_end,
+        start_position: point(edit.start_point),
+        old_end_position: point(edit.old_end_point),
+        new_end_position: point(edit.new_end_point),
+    });
+    with_parser(|parser| parser.parse(source, Some(&tree))).flatten()
 }
 
 fn parse_with(language: &Language, source: &str) -> Option<Tree> {

@@ -65,6 +65,11 @@ pub struct Buffer {
     version: u64,
     next_group: u64,
     highlights: Option<(u64, Vec<Span>)>,
+    /// The parse the highlights came from and the version it describes, so the next edit only
+    /// re-parses what changed.
+    tree: Option<(u64, php_syntax::Tree)>,
+    /// The single change that took the text from the tree's version to the current one.
+    tree_edit: Option<(u64, php_syntax::Edit)>,
 }
 
 impl Buffer {
@@ -84,6 +89,8 @@ impl Buffer {
             version: 0,
             next_group: 0,
             highlights: None,
+            tree: None,
+            tree_edit: None,
         }
     }
 
@@ -281,11 +288,30 @@ impl Buffer {
     }
 
     /// Highlight spans in byte offsets for the current version (computed lazily).
+    ///
+    /// PHP goes through the tree-sitter parse kept in the buffer: a single edit on top of the
+    /// tree in hand is re-parsed incrementally, which is what keeps typing in a large file from
+    /// re-parsing the whole thing on every keystroke.
     pub fn highlights(&mut self) -> &[Span] {
         let stale = self.highlights.as_ref().is_none_or(|(v, _)| *v != self.version);
         if stale {
-            let spans = php_syntax::highlight_lang(self.lang(), &self.text());
-            self.highlights = Some((self.version, spans));
+            let text = self.text();
+            if self.lang() == php_syntax::Lang::Php {
+                let tree = match (self.tree.take(), self.tree_edit.take()) {
+                    (Some((version, tree)), Some((edit_version, edit))) if version == edit_version => {
+                        php_syntax::reparse(&tree, &edit, &text)
+                    }
+                    _ => php_syntax::parse(&text),
+                };
+                let spans = tree.as_ref().map(|t| php_syntax::highlight_tree(t, &text)).unwrap_or_default();
+                self.tree = tree.map(|t| (self.version, t));
+                self.highlights = Some((self.version, spans));
+            } else {
+                self.tree = None;
+                self.tree_edit = None;
+                let spans = php_syntax::highlight_lang(self.lang(), &text);
+                self.highlights = Some((self.version, spans));
+            }
         }
         &self.highlights.as_ref().unwrap().1
     }
@@ -611,6 +637,11 @@ impl Buffer {
         };
         let removed = remove.chars().count();
         let end = edit.start + removed;
+        let start_byte = self.rope.char_to_byte(edit.start);
+        let old_end_byte = self.rope.char_to_byte(end);
+        let start_point = self.point(start_byte);
+        let old_end_point = self.point(old_end_byte);
+        let before = self.version;
         self.rope.remove(edit.start..end);
         self.rope.insert(edit.start, insert);
         let inserted = insert.chars().count();
@@ -625,6 +656,36 @@ impl Buffer {
         self.extra = extra.clone();
         self.goal_column = None;
         self.version += 1;
+        let new_end_byte = start_byte + insert.len();
+        self.note_change(
+            before,
+            php_syntax::Edit {
+                start: start_byte,
+                old_end: old_end_byte,
+                new_end: new_end_byte,
+                start_point,
+                old_end_point,
+                new_end_point: self.point(new_end_byte),
+            },
+        );
+    }
+
+    /// Byte offset of `byte` as tree-sitter counts it: the row and the byte within that row.
+    fn point(&self, byte: usize) -> (usize, usize) {
+        let row = self.rope.byte_to_line(byte);
+        (row, byte - self.rope.line_to_byte(row))
+    }
+
+    /// Remembers `change` for the incremental re-parse, but only while the tree in hand is
+    /// exactly one version behind; anything else (a batch of edits, undo of a group) makes the
+    /// tree useless and the next paint parses from scratch.
+    fn note_change(&mut self, before: u64, change: php_syntax::Edit) {
+        if self.tree.as_ref().is_some_and(|(version, _)| *version == before) {
+            self.tree_edit = Some((before, change));
+        } else {
+            self.tree = None;
+            self.tree_edit = None;
+        }
     }
 
     /// Merges consecutive single-word typing into one undo step.
@@ -1283,6 +1344,24 @@ pub fn comment_tokens(lang: php_syntax::Lang) -> (&'static str, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn incremental_highlights_match_a_full_parse() {
+        let mut b = Buffer::new("<?php\nclass A {\n    public function x() {\n        return 1;\n    }\n}\n");
+        b.path = Some("A.php".into());
+        let _ = b.highlights();
+        // One edit at a time, each painted off the previous tree.
+        b.move_to(b.len_chars() - 1, false);
+        for _ in 0..5 {
+            b.insert(" ");
+            let spans = b.highlights().to_vec();
+            assert_eq!(spans, php_syntax::highlight(&b.text()));
+        }
+        // Several edits without a paint in between must fall back to a full parse.
+        b.apply_edits(vec![(0..0, "<?php ".to_string())], 0);
+        let spans = b.highlights().to_vec();
+        assert_eq!(spans, php_syntax::highlight(&b.text()));
+    }
 
     #[test]
     fn typing_and_undo() {
