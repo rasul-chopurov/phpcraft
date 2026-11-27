@@ -10,6 +10,13 @@ use anyhow::Result;
 use php_syntax::Span;
 use ropey::Rope;
 
+/// Files up to this many lines are highlighted whole: a full query costs nothing there, and an
+/// exact answer is worth more than the microseconds a window would save.
+const FULL_HIGHLIGHT_ROWS: usize = 400;
+
+/// Lines re-highlighted above and below an edit in a larger file.
+const HIGHLIGHT_CONTEXT_ROWS: usize = 60;
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Selection {
@@ -297,13 +304,23 @@ impl Buffer {
         if stale {
             let text = self.text();
             if self.lang() == php_syntax::Lang::Php {
+                let mut windowed = None;
                 let tree = match (self.tree.take(), self.tree_edit.take()) {
                     (Some((version, tree)), Some((edit_version, edit))) if version == edit_version => {
-                        php_syntax::reparse(&tree, &edit, &text)
+                        let reparsed = php_syntax::reparse(&tree, &edit, &text);
+                        if let Some(new_tree) = reparsed.as_ref() {
+                            windowed = self.highlights.as_ref().and_then(|(_, old)| {
+                                self.window(old, &text, &edit, new_tree)
+                            });
+                        }
+                        reparsed
                     }
                     _ => php_syntax::parse(&text),
                 };
-                let spans = tree.as_ref().map(|t| php_syntax::highlight_tree(t, &text)).unwrap_or_default();
+                let spans = match windowed {
+                    Some(spans) => spans,
+                    None => tree.as_ref().map(|t| php_syntax::highlight_tree(t, &text)).unwrap_or_default(),
+                };
                 self.tree = tree.map(|t| (self.version, t));
                 self.highlights = Some((self.version, spans));
             } else {
@@ -668,6 +685,62 @@ impl Buffer {
                 new_end_point: self.point(new_end_byte),
             },
         );
+    }
+
+    /// Spans for the next version assembled from the ones in hand: everything before the edit
+    /// stays, everything after it moves by the same delta, and the window around the edit is
+    /// highlighted again so one keystroke costs a few hundred captures instead of the whole file.
+    ///
+    /// `None` means a full pass is the honest answer — the file is small enough that it costs
+    /// nothing, or a comment or string opens before the window and would not be recognised inside
+    /// it, which is exactly what a fragment cannot reproduce.
+    fn window(
+        &self,
+        old: &[Span],
+        text: &str,
+        edit: &php_syntax::Edit,
+        tree: &php_syntax::Tree,
+    ) -> Option<Vec<Span>> {
+        if self.rope.len_lines() < FULL_HIGHLIGHT_ROWS {
+            return None;
+        }
+        let delta = edit.new_end as isize - edit.old_end as isize;
+        let lines = self.rope.len_lines();
+        let first = self.rope.byte_to_line(edit.start);
+        let last = self.rope.byte_to_line(edit.new_end.min(self.rope.len_bytes()));
+        let from_row = first.saturating_sub(HIGHLIGHT_CONTEXT_ROWS);
+        let to_row = (last + HIGHLIGHT_CONTEXT_ROWS + 1).min(lines);
+        let from = self.rope.line_to_byte(from_row);
+        let to = if to_row < lines { self.rope.line_to_byte(to_row) } else { self.rope.len_bytes() };
+        let opens_before = |spans: &[Span]| {
+            spans.iter().any(|span| {
+                matches!(span.highlight, php_syntax::Highlight::Comment | php_syntax::Highlight::String)
+                    && span.range.start < from
+                    && span.range.end > from
+            })
+        };
+        if opens_before(old) {
+            return None;
+        }
+        let mut spans: Vec<Span> = Vec::with_capacity(old.len());
+        for span in old {
+            if span.range.end <= edit.start {
+                // Before the edit: unchanged, unless the window is about to cover it.
+                if span.range.end <= from {
+                    spans.push(span.clone());
+                }
+            } else if span.range.start >= edit.old_end {
+                let start = (span.range.start as isize + delta).max(0) as usize;
+                let end = (span.range.end as isize + delta).max(0) as usize;
+                // After the edit: moves with the text, unless the window is about to cover it.
+                if end <= from || start >= to {
+                    spans.push(Span { range: start..end, highlight: span.highlight });
+                }
+            }
+        }
+        spans.extend(php_syntax::highlight_tree_range(tree, text, from..to));
+        spans.sort_by_key(|span| span.range.start);
+        Some(spans)
     }
 
     /// Byte offset of `byte` as tree-sitter counts it: the row and the byte within that row.
@@ -1361,6 +1434,33 @@ mod tests {
         b.apply_edits(vec![(0..0, "<?php ".to_string())], 0);
         let spans = b.highlights().to_vec();
         assert_eq!(spans, php_syntax::highlight(&b.text()));
+    }
+
+    #[test]
+    fn a_large_file_keeps_the_neighbourhood_of_an_edit_exact() {
+        // More than `FULL_HIGHLIGHT_ROWS` lines, so the windowed path is the one taken.
+        let mut src = String::from("<?php\n");
+        for i in 0..500 {
+            src.push_str(&format!("$v{i} = foo({i}, 'str{i}'); // note {i}\n"));
+        }
+        src.push_str("class Tail { public int $a = 1; }\n");
+        let mut b = Buffer::new(&src);
+        b.path = Some("Big.php".into());
+        let _ = b.highlights();
+        b.move_to(b.len_chars() - 20, false);
+        for _ in 0..3 {
+            b.insert(" ");
+            let text = b.text();
+            let spans = b.highlights().to_vec();
+            let full = php_syntax::highlight(&text);
+            // Spans well inside the re-highlighted window must match a full parse.
+            let from = text.find("class Tail").unwrap().saturating_sub(4000);
+            let mine: Vec<Span> = spans.into_iter().filter(|s| s.range.start >= from).collect();
+            let theirs: Vec<Span> = full.into_iter().filter(|s| s.range.start >= from).collect();
+            assert_eq!(mine, theirs);
+        }
+        // A fresh parse of the same text is what a reopened file shows.
+        assert_eq!(b.highlights().to_vec(), php_syntax::highlight(&b.text()));
     }
 
     #[test]

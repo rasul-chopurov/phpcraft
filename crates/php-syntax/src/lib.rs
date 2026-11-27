@@ -289,7 +289,15 @@ fn highlight_grammar(grammar: Grammar, source: &str) -> Vec<Span> {
 }
 
 fn spans_from_tree(compiled: &Compiled, tree: &Tree, source: &str) -> Vec<Span> {
+    spans_in(compiled, tree, source, None)
+}
+
+/// Spans from the query, restricted to `range` byte offsets when one is given.
+fn spans_in(compiled: &Compiled, tree: &Tree, source: &str, range: Option<Range<usize>>) -> Vec<Span> {
     let mut cursor = QueryCursor::new();
+    if let Some(range) = range.clone() {
+        cursor.set_byte_range(range);
+    }
     let mut raw: Vec<(Range<usize>, usize, Highlight)> = Vec::new();
     let mut captures = cursor.captures(&compiled.query, tree.root_node(), source.as_bytes());
     while let Some((m, index)) = captures.next() {
@@ -301,7 +309,7 @@ fn spans_from_tree(compiled: &Compiled, tree: &Tree, source: &str) -> Vec<Span> 
     }
     raw.sort_by_key(|(range, priority, _)| (range.start, *priority));
     let mut spans: Vec<Span> = Vec::with_capacity(raw.len());
-    let mut covered_until = 0;
+    let mut covered_until = range.as_ref().map_or(0, |r| r.start);
     for (range, _, highlight) in raw {
         let start = range.start.max(covered_until);
         if start >= range.end {
@@ -441,6 +449,27 @@ pub fn highlight_path(path: &Path, source: &str) -> Vec<Span> {
 pub fn highlight(source: &str) -> Vec<Span> {
     let Some(tree) = parse(source) else { return Vec::new() };
     highlight_tree(&tree, source)
+}
+
+/// Highlighting for the part of a PHP file inside `range` (byte offsets).
+///
+/// The query runs over that window only, which is what makes a keystroke in a large file cost a
+/// few hundred captures instead of every capture in it. Inline HTML comes from the `text` nodes
+/// that lie entirely inside the window; a node cut by the edge is left to the next window.
+pub fn highlight_tree_range(tree: &Tree, source: &str, range: Range<usize>) -> Vec<Span> {
+    let Some(compiled) = compiled(Grammar::Php) else { return Vec::new() };
+    let spans = spans_in(compiled, tree, source, Some(range.clone()));
+    let mut html = Vec::new();
+    let mut cursor = tree.root_node().walk();
+    for node in tree.root_node().children(&mut cursor) {
+        if node.kind() == "text" {
+            let range_of_node = node.byte_range();
+            if range_of_node.start >= range.start && range_of_node.end <= range.end {
+                html.extend(offset(highlight_html(&source[range_of_node.clone()]), range_of_node.start));
+            }
+        }
+    }
+    overlay(spans, html)
 }
 
 pub fn highlight_tree(tree: &Tree, source: &str) -> Vec<Span> {
