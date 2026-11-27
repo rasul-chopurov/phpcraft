@@ -122,9 +122,12 @@ sync and import (VS Code / Zed).
   the Debug window, white labels on every dialog button in the dark themes, the per-project
   `.phpcraft` folder kept out of git. **0.6.0-alpha**: SFTP drag and drop in both directions, a
   per-server picker, an upload chip in the tab bar, `module:make` from the Modules window, and the
-  project folder writing its own `.gitignore` whoever creates it.
+  project folder writing its own `.gitignore` whoever creates it. **0.6.1-alpha**: SFTP folder
+  download and rename/delete on the server, module kinds and `module:delete`, Git history and
+  status made fast on Windows, the HTTP response panel, watch expressions in the debugger, and
+  typing in large PHP files that costs 0.34 ms a keystroke instead of 21 ms.
 - Releases are built for **macOS and Windows only** (the user paused Linux builds; the site
-  doesn't list Linux). `Cargo.toml` version is `0.6.0-alpha`.
+  doesn't list Linux). `Cargo.toml` version is `0.6.1-alpha`.
 
 ### Next steps: known gaps / ideas
 
